@@ -60,3 +60,22 @@ def test_dark_video_frames(root, make_video):
     v = make_video(root / "v.mp4", seconds=3, dark=True)
     r = analyze_video(v, 3.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
     assert r.decode_ok and len(r.frame_lumas) == 3 and max(r.frame_lumas) < 15
+
+
+def test_worker_crash_only_marks_the_culprit(root, make_image, monkeypatch):
+    from arsipbersih.db import open_db
+    from arsipbersih.inventory import run_inventory
+    from arsipbersih.visual import run_visual
+
+    for name in ("a.jpg", "crash.jpg", "c.jpg"):
+        make_image(root / "Sumber" / name, size=(200, 150))
+    conn = open_db(root)
+    run_inventory(conn, root)
+    monkeypatch.setenv("ARSIPBERSIH_TEST_CRASH_ON", "crash.jpg")  # read by visual._worker in the child
+    assert run_visual(conn, root, Settings(workers=2)) == 3
+    status = {
+        r["rel_path"].rsplit("/", 1)[-1]: (r["visual_status"], r["error"])
+        for r in conn.execute("select rel_path, visual_status, error from files")
+    }
+    assert status["crash.jpg"] == ("error", "worker crashed while decoding")
+    assert status["a.jpg"][0] == "done" and status["c.jpg"][0] == "done"

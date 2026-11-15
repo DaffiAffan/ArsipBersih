@@ -263,8 +263,31 @@ def preview_path(root: Path, file_id: str) -> Path:
 # --- batch runner --------------------------------------------------------------------------
 
 
+def _rerun_isolated(jobs: list[tuple]) -> dict[str, VisualResult]:
+    """Run jobs one at a time in a single-worker pool; a job that breaks it is the culprit."""
+    out: dict[str, VisualResult] = {}
+    pool = ProcessPoolExecutor(max_workers=1)
+    try:
+        for job in jobs:
+            try:
+                _, out[job[0]] = pool.submit(_worker, job).result()
+            except BrokenProcessPool:
+                out[job[0]] = VisualResult(decode_ok=False, error="worker crashed while decoding")
+                pool.shutdown(wait=False, cancel_futures=True)
+                pool = ProcessPoolExecutor(max_workers=1)
+            except Exception as e:
+                out[job[0]] = VisualResult(decode_ok=False, error=_error_text(e))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+    return out
+
+
 def _worker(job: tuple) -> tuple[str, VisualResult]:
     file_id, path, kind, thumb_dst, preview_dst, duration_s, ffmpeg, settings = job
+    # Test hook: the env var names a file whose analysis kills the child process.
+    crash_on = os.environ.get("ARSIPBERSIH_TEST_CRASH_ON")
+    if crash_on and Path(path).name == crash_on:
+        os._exit(1)
     kind = Kind(kind)
     if kind == Kind.VIDEO:
         return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst))
@@ -351,16 +374,23 @@ def run_visual(
                     return done
                 chunk = jobs[start : start + CHUNK_SIZE]
                 futures = [(job[0], pool.submit(_worker, job)) for job in chunk]
-                for fid, fut in futures:
+                results: dict[str, VisualResult] = {}
+                unfinished: list[tuple] = []
+                for job, (fid, fut) in zip(chunk, futures):
                     try:
-                        _, result = fut.result()
-                    except BrokenProcessPool as e:
-                        result = VisualResult(decode_ok=False, error=_error_text(e))
-                        pool.shutdown(wait=False, cancel_futures=True)
-                        pool = ProcessPoolExecutor(max_workers=workers)
+                        _, results[fid] = fut.result()
+                    except BrokenProcessPool:
+                        unfinished.append(job)
                     except Exception as e:
-                        result = VisualResult(decode_ok=False, error=_error_text(e))
-                    _store(conn, fid, result)
+                        results[fid] = VisualResult(decode_ok=False, error=_error_text(e))
+                if unfinished:
+                    # A worker died natively: drop this pool once and re-run the jobs that did
+                    # not return one by one, so only the real culprit is marked as an error.
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    results.update(_rerun_isolated(unfinished))
+                    pool = ProcessPoolExecutor(max_workers=workers)
+                for job in chunk:
+                    _store(conn, job[0], results[job[0]])
                     done += 1
                 conn.commit()
                 if progress:
