@@ -32,3 +32,6 @@ build/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Agent worktrees created during development
+.claude/
