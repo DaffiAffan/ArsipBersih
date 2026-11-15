@@ -93,3 +93,14 @@ def test_purge_requires_matching_totals(review_db):
         purge_trash(conn, root, files + 1, size)
     assert purge_trash(conn, root, files, size) == 3
     assert not any((root / "_sampah").rglob("*.jpg"))
+
+
+def test_purge_settles_file_already_gone(root):
+    conn = open_db(root)
+    uid = _add_unit(conn, root, "_sampah/burem/HP/IMG_G.jpg", location="trash")
+    os.unlink(root / "_sampah/burem/HP/IMG_G.jpg")
+    files, size = trash_totals(conn)
+    assert (files, size) == (1, 10)
+    assert purge_trash(conn, root, files, size) == 1
+    assert conn.execute("select purged from files where unit_id=?", (uid,)).fetchone()[0] == 1
+    assert trash_totals(conn) == (0, 0)

@@ -21,6 +21,7 @@ from arsipbersih.mover import BatchResult, _abs, execute, remove_empty_dirs
 from arsipbersih.planner import plan_apply
 
 log = logging.getLogger(__name__)
+_CHUNK = 500  # ids per IN (...) list, far below SQLite's variable limit
 
 
 class PurgeMismatch(Exception):
@@ -134,8 +135,12 @@ def preview_apply(conn: sqlite3.Connection, category: str) -> ApplyPreview:
 def _locations(conn: sqlite3.Connection, ids: list[str]) -> dict[str, str]:
     if not ids:
         return {}
-    marks = ",".join("?" * len(ids))
-    return dict(conn.execute(f"select id, location from units where id in ({marks})", ids))
+    out: dict[str, str] = {}
+    for i in range(0, len(ids), _CHUNK):
+        part = ids[i : i + _CHUNK]
+        marks = ",".join("?" * len(part))
+        out.update(conn.execute(f"select id, location from units where id in ({marks})", part))
+    return out
 
 
 def apply_category(conn: sqlite3.Connection, root: Path, category: str) -> BatchResult:
@@ -144,19 +149,29 @@ def apply_category(conn: sqlite3.Connection, root: Path, category: str) -> Batch
     moves = plan_apply(conn, root, keep, discard, skipped)
     result = execute(conn, root, moves, "apply", f"apply {category}")
     result.errors.extend(f"skipped {uid}: {reason}" for uid, reason in skipped)
+    try:
+        _settle(conn, keep, discard)
+    except Exception as e:  # noqa: BLE001 - the files already moved; never lose the result
+        result.errors.append(f"could not record applied decisions: {type(e).__name__}: {e}")
+    return result
+
+
+def _settle(conn: sqlite3.Connection, keep: list[str], discard: list[str]) -> None:
     now = _now()
     with conn:
         for ids, target in ((keep, "archive"), (discard, "trash")):
+            decision = "keep" if target == "archive" else "discard"
             for uid, loc in _locations(conn, ids).items():
                 if loc != target:
                     continue
                 # A grid discard may be implicit (seen, no row): the row is written only now.
+                # A decision the owner changed mid-apply is left unapplied.
                 conn.execute(
                     "insert into decisions (unit_id, decision, decided_at, applied)"
-                    " values (?, ?, ?, 1) on conflict(unit_id) do update set applied=1",
-                    (uid, "keep" if target == "archive" else "discard", now),
+                    " values (?, ?, ?, 1) on conflict(unit_id) do update set applied=1"
+                    " where decisions.decision = excluded.decision",
+                    (uid, decision, now),
                 )
-    return result
 
 
 # --- purge -------------------------------------------------------------------------------
@@ -166,6 +181,7 @@ def trash_totals(conn: sqlite3.Connection) -> tuple[int, int]:
     row = conn.execute(
         "select count(*), coalesce(sum(f.size), 0) from files f join units u on u.id=f.unit_id"
         " where u.location='trash' and f.purged=0 and f.missing=0"
+        " and substr(f.rel_path,1,8)='_sampah/'"
     ).fetchone()
     return int(row[0]), int(row[1])
 
@@ -176,7 +192,10 @@ def _delete(path: Path) -> None:
         os.unlink(p)
     except PermissionError:
         # Allowed only here: the owner explicitly chose to delete this file.
-        os.chmod(p, stat.S_IWRITE)
+        mode = os.stat(p).st_mode
+        if mode & stat.S_IWRITE:
+            raise  # not a read-only problem
+        os.chmod(p, mode | stat.S_IWRITE)
         os.unlink(p)
 
 
@@ -190,8 +209,11 @@ def purge_trash(
     root = Path(os.path.abspath(root))
     rows = conn.execute(
         "select f.id, f.unit_id, f.rel_path from files f join units u on u.id=f.unit_id"
-        " where u.location='trash' and f.purged=0 and f.missing=0 order by f.rowid"
+        " where u.location='trash' and f.purged=0 and f.missing=0"
+        " and substr(f.rel_path,1,8)='_sampah/' order by f.rowid"
     ).fetchall()
+    if not rows:
+        return 0
     batch_id = new_id()
     with conn:
         conn.execute(
@@ -203,7 +225,11 @@ def purge_trash(
         try:
             if not rel.startswith(TRASH_DIR + "/"):
                 raise ValueError(f"not in {TRASH_DIR}: {rel!r}")
-            _delete(_abs(root, rel))
+            target = _abs(root, rel)
+            try:
+                _delete(target)
+            except FileNotFoundError:
+                pass  # already gone (crash after unlink, or emptied by hand): settle the row
         except Exception as e:  # noqa: BLE001 - reported; the file stays unpurged
             log.warning("could not purge %s: %s: %s", rel, type(e).__name__, e)
             continue
