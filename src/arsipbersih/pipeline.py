@@ -6,7 +6,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -29,6 +29,7 @@ STAGES = ("inventory", "pairing", "hash", "metadata", "visual", "grouping", "cla
 
 
 SCAN_DONE_KEY = "last_scan_completed_at"
+MAX_WARNED_PATHS = 20
 
 
 class ScanIncomplete(Exception):
@@ -50,6 +51,19 @@ class ScanSummary:
     events: list[EventSummary]
     stopped: bool
     tool_status: ToolStatus
+    warnings: list[str] = field(default_factory=list)
+
+
+def _inventory_warnings(inv: InventoryResult) -> list[str]:
+    out: list[str] = []
+    if inv.errors:
+        out.append(f"{inv.errors} paths could not be read")
+        out.extend(f"unreadable: {p}" for p in inv.error_paths[:MAX_WARNED_PATHS])
+    if inv.skipped_dirs:
+        out.append(f"{inv.skipped_dirs} cache folders skipped")
+    if inv.non_media:
+        out.append(f"{inv.non_media} non-media files left in place")
+    return out
 
 
 def _reporter(stage: str, progress: Callable[[Progress], None] | None):
@@ -91,10 +105,13 @@ def run_scan(
                 return True
             return False
 
-        reconcile(conn, root)  # settle any interrupted batch before looking at the disk
+        journal_errors: list[str] = []
+        reconcile(conn, root, journal_errors)  # settle any interrupted batch first
+        summary.warnings.extend(f"journal: {e}" for e in journal_errors)
 
         begin("inventory")
         summary.inventory = run_inventory(conn, root)
+        summary.warnings.extend(_inventory_warnings(summary.inventory))
         if stopped():
             return summary
 

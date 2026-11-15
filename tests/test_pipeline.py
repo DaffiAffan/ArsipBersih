@@ -37,6 +37,15 @@ def test_second_scan_after_rapikan_is_stable(root, mini_collection):
     assert run_scan(root).inventory.added == 0
 
 
+def test_verify_reports_file_deleted_before_rescan(root, mini_collection):
+    run_scan(root)
+    gone = "Sumber/HP-A/DCIM/Camera/DSC_0042.jpg"
+    (root / gone).unlink()
+    run_scan(root)
+    v = verify(open_db(root), root)
+    assert v.ok is False and v.missing == [gone]
+
+
 def test_stop_then_resume(root, mini_collection):
     stop = threading.Event()
 

@@ -109,7 +109,10 @@ def build_report(conn: sqlite3.Connection, root: Path) -> Report:
 
 
 def verify(conn: sqlite3.Connection, root: Path) -> VerifyResult:
-    """Media files on disk must equal the live DB rows (case-insensitive on rel_path)."""
+    """Media files on disk must equal the unpurged DB rows (case-insensitive on rel_path).
+
+    Rows a re-scan marked missing still count: they are files the archive lost.
+    """
     root = Path(root)
     disk: dict[str, str] = {}
     for top in (SOURCE_DIR, ARCHIVE_DIR, REVIEW_DIR, TRASH_DIR):
@@ -117,7 +120,7 @@ def verify(conn: sqlite3.Connection, root: Path) -> VerifyResult:
             disk[rel.casefold()] = rel
     db = {
         r[0].casefold(): r[0]
-        for r in conn.execute("select rel_path from files where purged=0 and missing=0 and kind != 'other'")
+        for r in conn.execute("select rel_path from files where purged=0 and kind != 'other'")
     }
     missing = sorted(db[k] for k in db.keys() - disk.keys())
     unexpected = sorted(disk[k] for k in disk.keys() - db.keys())

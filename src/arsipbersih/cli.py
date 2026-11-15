@@ -163,6 +163,10 @@ def scan(
     finally:
         if previous is not None:
             signal.signal(signal.SIGINT, previous)
+    if summary.warnings:
+        typer.echo("Warnings:")
+        for w in summary.warnings:
+            typer.echo(f"  {w}")
     if summary.stopped:
         typer.echo(PAUSED)
         return
