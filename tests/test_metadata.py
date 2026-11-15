@@ -1,0 +1,34 @@
+from conftest import requires_exiftool, requires_ffmpeg
+
+from arsipbersih.config import Settings
+from arsipbersih.db import open_db
+from arsipbersih.inventory import run_inventory
+from arsipbersih.metadata import ExifTool, probe_video, run_metadata
+from arsipbersih.pairing import build_units
+from arsipbersih.tools import find_tool
+
+
+@requires_exiftool
+def test_exiftool_reads_unicode_paths_and_dates(root, make_image):
+    p = make_image(root / "Sumber/HP/Bali 🏝️/IMG_1.jpg", exif_datetime="2023:08:12 14:30:22", make="samsung", model="SM-A515F")
+    with ExifTool(find_tool("exiftool")) as et:
+        [d] = et.read([p])
+    assert d["ExifIFD:DateTimeOriginal"] == "2023:08:12 14:30:22" and d["IFD0:Make"] == "samsung"
+
+
+@requires_ffmpeg
+def test_probe_video(root, make_video):
+    v = make_video(root / "Sumber/HP/VID_1.mp4", seconds=3.0)
+    info = probe_video(v, find_tool("ffprobe"))
+    assert abs(info["duration_s"] - 3.0) < 0.2 and info["width"] == 640
+
+
+@requires_exiftool
+def test_run_metadata_sets_taken_at_and_survives_bad_file(root, make_image):
+    make_image(root / "Sumber/HP/DCIM/DSC_1.JPG", exif_datetime="2023:08:12 14:30:22")
+    (root / "Sumber/HP/DCIM/IMG_20220101_101010.jpg").write_bytes(b"\xff\xd8\xff garbage")
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    got = dict(conn.execute("select f.rel_path, u.taken_at from units u join files f on f.id=u.primary_file_id").fetchall())
+    assert got["Sumber/HP/DCIM/DSC_1.JPG"] == "2023-08-12T14:30:22"
+    assert got["Sumber/HP/DCIM/IMG_20220101_101010.jpg"] == "2022-01-01T10:10:10"
