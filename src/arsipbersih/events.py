@@ -119,7 +119,7 @@ def run_events(conn, settings: Settings) -> list[EventSummary]:
         if not key:
             continue
         g = groups.setdefault(
-            key, {"name": canonical[key], "count": 0, "months": [], "sources": set(), "sample": r["orig_rel_path"]}
+            key, {"name": canonical.get(key) or key, "count": 0, "months": [], "sources": set(), "sample": r["orig_rel_path"]}
         )
         g["count"] += 1
         if r["taken_at"]:

@@ -42,3 +42,9 @@ def test_rename_and_merge_overrides(conn_with):
     add_override(conn, "rename", "Argo", "Kereta Argo")
     names = {e.name for e in run_events(conn, Settings())}
     assert names == {"Kereta Argo"}
+
+
+def test_unnamed_non_source_event_key_does_not_crash(conn_with):
+    conn = conn_with([dict(name="a.jpg", path="Arsip/2023/X", loc="archive")])
+    conn.execute("update units set event_key='x', event_name=NULL")
+    assert [e.name for e in run_events(conn, Settings())] == ["x"]
