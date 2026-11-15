@@ -53,3 +53,27 @@ def test_name_reserver_sidecar_keeps_pairing(root):
 def test_name_reserver_rejects_duplicate_names_in_unit(root):
     with pytest.raises(ValueError, match="duplicate file names"):
         NameReserver(root).reserve_unit("Arsip/x", ["A.jpg", "a.JPG"], "HP")
+
+
+def test_name_reserver_respects_db_rows(conn_with, root):
+    conn = conn_with([dict(name="IMG_1.jpg", path="Arsip/2023/2023-08", loc="archive")])
+    r = NameReserver(root, conn)
+    assert r.reserve_unit("Arsip/2023/2023-08", ["img_1.JPG"], "HP") == ["img_1__HP.JPG"]
+
+
+def test_plan_rapikan_skips_unplannable_unit(conn_with, root):
+    from arsipbersih.db import new_id
+
+    conn = conn_with([
+        dict(name="a?.jpg", taken="2023-08-12T10:00:00"),
+        dict(name="IMG_2.jpg", taken="2023-08-12T10:00:01"),
+    ])
+    uid = conn.execute("select id from units where primary_file_id in "
+                       "(select id from files where rel_path like '%a?.jpg')").fetchone()[0]
+    conn.execute("insert into files(id, unit_id, rel_path, kind, ext) values(?,?,?,?,?)",
+                 (new_id(), uid, "Sumber/HP/DCIM/a*.jpg", "photo", "jpg"))
+    conn.commit()
+    skipped = []
+    moves = plan_rapikan(conn, root, skipped)
+    assert [s[0] for s in skipped] == [uid]
+    assert len(moves) == 1 and moves[0].unit_id != uid

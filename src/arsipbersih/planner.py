@@ -150,10 +150,21 @@ def _split_name(fn: str) -> tuple[str, str]:
 
 
 class NameReserver:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, conn: sqlite3.Connection | None = None):
         self.root = root
+        self._conn = conn
+        self._db_paths: set[str] | None = None
         self._taken: set[tuple[str, str]] = set()
         self._listing: dict[str, set[str]] = {}
+
+    def _in_db(self, dst_dir: str, name: str) -> bool:
+        if self._conn is None:
+            return False
+        if self._db_paths is None:
+            self._db_paths = {
+                r[0].lower() for r in self._conn.execute("select rel_path from files")
+            }
+        return f"{dst_dir}/{name}".lower() in self._db_paths
 
     def _on_disk(self, dst_dir: str, name: str) -> bool:
         d = dst_dir.lower()
@@ -171,7 +182,8 @@ class NameReserver:
         seen: set[str] = set()
         for n in names:
             k = n.lower()
-            if k in seen or (dst_dir.lower(), k) in self._taken or self._on_disk(dst_dir, n):
+            if (k in seen or (dst_dir.lower(), k) in self._taken or self._in_db(dst_dir, n)
+                    or self._on_disk(dst_dir, n)):
                 return False
             seen.add(k)
         return True
@@ -222,6 +234,15 @@ def _build_move(
     )
 
 
+def _try_build(conn, reserver, u, dst_dir, loc, skipped) -> UnitMove | None:
+    try:
+        return _build_move(conn, reserver, u, dst_dir, loc)
+    except (ValueError, RuntimeError) as err:
+        if skipped is not None:
+            skipped.append((u["id"], str(err)))
+        return None
+
+
 def _keepers(conn: sqlite3.Connection) -> set[str]:
     return {
         r[0]
@@ -232,13 +253,15 @@ def _keepers(conn: sqlite3.Connection) -> set[str]:
     }
 
 
-def plan_rapikan(conn: sqlite3.Connection, root: Path) -> list[UnitMove]:
+def plan_rapikan(
+    conn: sqlite3.Connection, root: Path, skipped: list[tuple[str, str]] | None = None
+) -> list[UnitMove]:
     months = _event_months(conn)
     keepers = _keepers(conn)
     rows = conn.execute(
         _UNIT_SQL + " where u.location = 'source' order by pf.orig_rel_path, u.id"
     ).fetchall()
-    reserver = NameReserver(root)
+    reserver = NameReserver(root, conn)
     moves: list[UnitMove] = []
     for u in rows:
         cat = u["primary_category"]
@@ -247,7 +270,7 @@ def plan_rapikan(conn: sqlite3.Connection, root: Path) -> list[UnitMove]:
         else:
             dst_dir = u["planned_review_dir"] or _review_dir(u, REVIEW_DIR, cat)
             loc = "review"
-        m = _build_move(conn, reserver, u, dst_dir, loc)
+        m = _try_build(conn, reserver, u, dst_dir, loc, skipped)
         if m:
             moves.append(m)
     return moves
@@ -271,10 +294,14 @@ def _discard_category(conn: sqlite3.Connection, u: sqlite3.Row) -> str:
 
 
 def plan_apply(
-    conn: sqlite3.Connection, root: Path, keep_ids: list[str], discard_ids: list[str]
+    conn: sqlite3.Connection,
+    root: Path,
+    keep_ids: list[str],
+    discard_ids: list[str],
+    skipped: list[tuple[str, str]] | None = None,
 ) -> list[UnitMove]:
     months = _event_months(conn)
-    reserver = NameReserver(root)
+    reserver = NameReserver(root, conn)
     moves: list[UnitMove] = []
 
     def fetch(uid: str):
@@ -285,7 +312,7 @@ def plan_apply(
         if u is None or u["location"] == "archive":
             continue
         dst = u["planned_archive_dir"] or _archive_dir(u, months)
-        m = _build_move(conn, reserver, u, dst, "archive")
+        m = _try_build(conn, reserver, u, dst, "archive", skipped)
         if m:
             moves.append(m)
     for uid in discard_ids:
@@ -293,7 +320,7 @@ def plan_apply(
         if u is None or u["location"] == "trash":
             continue
         dst = _review_dir(u, TRASH_DIR, _discard_category(conn, u))
-        m = _build_move(conn, reserver, u, dst, "trash")
+        m = _try_build(conn, reserver, u, dst, "trash", skipped)
         if m:
             moves.append(m)
     return moves
