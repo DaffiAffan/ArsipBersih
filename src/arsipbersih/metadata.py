@@ -210,7 +210,7 @@ def _store(conn, fid, fields, status, error=None) -> None:
          fields.get("has_audio"), fields.get("has_gps"), fields.get("exif_datetime"),
          fields.get("qt_datetime")),
     )
-    if status is not None:
+    if status is not None or error:
         conn.execute("update files set meta_status=?, error=? where id=?", (status, error, fid))
 
 
@@ -245,9 +245,11 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
                     if not fields.get("qt_datetime") and v["creation_time"]:
                         fields["qt_datetime"] = v["creation_time"]
                 except Exception as e:  # noqa: BLE001
-                    status = "error"
-                    msg = f"ffprobe: {type(e).__name__}: {e}" if not str(e) else f"ffprobe: {e}"
-                    err = msg[:500]
+                    if et is not None:
+                        status = "error"
+                    msg = f"ffprobe: {e}" if str(e) else f"ffprobe: {type(e).__name__}"
+                    err = f"{err}; {msg}" if err else msg
+                    err = err[:500]
             _store(conn, fid, fields, status, err)
         except Exception as e:  # noqa: BLE001
             _store(conn, fid, {}, "error", f"{type(e).__name__}: {e}")

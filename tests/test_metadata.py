@@ -47,3 +47,19 @@ def test_ffprobe_failure_marks_video_error(root, make_video, monkeypatch):
     run_metadata(conn, root, Settings())
     status, error = conn.execute("select meta_status, error from files where kind='video'").fetchone()
     assert status == "error" and error.startswith("ffprobe:")
+
+
+@requires_ffmpeg
+def test_ffprobe_failure_without_exiftool_stays_retryable(root, make_video, monkeypatch):
+    make_video(root / "Sumber/HP/VID_1.mp4", seconds=1.0)
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    real_find = find_tool
+    monkeypatch.setattr("arsipbersih.metadata.probe_video", boom)
+    monkeypatch.setattr("arsipbersih.metadata.find_tool", lambda n: None if n == "exiftool" else real_find(n))
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    status, error = conn.execute("select meta_status, error from files where kind='video'").fetchone()
+    assert status is None and error.startswith("ffprobe:")
