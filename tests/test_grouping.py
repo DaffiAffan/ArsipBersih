@@ -80,6 +80,23 @@ def test_same_camera_sequential_shots_are_burst_not_version(conn_with):
     assert member_count(conn, "mirip-beruntun") == 2
 
 
+def test_burst_ids_chain_within_folder(conn_with):
+    d = "Sumber/HP/DCIM/Camera"
+    conn = conn_with([
+        dict(name="00001IMG_00001_BURST20230812073015123.jpg", path=d, sha="p1"),
+        dict(name="00002IMG_00002_BURST20230812073015123.jpg", path=d, sha="p2"),
+        dict(name="00003IMG_00003_BURST20230812073015123_COVER.jpg", path=d, sha="p3"),
+        dict(name="IMG_20230812_143022_BURST001.jpg", path=d, sha="q1"),
+        dict(name="IMG_20230812_143022_BURST002.jpg", path=d, sha="q2"),
+    ])
+    assert run_grouping(conn, Settings()).burst == 2
+    sizes = conn.execute(
+        "select count(*) from group_members m join groups g on g.id = m.group_id "
+        "where g.kind='mirip-beruntun' group by g.id order by 1"
+    ).fetchall()
+    assert [r[0] for r in sizes] == [2, 3]
+
+
 def test_pathrules():
     assert is_chat(["WhatsApp", "Media", "WhatsApp Images"], "IMG_1.jpg")
     assert is_chat([], "VID-20230812-WA0007.mp4")

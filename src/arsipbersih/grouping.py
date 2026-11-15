@@ -15,15 +15,15 @@ import numpy as np
 from .config import Settings
 from .db import new_id
 from .pairing import gopro_clip_id
-from .pathrules import BURST_RE, has_camera_name, is_chat, is_download, segments_of
+from .pathrules import has_camera_name, is_chat, is_download, segments_of
 from .visual import hamming, phash_int
 
 BLOCK = 4096
 ASPECT_TOLERANCE = 0.02
 VIDEO_DURATION_TOLERANCE_S = 1.0
 
-_BURST = re.compile(BURST_RE, re.IGNORECASE)
-_BURST_ID = re.compile(r"_BURST(\d+)", re.IGNORECASE)
+_PIXEL_BURST_ID = re.compile(r"_BURST(\d{8,})", re.IGNORECASE)
+_BURST_MARKER = re.compile(r"_BURST\d{1,7}|_COVER", re.IGNORECASE)
 
 
 @dataclass
@@ -218,6 +218,17 @@ def _video_version_groups(videos: list[UnitView], max_dist: int) -> list[list[Un
     return [[by_id[x] for x in g] for g in uf.groups()]
 
 
+def _burst_id(filename: str) -> str | None:
+    """Shared id of burst frames within a folder, or None when the name has no burst marker."""
+    stem = posixpath.splitext(filename)[0]
+    m = _PIXEL_BURST_ID.search(stem)
+    if m:
+        return m.group(1)
+    if _BURST_MARKER.search(stem):
+        return _BURST_MARKER.sub("", stem).casefold()
+    return None
+
+
 def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitView]]:
     from datetime import datetime
 
@@ -241,9 +252,8 @@ def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitV
 
     by_burst: dict[tuple[str, str], list[str]] = defaultdict(list)
     for u in photos:
-        if _BURST.search(u.filename):
-            m = _BURST_ID.search(u.filename)
-            ident = m.group(1) if m else _BURST.search(u.filename).group(0).lower()
+        ident = _burst_id(u.filename)
+        if ident:
             by_burst[(posixpath.dirname(u.orig_rel_path), ident)].append(u.unit_id)
     for ids in by_burst.values():
         for other in ids[1:]:
