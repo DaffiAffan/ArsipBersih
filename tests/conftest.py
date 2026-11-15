@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import random
 import subprocess
 from pathlib import Path
@@ -12,12 +13,25 @@ from arsipbersih.tools import find_tool
 
 pillow_heif.register_heif_opener()
 
-requires_exiftool = pytest.mark.skipif(
-    find_tool("exiftool") is None, reason="ExifTool not available"
-)
-requires_ffmpeg = pytest.mark.skipif(
-    find_tool("ffmpeg") is None, reason="ffmpeg not available"
-)
+# Plain marks (registered in pyproject). Both `@pytest.mark.requires_ffmpeg` and
+# `from conftest import requires_ffmpeg` work; the hook below does the skipping.
+requires_exiftool = pytest.mark.requires_exiftool
+requires_ffmpeg = pytest.mark.requires_ffmpeg
+
+_MARK_TOOLS = {"requires_exiftool": "exiftool", "requires_ffmpeg": "ffmpeg"}
+
+
+@functools.cache
+def _has_tool(name: str) -> bool:
+    return find_tool(name) is not None
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        for mark, tool in _MARK_TOOLS.items():
+            if item.get_closest_marker(mark) and not _has_tool(tool):
+                item.add_marker(pytest.mark.skip(reason=f"{tool} not available"))
+
 
 _EXT_FORMATS = {
     ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP",

@@ -46,3 +46,23 @@ def test_rel_abs_roundtrip(root):
     p = root / "Arsip" / "2023" / "IMG 1.jpg"
     assert to_rel(root, p) == "Arsip/2023/IMG 1.jpg"
     assert to_abs(root, "Arsip/2023/IMG 1.jpg") == p
+
+
+def test_tool_markers_skip_when_binary_missing(monkeypatch):
+    import conftest
+
+    class FakeItem:
+        def __init__(self, marks):
+            self.marks, self.added = marks, []
+
+        def get_closest_marker(self, name):
+            return name in self.marks or None
+
+        def add_marker(self, mark):
+            self.added.append(mark)
+
+    monkeypatch.setattr(conftest, "_has_tool", lambda name: name != "ffmpeg")
+    ffmpeg_item, exif_item, plain = FakeItem({"requires_ffmpeg"}), FakeItem({"requires_exiftool"}), FakeItem(set())
+    conftest.pytest_collection_modifyitems(None, [ffmpeg_item, exif_item, plain])
+    assert [m.name for m in ffmpeg_item.added] == ["skip"]
+    assert exif_item.added == [] and plain.added == []
