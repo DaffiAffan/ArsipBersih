@@ -21,6 +21,8 @@ from arsipbersih.mover import BatchResult, _abs, execute, remove_empty_dirs
 from arsipbersih.planner import plan_apply
 
 log = logging.getLogger(__name__)
+_TRASH_PREFIX = TRASH_DIR + "/"
+_TRASH_PREFIX_LEN = len(_TRASH_PREFIX)
 _CHUNK = 500  # ids per IN (...) list, far below SQLite's variable limit
 
 
@@ -181,7 +183,7 @@ def trash_totals(conn: sqlite3.Connection) -> tuple[int, int]:
     row = conn.execute(
         "select count(*), coalesce(sum(f.size), 0) from files f join units u on u.id=f.unit_id"
         " where u.location='trash' and f.purged=0 and f.missing=0"
-        " and substr(f.rel_path,1,8)='_sampah/'"
+        f" and substr(f.rel_path,1,{_TRASH_PREFIX_LEN})='{_TRASH_PREFIX}'"
     ).fetchone()
     return int(row[0]), int(row[1])
 
@@ -210,10 +212,12 @@ def purge_trash(
     rows = conn.execute(
         "select f.id, f.unit_id, f.rel_path from files f join units u on u.id=f.unit_id"
         " where u.location='trash' and f.purged=0 and f.missing=0"
-        " and substr(f.rel_path,1,8)='_sampah/' order by f.rowid"
+        f" and substr(f.rel_path,1,{_TRASH_PREFIX_LEN})='{_TRASH_PREFIX}' order by f.rowid"
     ).fetchall()
     if not rows:
         return 0
+    if not os.path.isdir(long_path(root / TRASH_DIR)):
+        raise PurgeMismatch("trash folder not found: is the drive connected?")
     batch_id = new_id()
     with conn:
         conn.execute(
@@ -229,7 +233,10 @@ def purge_trash(
             try:
                 _delete(target)
             except FileNotFoundError:
-                pass  # already gone (crash after unlink, or emptied by hand): settle the row
+                # Already gone (crash after unlink, or emptied by hand): settle the row, but
+                # only while its folder exists; otherwise a drive may be unplugged.
+                if not os.path.isdir(long_path(target.parent)):
+                    raise
         except Exception as e:  # noqa: BLE001 - reported; the file stays unpurged
             log.warning("could not purge %s: %s: %s", rel, type(e).__name__, e)
             continue

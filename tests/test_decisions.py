@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 
 import pytest
 
@@ -104,3 +105,13 @@ def test_purge_settles_file_already_gone(root):
     assert purge_trash(conn, root, files, size) == 1
     assert conn.execute("select purged from files where unit_id=?", (uid,)).fetchone()[0] == 1
     assert trash_totals(conn) == (0, 0)
+
+
+def test_purge_refuses_when_trash_folder_missing(root):
+    conn = open_db(root)
+    uid = _add_unit(conn, root, "_sampah/burem/HP/IMG_M.jpg", location="trash")
+    shutil.move(root / "_sampah", root / "_sampah_away")
+    files, size = trash_totals(conn)
+    with pytest.raises(PurgeMismatch):
+        purge_trash(conn, root, files, size)
+    assert conn.execute("select purged from files where unit_id=?", (uid,)).fetchone()[0] == 0
