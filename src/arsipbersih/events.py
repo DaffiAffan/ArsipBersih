@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-import uuid
 from dataclasses import dataclass
 
 from .config import Settings
+from .db import new_id
 from .layout import sanitize_component
 from .pathrules import segments_of
 
@@ -60,7 +60,7 @@ def add_override(conn, kind: str, name: str, value: str | None = None) -> None:
         conn.execute("delete from event_overrides where kind=? and name_key=?", (kind, key))
         conn.execute(
             "insert into event_overrides(id, kind, name_key, value) values(?,?,?,?)",
-            (str(uuid.uuid4()), kind, key, value),
+            (new_id(), kind, key, value),
         )
 
 
@@ -84,8 +84,8 @@ def run_events(conn, settings: Settings) -> list[EventSummary]:
         "order by f.orig_rel_path, u.id"
     ).fetchall()
 
-    groups: dict[str, dict] = {}
-    updates: list[tuple] = []
+    resolved: list[tuple] = []  # (row, key, name, sub)
+    canonical: dict[str, str] = {}
     for r in rows:
         if r["location"] == "source":
             name, sub = resolve_event(segments_of(r["orig_rel_path"]), generic, not_event)
@@ -99,13 +99,27 @@ def run_events(conn, settings: Settings) -> list[EventSummary]:
                     name = renames[key]
                 name = sanitize_component(name)
                 key = normalize_event_key(name)
-            updates.append((key, name, sub, r["id"]))
         else:
-            key, name = r["event_key"], r["event_name"]
+            key, name, sub = r["event_key"], r["event_name"], r["event_subpath"]
+        resolved.append((r, key, name, sub))
+
+    # Canonical display name per key: existing archive/review name wins, else first-seen source.
+    for r, key, name, _ in resolved:
+        if key and r["location"] != "source" and name:
+            canonical.setdefault(key, name)
+    for r, key, name, _ in resolved:
+        if key and r["location"] == "source":
+            canonical.setdefault(key, name)
+
+    groups: dict[str, dict] = {}
+    updates: list[tuple] = []
+    for r, key, name, sub in resolved:
+        if r["location"] == "source":
+            updates.append((key, canonical.get(key) if key else None, sub, r["id"]))
         if not key:
             continue
         g = groups.setdefault(
-            key, {"name": name, "count": 0, "months": [], "sources": set(), "sample": r["orig_rel_path"]}
+            key, {"name": canonical[key], "count": 0, "months": [], "sources": set(), "sample": r["orig_rel_path"]}
         )
         g["count"] += 1
         if r["taken_at"]:

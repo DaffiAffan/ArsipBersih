@@ -32,6 +32,8 @@ def test_same_event_merges_across_sources_and_uses_earliest_month(conn_with):
     assert ev["rinjani"].month == "2023-07" and ev["rinjani"].file_count == 2
     assert sorted(ev["rinjani"].sources) == ["HP-Lama", "HP-Xiaomi"]
     assert "rinjani 2023" in ev
+    stored = {r[0] for r in conn.execute("select event_name from units where event_key='rinjani'")}
+    assert stored == {ev["rinjani"].name} and len(stored) == 1
 
 
 def test_rename_and_merge_overrides(conn_with):
