@@ -40,6 +40,16 @@ def test_exact_keeper_prefers_archive_then_camera_original(conn_with):
     assert unit_location(conn, g) == "archive"
 
 
+def test_missing_keeper_copy_does_not_group_with_surviving_twin(conn_with):
+    conn = conn_with([
+        dict(name="IMG_20230812_143022.jpg", path="Sumber/HP/DCIM/Camera", sha="aa", loc="source"),
+        dict(name="IMG_20230812_143022.jpg", path="Arsip/2023/2023-08", sha="aa", loc="archive"),
+    ])
+    conn.execute("update files set missing=1 where rel_path like 'Arsip/%'")
+    assert run_grouping(conn, Settings()).exact == 0
+    assert conn.execute("select count(*) from group_members").fetchone()[0] == 0
+
+
 def test_version_group_keeps_highest_resolution(conn_with):
     conn = conn_with([
         dict(name="IMG_1.jpg", phash="f0f0f0f0f0f0f0f0", w=4000, h=3000, sha="a1"),

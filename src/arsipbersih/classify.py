@@ -65,7 +65,8 @@ def _extras(conn: sqlite3.Connection) -> dict[str, dict]:
     rows = conn.execute(
         "select u.id as unit_id, f.ext, m.luma_mean, m.luma_std, m.clipping, m.frame_lumas "
         "from units u join files f on f.id = u.primary_file_id "
-        "left join media_info m on m.file_id = f.id"
+        "left join media_info m on m.file_id = f.id "
+        "where f.missing = 0 and f.purged = 0"
     ).fetchall()
     out = {}
     for r in rows:
@@ -145,6 +146,16 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
     group_flags = _group_flags(conn)
     counts: dict[str, int] = {}
     with conn:
+        # A unit whose primary file is gone keeps no stale category from an earlier scan.
+        conn.execute(
+            "delete from flags where unit_id in (select u.id from units u"
+            " join files f on f.id = u.primary_file_id"
+            " where u.location != 'trash' and (f.missing = 1 or f.purged = 1))"
+        )
+        conn.execute(
+            "update units set primary_category = null where location != 'trash' and"
+            " primary_file_id in (select id from files where missing = 1 or purged = 1)"
+        )
         for u in views:
             flags = list(group_flags.get(u.unit_id, []))
             if u.location != "archive":

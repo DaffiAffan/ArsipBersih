@@ -61,7 +61,7 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
         "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
-        "where u.location != 'trash' order by u.id"
+        "where u.location != 'trash' and f.missing = 0 and f.purged = 0 order by u.id"
     ).fetchall()
     views = []
     for r in rows:

@@ -253,17 +253,33 @@ def _keepers(conn: sqlite3.Connection) -> set[str]:
     }
 
 
+def _units_with_missing_files(conn: sqlite3.Connection) -> set[str]:
+    return {
+        r[0]
+        for r in conn.execute(
+            "select distinct unit_id from files"
+            " where unit_id is not null and missing = 1 and purged = 0"
+        )
+    }
+
+
 def plan_rapikan(
     conn: sqlite3.Connection, root: Path, skipped: list[tuple[str, str]] | None = None
 ) -> list[UnitMove]:
     months = _event_months(conn)
     keepers = _keepers(conn)
+    incomplete = _units_with_missing_files(conn)
     rows = conn.execute(
         _UNIT_SQL + " where u.location = 'source' order by pf.orig_rel_path, u.id"
     ).fetchall()
     reserver = NameReserver(root, conn)
     moves: list[UnitMove] = []
     for u in rows:
+        if u["id"] in incomplete:
+            # Moving the rest would split the unit; nothing moves until the file is back.
+            if skipped is not None:
+                skipped.append((u["id"], "file missing on disk"))
+            continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
             dst_dir, loc = (u["planned_archive_dir"] or _archive_dir(u, months)), "archive"
