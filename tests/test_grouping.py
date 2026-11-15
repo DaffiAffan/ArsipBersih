@@ -70,6 +70,16 @@ def test_burst_chain_keeps_sharpest(conn_with):
     assert member_count(conn, "mirip-beruntun") == 2
 
 
+def test_same_camera_sequential_shots_are_burst_not_version(conn_with):
+    conn = conn_with([
+        dict(name="IMG_A.jpg", src="HP", taken="2023-08-12T05:41:03", phash="ff00ff00ff00ff00", sha="s1"),
+        dict(name="IMG_B.jpg", src="HP", taken="2023-08-12T05:41:06", phash="ff00ff00ff00ff03", sha="s2"),
+    ])
+    r = run_grouping(conn, Settings())
+    assert (r.version, r.burst) == (0, 1)
+    assert member_count(conn, "mirip-beruntun") == 2
+
+
 def test_pathrules():
     assert is_chat(["WhatsApp", "Media", "WhatsApp Images"], "IMG_1.jpg")
     assert is_chat([], "VID-20230812-WA0007.mp4")

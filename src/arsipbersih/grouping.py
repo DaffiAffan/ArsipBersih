@@ -185,9 +185,9 @@ def _photo_version_groups(photos: list[UnitView], max_dist: int) -> list[list[Un
             continue
         if a.sha256 and a.sha256 == b.sha256:
             continue
-        # Same pixel dimensions and byte size but a different hash is a separate shot
-        # (typically a burst frame), not a re-encoded version of the same picture.
-        if (a.width, a.height, a.size) == (b.width, b.height, b.size):
+        # Controller ruling: separate shots, same camera -> burst, not version.
+        if (a.source_label == b.source_label and (a.width, a.height) == (b.width, b.height)
+                and a.taken_at and b.taken_at and a.taken_at != b.taken_at):
             continue
         uf.union(a.unit_id, b.unit_id)
     by_id = {u.unit_id: u for u in cand}
