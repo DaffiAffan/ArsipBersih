@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from PIL import Image
+
+from arsipbersih.config import Settings
+from arsipbersih.formats import Kind
+from arsipbersih.tools import find_tool
+from arsipbersih.visual import (
+    analyze_photo,
+    analyze_video,
+    hamming,
+    load_gray_small,
+    luma_stats,
+    phash64,
+    sharpness_score,
+)
+from conftest import requires_ffmpeg
+
+
+def _gray(path, s=Settings()):
+    return load_gray_small(path, Kind.PHOTO, s.analysis_px)
+
+
+def test_phash_survives_resize_and_recompress(root, make_image):
+    a = make_image(root / "a.jpg", seed=3, size=(4000, 3000))
+    b = root / "b.jpg"
+    Image.open(a).resize((1600, 1200)).save(b, quality=60)
+    other = make_image(root / "c.jpg", seed=99)
+    assert hamming(phash64(_gray(a)), phash64(_gray(b))) <= 6
+    assert hamming(phash64(_gray(a)), phash64(_gray(other))) > 12
+
+
+def test_blur_and_darkness_scores(root, make_image):
+    sharp = make_image(root / "s.jpg", seed=4)
+    blurry = make_image(root / "b.jpg", seed=4, blur=6.0)
+    dark = make_image(root / "d.jpg", seed=4, brightness=0.05)
+    assert sharpness_score(_gray(blurry)) < 0.5 * sharpness_score(_gray(sharp))
+    assert luma_stats(_gray(dark))[0] < 20
+
+
+def test_truncated_and_empty_files_do_not_raise(root, make_image):
+    good = make_image(root / "g.jpg")
+    data = good.read_bytes()
+    (root / "t.jpg").write_bytes(data[: len(data) // 3])
+    (root / "e.jpg").write_bytes(b"")
+    for name in ("t.jpg", "e.jpg"):
+        r = analyze_photo(root / name, Kind.PHOTO, Settings(), root / f"{name}.webp", None)
+        assert r.decode_ok is False and r.error
+
+
+def test_heic_gets_preview_and_thumbnail(root, make_image):
+    h = make_image(root / "Sumber/HP/IMG_1.HEIC", fmt="HEIF")
+    r = analyze_photo(h, Kind.PHOTO, Settings(), root / "t.webp", root / "p.webp")
+    assert r.decode_ok and (root / "t.webp").exists() and (root / "p.webp").exists()
+    assert max(Image.open(root / "t.webp").size) == 320
+
+
+@requires_ffmpeg
+def test_dark_video_frames(root, make_video):
+    v = make_video(root / "v.mp4", seconds=3, dark=True)
+    r = analyze_video(v, 3.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
+    assert r.decode_ok and len(r.frame_lumas) == 3 and max(r.frame_lumas) < 15
