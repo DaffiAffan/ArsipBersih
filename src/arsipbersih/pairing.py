@@ -115,6 +115,11 @@ def build_units(conn: sqlite3.Connection) -> int:
 
 
 def confirm_live_photos(conn: sqlite3.Connection, settings: Settings) -> int:
+    """Split a Live Photo whose MOV is known to be too long. Returns units split.
+
+    An unknown duration (not probed yet, or ffprobe missing/failed) keeps the pair:
+    build_units never re-pairs, so a split here is permanent.
+    """
     rows = conn.execute(
         "select u.id as unit_id, u.location, u.taken_at, u.date_source,"
         " f.id as mov_id, mi.duration_s"
@@ -125,7 +130,7 @@ def confirm_live_photos(conn: sqlite3.Connection, settings: Settings) -> int:
     split = 0
     for r in rows:
         d = r["duration_s"]
-        if d is not None and d <= settings.live_photo_mov_max_s:
+        if d is None or d <= settings.live_photo_mov_max_s:
             continue
         new_unit = new_id()
         conn.execute(

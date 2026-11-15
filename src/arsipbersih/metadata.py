@@ -11,7 +11,6 @@ from pathlib import Path
 from arsipbersih.config import Settings
 from arsipbersih.dates import pick_taken_at
 from arsipbersih.layout import long_path
-from arsipbersih.pairing import confirm_live_photos
 from arsipbersih.tools import find_tool
 
 BATCH = 200
@@ -291,5 +290,4 @@ def run_metadata(
         run(None)
 
     _set_unit_dates(conn, settings, include_unread=exe is None)
-    confirm_live_photos(conn, settings)
     return done

@@ -43,6 +43,16 @@ def test_confirm_live_photos_splits_long_mov(root):
     assert conn.execute("select count(*) from units where pair_kind='single'").fetchone()[0] == 2
 
 
+def test_confirm_live_photos_keeps_pair_when_duration_unknown(root):
+    conn = open_db(root)
+    _files(root, conn, "IMG_8.HEIC", "IMG_8.MOV")
+    build_units(conn)
+    mov_id = conn.execute("select id from files where ext='mov'").fetchone()[0]
+    conn.execute("insert into media_info(file_id, duration_s) values (?, NULL)", (mov_id,))
+    assert confirm_live_photos(conn, Settings()) == 0
+    assert [r[0] for r in conn.execute("select pair_kind from units")] == ["live_photo"]
+
+
 def test_pairs_stay_intact_with_extra_media(root):
     conn = open_db(root)
     _files(root, conn, "DSC_5.NEF", "DSC_5.JPG", "DSC_5.xmp", "DSC_5.MOV", "IMG_6.HEIC", "IMG_6.JPG", "IMG_6.MOV")
