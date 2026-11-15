@@ -126,3 +126,81 @@ def make_video():
         return path
 
     return _make
+
+
+_CONN_PHOTO_EXTS = {"jpg", "jpeg", "png", "heic", "heif", "webp", "gif"}
+_CONN_RAW_EXTS = {"cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2"}
+_CONN_VIDEO_EXTS = {"mp4", "mov", "3gp", "mkv", "avi", "mts"}
+_CONN_AUX_EXTS = {"lrv", "thm"}
+
+
+def _conn_kind(ext: str) -> str:
+    if ext in _CONN_PHOTO_EXTS:
+        return "photo"
+    if ext in _CONN_RAW_EXTS:
+        return "raw"
+    if ext in _CONN_VIDEO_EXTS:
+        return "video"
+    if ext in _CONN_AUX_EXTS:
+        return "gopro_aux"
+    return "other"
+
+
+@pytest.fixture
+def conn_with(root):
+    """Open a DB on `root` and insert one unit + primary file + media_info row per dict."""
+    import json
+
+    from arsipbersih.db import new_id, open_db
+
+    conn = open_db(root)
+    roots = {"source": "Sumber", "archive": "Arsip", "review": "_review"}
+
+    def _insert(rows: list[dict]):
+        for r in rows:
+            name = r["name"]
+            path = r.get("path", "Sumber/HP/DCIM")
+            loc = r.get("loc", "source")
+            if path.split("/")[0] in ("Sumber", "Arsip", "_review"):
+                rel_dir = path
+            else:
+                rel_dir = f"{roots[loc]}/{path}"
+            rel_path = f"{rel_dir}/{name}"
+            parts = path.split("/")
+            src = r.get("src", parts[1] if parts[0] == "Sumber" and len(parts) > 1 else None)
+            ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+            kind = r.get("kind") or _conn_kind(ext)
+            sha = r.get("sha")
+            unit_id, file_id = new_id(), new_id()
+            conn.execute(
+                "insert into units(id, primary_file_id, taken_at, location, primary_category) "
+                "values(?, NULL, ?, ?, ?)",
+                (unit_id, r.get("taken"), loc, r.get("category")),
+            )
+            conn.execute(
+                "insert into files(id, unit_id, rel_path, orig_rel_path, size, mtime_ns, kind, ext, "
+                "source_label, sha256, hash_status, meta_status, visual_status) "
+                "values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (file_id, unit_id, rel_path, rel_path, r.get("size", 1_000_000), 0, kind, ext,
+                 src, sha, "done" if sha else None, "done", "done"),
+            )
+            conn.execute("update units set primary_file_id=? where id=?", (file_id, unit_id))
+            frames = r.get("frames")
+            conn.execute(
+                "insert into media_info(file_id, make, model, width, height, duration_s, phash, "
+                "frame_phashes, sharpness, luma_mean, luma_std, clipping, decode_ok) "
+                "values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (file_id, r.get("make"), r.get("model"), r.get("w", 4000), r.get("h", 3000),
+                 r.get("duration"), r.get("phash"), json.dumps(frames) if frames else None,
+                 r.get("sharp", 80.0), r.get("luma", 120.0), r.get("std", 50.0),
+                 r.get("clip", 0.0), r.get("decode_ok", 1)),
+            )
+            if r.get("category"):
+                conn.execute(
+                    "insert into flags(id, unit_id, category, score, reason) values(?,?,?,NULL,'test')",
+                    (new_id(), unit_id, r["category"]),
+                )
+        conn.commit()
+        return conn
+
+    return _insert
