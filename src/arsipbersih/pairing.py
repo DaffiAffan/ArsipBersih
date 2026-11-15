@@ -71,34 +71,45 @@ def build_units(conn: sqlite3.Connection) -> int:
                 _create_unit(conn, "single", m["id"], location, [m["id"]])
                 created += 1
 
-        photos = [m for m in media if m["kind"] == Kind.PHOTO and m["ext"] in _LIVE_PHOTO_EXTS]
-        movs = [m for m in media if m["kind"] == Kind.VIDEO and m["ext"] == "mov"]
-        raws = [m for m in media if m["kind"] == Kind.RAW]
-        jpgs = [m for m in media if m["kind"] == Kind.PHOTO and m["ext"] in _RAW_PARTNER_EXTS]
+        remaining = sorted(media, key=lambda m: m["rel_path"])
+        pair_unit_ids: list[str] = []
 
-        if len(media) == 2 and len(photos) == 1 and len(movs) == 1:
-            _create_unit(
-                conn, "live_photo", photos[0]["id"], location,
-                [photos[0]["id"], movs[0]["id"], *sidecar_ids],
+        raws = [m for m in remaining if m["kind"] == Kind.RAW]
+        jpgs = [m for m in remaining if m["kind"] == Kind.PHOTO and m["ext"] in _RAW_PARTNER_EXTS]
+        raw_unit = None
+        if len(raws) == 1 and jpgs:
+            raw_unit = _create_unit(
+                conn, "raw_jpg", jpgs[0]["id"], location, [jpgs[0]["id"], raws[0]["id"]]
             )
             created += 1
-        elif len(media) == 2 and len(raws) == 1 and len(jpgs) == 1:
-            _create_unit(
-                conn, "raw_jpg", jpgs[0]["id"], location,
-                [jpgs[0]["id"], raws[0]["id"], *sidecar_ids],
+            remaining = [m for m in remaining if m["id"] not in (raws[0]["id"], jpgs[0]["id"])]
+
+        movs = [m for m in remaining if m["kind"] == Kind.VIDEO and m["ext"] == "mov"]
+        photos = sorted(
+            (m for m in remaining if m["kind"] == Kind.PHOTO and m["ext"] in _LIVE_PHOTO_EXTS),
+            key=lambda m: (m["ext"] not in ("heic", "heif"), m["rel_path"]),
+        )
+        live_unit = None
+        if len(movs) == 1 and photos:
+            live_unit = _create_unit(
+                conn, "live_photo", photos[0]["id"], location, [photos[0]["id"], movs[0]["id"]]
             )
             created += 1
-        else:
-            unit_ids = {}
-            for m in media:
-                unit_ids[m["id"]] = _create_unit(conn, "single", m["id"], location, [m["id"]])
-                created += 1
-            if media and sidecar_ids:
-                target = next((m for m in media if m["kind"] == Kind.PHOTO), media[0])
-                conn.executemany(
-                    "update files set unit_id=? where id=?",
-                    [(unit_ids[target["id"]], sid) for sid in sidecar_ids],
-                )
+            remaining = [m for m in remaining if m["id"] not in (movs[0]["id"], photos[0]["id"])]
+
+        first_photo_unit = None
+        for m in remaining:
+            uid = _create_unit(conn, "single", m["id"], location, [m["id"]])
+            created += 1
+            if first_photo_unit is None and m["kind"] == Kind.PHOTO:
+                first_photo_unit = uid
+            if first_photo_unit is None and not pair_unit_ids:
+                pair_unit_ids.append(uid)
+        target = raw_unit or live_unit or first_photo_unit or (pair_unit_ids[0] if pair_unit_ids else None)
+        if target and sidecar_ids:
+            conn.executemany(
+                "update files set unit_id=? where id=?", [(target, sid) for sid in sidecar_ids]
+            )
     conn.commit()
     return created
 

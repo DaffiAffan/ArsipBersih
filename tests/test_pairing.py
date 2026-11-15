@@ -41,3 +41,23 @@ def test_confirm_live_photos_splits_long_mov(root):
     conn.execute("insert into media_info(file_id, duration_s) values (?, 12.0)", (mov_id,))
     assert confirm_live_photos(conn, Settings()) == 1
     assert conn.execute("select count(*) from units where pair_kind='single'").fetchone()[0] == 2
+
+
+def test_pairs_stay_intact_with_extra_media(root):
+    conn = open_db(root)
+    _files(root, conn, "DSC_5.NEF", "DSC_5.JPG", "DSC_5.xmp", "DSC_5.MOV", "IMG_6.HEIC", "IMG_6.JPG", "IMG_6.MOV")
+    build_units(conn)
+
+    def unit_of(name):
+        return conn.execute("select unit_id from files where rel_path like ?", (f"%{name}",)).fetchone()[0]
+
+    def pair_kind(uid):
+        return conn.execute("select pair_kind from units where id=?", (uid,)).fetchone()[0]
+
+    assert unit_of("DSC_5.NEF") == unit_of("DSC_5.JPG") == unit_of("DSC_5.xmp")
+    assert pair_kind(unit_of("DSC_5.NEF")) == "raw_jpg"
+    assert pair_kind(unit_of("DSC_5.MOV")) == "single"
+    assert unit_of("DSC_5.MOV") != unit_of("DSC_5.NEF")
+    assert unit_of("IMG_6.HEIC") == unit_of("IMG_6.MOV")
+    assert pair_kind(unit_of("IMG_6.HEIC")) == "live_photo"
+    assert pair_kind(unit_of("IMG_6.JPG")) == "single"
