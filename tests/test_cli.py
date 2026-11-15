@@ -55,3 +55,12 @@ def test_tidy_refuses_after_stopped_scan(root, mini_collection):
     res = runner.invoke(app, ["tidy", str(root), "--yes"])
     assert res.exit_code == 1
     assert before == _files(root) and not (root / "Arsip").exists()
+
+
+@requires_exiftool
+def test_events_rename_and_bad_format(root, make_image):
+    make_image(root / "Sumber/Laptop/Users/Bali/IMG_20230812_101010.jpg")
+    runner.invoke(app, ["scan", str(root)])
+    res = runner.invoke(app, ["events", str(root), "--rename", "Users=Bali Trip"])
+    assert res.exit_code == 0 and "Bali Trip" in res.stdout
+    assert runner.invoke(app, ["events", str(root), "--merge", "nope"]).exit_code == 2

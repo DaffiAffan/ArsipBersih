@@ -165,34 +165,27 @@ def scan(
         typer.echo("Warning: ffmpeg/ffprobe is missing; video analysis is limited.")
 
 
-def _split_pairs(args: list[str]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
-    """Collect every `--rename A B` and `--merge A B` from the leftover arguments."""
-    found: dict[str, list[tuple[str, str]]] = {"--rename": [], "--merge": []}
-    i = 0
-    while i < len(args):
-        flag = args[i]
-        if flag not in found:
-            typer.echo(f"Error: unexpected argument {flag!r}.", err=True)
+def _parse_pairs(values: Optional[list[str]], flag: str) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for v in values or []:
+        left, sep, right = v.partition("=")
+        if not sep or not left.strip() or not right.strip():
+            typer.echo(f"Error: {flag} expects NAME=NAME, got {v!r}.", err=True)
             raise typer.Exit(2)
-        if len(args) < i + 3:
-            typer.echo(f"Error: {flag} needs two values.", err=True)
-            raise typer.Exit(2)
-        found[flag].append((args[i + 1], args[i + 2]))
-        i += 3
-    return found["--rename"], found["--merge"]
+        pairs.append((left.strip(), right.strip()))
+    return pairs
 
 
-@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+@app.command()
 def events(
-    ctx: typer.Context,
     root: Path = _root_arg(),
     not_event: Optional[list[str]] = typer.Option(None, "--not-event", help="Folder name that is not an event (repeatable)."),
+    rename: Optional[list[str]] = typer.Option(None, "--rename", help="Rename an event: OLD=NEW (repeatable)."),
+    merge: Optional[list[str]] = typer.Option(None, "--merge", help="Merge an event into another: FROM=TO (repeatable)."),
 ) -> None:
-    """Apply event overrides, then list events and recompute plans.
-
-    Also accepts, repeatable: --rename OLD NEW and --merge FROM TO.
-    """
-    rename_pairs, merge_pairs = _split_pairs(list(ctx.args))
+    """Apply event overrides, then list events and recompute plans."""
+    rename_pairs = _parse_pairs(rename, "--rename")
+    merge_pairs = _parse_pairs(merge, "--merge")
     conn = open_db(root)
     try:
         for name in not_event or []:
