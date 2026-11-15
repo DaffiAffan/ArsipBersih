@@ -1,8 +1,10 @@
 """Command-line interface: scan, review the plan, tidy, undo, report."""
 
 import os
+import signal
 import threading
 import time
+from concurrent.futures.process import BrokenProcessPool
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -16,7 +18,8 @@ from .db import open_db
 from .events import EventSummary, add_override, run_events
 from .layout import REVIEW_DIR, long_path, to_abs
 from .mover import InsufficientSpace, check_space, undo_all, undo_batch
-from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan, run_scan
+from . import pipeline
+from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
 from .planner import compute_plans, plan_rapikan
 from .report import build_report, verify
 from .tools import check_tools
@@ -145,12 +148,21 @@ def scan(
         last[p.stage] = now
         typer.echo(f"[{p.stage}] {p.done}/{p.total}{_fmt_eta(p.eta_s)}")
 
+    previous = None
     try:
-        summary = run_scan(root, show, stop)
-    except KeyboardInterrupt:
+        # First Ctrl+C only asks the stages to stop after their current chunk.
+        previous = signal.signal(signal.SIGINT, lambda *_: (stop.set(), signal.signal(signal.SIGINT, signal.default_int_handler)))
+    except ValueError:
+        pass  # not the main thread
+    try:
+        summary = pipeline.run_scan(root, show, stop)
+    except (KeyboardInterrupt, BrokenProcessPool):
         stop.set()
         typer.echo(PAUSED)
         raise typer.Exit(0)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
     if summary.stopped:
         typer.echo(PAUSED)
         return
@@ -241,6 +253,8 @@ def tidy(
     except InsufficientSpace as e:
         typer.echo(f"Not enough free space: {e}")
         raise typer.Exit(1)
+    if not result.moved_units and not result.failed_units:
+        typer.echo("Nothing to move.")
     typer.echo(f"Moved units: {result.moved_units}; failed units: {result.failed_units}")
     for err in result.errors:
         typer.echo(f"  {err}")
@@ -311,6 +325,9 @@ def calibrate(
     conn = open_db(root)
     try:
         value = suggest_blur_threshold(conn, sample=sample)
+        if not value or value <= 0:
+            typer.echo("Not enough camera photos with sharpness data to calibrate.")
+            return
         typer.echo(f"Suggested blur threshold: {value:.2f}")
         if save:
             save_settings(conn, replace(load_settings(conn), blur_threshold=value))

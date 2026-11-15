@@ -64,3 +64,27 @@ def test_events_rename_and_bad_format(root, make_image):
     res = runner.invoke(app, ["events", str(root), "--rename", "Users=Bali Trip"])
     assert res.exit_code == 0 and "Bali Trip" in res.stdout
     assert runner.invoke(app, ["events", str(root), "--merge", "nope"]).exit_code == 2
+
+
+def test_scan_pauses_on_broken_pool(root, monkeypatch):
+    from concurrent.futures.process import BrokenProcessPool
+
+    from arsipbersih import pipeline
+
+    def boom(*a, **k):
+        raise BrokenProcessPool("child killed")
+
+    monkeypatch.setattr(pipeline, "run_scan", boom)
+    res = runner.invoke(app, ["scan", str(root)])
+    assert res.exit_code == 0 and "Paused. Run the same command again to resume." in res.stdout
+
+
+def test_calibrate_save_without_data_does_not_save(root):
+    from arsipbersih.config import load_settings
+    from arsipbersih.db import open_db
+
+    res = runner.invoke(app, ["calibrate", str(root), "--save"])
+    assert res.exit_code == 0 and "Not enough camera photos" in res.stdout
+    conn = open_db(root)
+    assert load_settings(conn).blur_threshold is None
+    conn.close()
