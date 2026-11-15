@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import os
+import shutil
+
+import pytest
+
+from arsipbersih.db import new_id, open_db
+from arsipbersih.inventory import run_inventory
+from arsipbersih.layout import long_path
+from arsipbersih.mover import (
+    InsufficientSpace,
+    check_space,
+    execute,
+    reconcile,
+    remove_empty_dirs,
+    undo_batch,
+)
+from arsipbersih.pairing import build_units
+from arsipbersih.planner import FileMove, UnitMove
+
+
+def _one_unit(conn, root, rel="Sumber/HP/DCIM/IMG_1.jpg", data=b"abc"):
+    # long_path: the deep-path test exceeds MAX_PATH on Windows without LongPathsEnabled.
+    p = root / rel; os.makedirs(long_path(p.parent), exist_ok=True)
+    with open(long_path(p), "wb") as f:
+        f.write(data)
+    run_inventory(conn, root); build_units(conn)
+    uid, fid = conn.execute("select unit_id, id from files where rel_path=?", (rel,)).fetchone()
+    return uid, fid
+
+
+def insert_pending(conn, uid, fid, src, dst):
+    bid = new_id()
+    with conn:
+        conn.execute(
+            "insert into batches (id, kind, label, created_at) values (?, 'rapikan', 't', ?)",
+            (bid, "2026-11-15T10:00:00"),
+        )
+        conn.execute(
+            "insert into moves (id, batch_id, unit_id, file_id, src_rel, dst_rel, status, created_at)"
+            " values (?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (new_id(), bid, uid, fid, src, dst, "2026-11-15T10:00:00"),
+        )
+    return bid
+
+
+def test_execute_moves_journals_and_updates(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/2023/2023-08/IMG_1.jpg")])], "rapikan", "t")
+    assert r.moved_units == 1 and (root / "Arsip/2023/2023-08/IMG_1.jpg").exists()
+    assert conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0] == "Arsip/2023/2023-08/IMG_1.jpg"
+    assert conn.execute("select status from moves").fetchone()[0] == "done"
+
+
+def test_never_overwrites(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    (root / "Arsip").mkdir(); (root / "Arsip/IMG_1.jpg").write_bytes(b"other")
+    r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])], "rapikan", "t")
+    assert r.failed_units == 1 and (root / "Arsip/IMG_1.jpg").read_bytes() == b"other"
+    assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists()
+
+
+def test_unit_rolls_back_when_second_file_fails(root):
+    conn = open_db(root)
+    d = root / "Sumber/HP/DCIM"; d.mkdir(parents=True)
+    heic_bytes = b"heic-original-bytes"
+    (d / "IMG_1.HEIC").write_bytes(heic_bytes); (d / "IMG_1.MOV").write_bytes(b"mov-bytes")
+    run_inventory(conn, root); build_units(conn)
+    uid, pair_kind = conn.execute("select id, pair_kind from units").fetchone()
+    assert pair_kind == "live_photo"
+    ids = {rel: fid for fid, rel in conn.execute("select id, rel_path from files")}
+    heic_src, mov_src = "Sumber/HP/DCIM/IMG_1.HEIC", "Sumber/HP/DCIM/IMG_1.MOV"
+    heic_dst, mov_dst = "Arsip/2023/2023-08/IMG_1.HEIC", "Arsip/2023/2023-08/IMG_1.MOV"
+    (root / "Arsip/2023/2023-08").mkdir(parents=True); (root / mov_dst).write_bytes(b"already here")
+    r = execute(conn, root, [UnitMove(uid, "archive", [
+        FileMove(ids[heic_src], heic_src, heic_dst), FileMove(ids[mov_src], mov_src, mov_dst),
+    ])], "rapikan", "t")
+    assert r.failed_units == 1 and r.moved_units == 0
+    assert (root / heic_src).read_bytes() == heic_bytes and not (root / heic_dst).exists()
+    assert (root / mov_dst).read_bytes() == b"already here" and (root / mov_src).exists()
+    assert sorted(s for (s,) in conn.execute("select status from moves")) == ["failed", "failed"]
+    assert {rel for (rel,) in conn.execute("select rel_path from files")} == {heic_src, mov_src}
+
+
+def test_moves_long_unicode_path(root):
+    deep = "Sumber/HP/" + "/".join(["Foto Liburan 🏝️ Bali panjang sekali"] * 8) + "/IMG_ü.jpg"
+    conn = open_db(root); uid, fid = _one_unit(conn, root, rel=deep)
+    dst = "Arsip/2023/2023-08 " + "Acara Ä" * 30 + "/IMG_ü.jpg"
+    assert execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, deep, dst)])], "rapikan", "t").moved_units == 1
+
+
+def test_reconcile_pending_after_completed_rename(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    insert_pending(conn, uid, fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")
+    (root / "Arsip").mkdir(); os.rename(root / "Sumber/HP/DCIM/IMG_1.jpg", root / "Arsip/IMG_1.jpg")
+    assert reconcile(conn, root) == 1
+    assert conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0] == "Arsip/IMG_1.jpg"
+
+
+def test_reconcile_half_copied_cross_drive(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    insert_pending(conn, uid, fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")
+    (root / "Arsip").mkdir(); (root / "Arsip/IMG_1.jpg.partial").write_bytes(b"ab")
+    reconcile(conn, root)
+    assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists() and not (root / "Arsip/IMG_1.jpg.partial").exists()
+
+
+def test_undo_batch_restores_and_remove_empty_dirs(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])], "rapikan", "t")
+    assert remove_empty_dirs(root / "Sumber") == 2      # DCIM, HP
+    undo_batch(conn, root, r.batch_id)
+    assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists()
+
+
+def test_cross_device_copy_verifies_hash(root, monkeypatch):
+    monkeypatch.setattr("arsipbersih.mover._same_device", lambda a, b: False)
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])], "rapikan", "t")
+    assert not (root / "Sumber/HP/DCIM/IMG_1.jpg").exists() and (root / "Arsip/IMG_1.jpg").read_bytes() == b"abc"
+
+
+def test_check_space_raises(root, monkeypatch):
+    monkeypatch.setattr("arsipbersih.mover._same_device", lambda a, b: False)
+    monkeypatch.setattr("shutil.disk_usage", lambda p: shutil._ntuple_diskusage(10, 10, 10))
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    with pytest.raises(InsufficientSpace):
+        check_space(root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])])
