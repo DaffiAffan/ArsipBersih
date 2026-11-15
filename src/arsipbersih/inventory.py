@@ -70,6 +70,8 @@ def _walk(abs_dir: Path, rel_dir: str, result: InventoryResult):
                     elif entry.is_file(follow_symlinks=False):
                         if entry.name.casefold() in IGNORED_NAMES:
                             continue
+                        if entry.name.casefold().endswith(".partial"):
+                            continue  # the mover's temp files are never media
                         st = entry.stat(follow_symlinks=False)
                         yield child_abs, child_rel, st.st_size, st.st_mtime_ns
                 except OSError:

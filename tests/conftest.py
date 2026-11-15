@@ -204,3 +204,56 @@ def conn_with(root):
         return conn
 
     return _insert
+
+
+@pytest.fixture
+def mini_collection(root, make_image):
+    """About 15 files across two sources: dups, WA copy, burst, blur, screenshot, broken, event, undated."""
+    from PIL import Image
+
+    s = root / "Sumber"
+    cam = dict(make="Canon", model="EOS 100D")
+    dt = "2023:06:01 10:00:00"
+
+    # Exact duplicate pair across two sources (byte copy).
+    a = make_image(s / "HP-A/DCIM/Camera/IMG_20230601_100000.jpg", seed=1, exif_datetime=dt, **cam)
+    (s / "HP-B/DCIM/Camera").mkdir(parents=True)
+    (s / "HP-B/DCIM/Camera/IMG_20230601_100000.jpg").write_bytes(a.read_bytes())
+
+    # WhatsApp re-encoded copy of the same picture (smaller, lower quality, no camera info).
+    wa = s / "HP-B/WhatsApp/Media/WhatsApp Images/IMG-20230601-WA0001.jpg"
+    wa.parent.mkdir(parents=True)
+    Image.open(a).resize((600, 450)).save(wa, quality=60)
+
+    # Burst of three: same picture, one second apart.
+    for i in range(3):
+        make_image(
+            s / f"HP-A/DCIM/Camera/IMG_20230605_12000{i}.jpg",
+            seed=2, exif_datetime=f"2023:06:05 12:00:0{i}", **cam,
+        )
+
+    # Blurry photo, screenshot, truncated JPEG, undated DSC_ file, .nomedia.
+    make_image(s / "HP-A/DCIM/Camera/IMG_20230610_090000.jpg", seed=3, blur=8,
+               exif_datetime="2023:06:10 09:00:00", **cam)
+    make_image(s / "HP-A/Pictures/Screenshots/Screenshot_20230701-101010.png",
+               size=(1080, 2400), seed=4)
+    broken = make_image(s / "HP-A/DCIM/Camera/IMG_20230615_150000.jpg", seed=5,
+                        exif_datetime="2023:06:15 15:00:00", **cam)
+    broken.write_bytes(broken.read_bytes()[: broken.stat().st_size // 3])
+    make_image(s / "HP-A/DCIM/Camera/DSC_0042.jpg", seed=6)
+    (s / "HP-A/DCIM/.nomedia").write_bytes(b"")
+
+    # Rinjani event folder on both sources, dated August 2023.
+    for i, (src, seed) in enumerate([("HP-A", 11), ("HP-A", 12), ("HP-B", 13), ("HP-B", 14)]):
+        make_image(s / f"{src}/Rinjani/IMG_2023081{i}_080000.jpg", seed=seed,
+                   exif_datetime=f"2023:08:1{i} 08:00:00", **cam)
+    # Synthetic images are smooth (Laplacian variance 10-47); calibrate so only the blurred one is "burem".
+    from dataclasses import replace
+
+    from arsipbersih.config import load_settings, save_settings
+    from arsipbersih.db import open_db
+
+    conn = open_db(root)
+    save_settings(conn, replace(load_settings(conn), blur_threshold=5.0))
+    conn.close()
+    return root
