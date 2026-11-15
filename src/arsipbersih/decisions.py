@@ -17,7 +17,13 @@ from typing import Literal
 from arsipbersih.classify import GRID_CATEGORIES, GROUP_CATEGORIES
 from arsipbersih.db import new_id
 from arsipbersih.layout import TRASH_DIR, long_path
-from arsipbersih.mover import BatchResult, _abs, execute, remove_empty_dirs
+from arsipbersih.mover import (
+    BatchResult,
+    _abs,
+    execute,
+    reconcile_or_refuse,
+    remove_empty_dirs,
+)
 from arsipbersih.planner import plan_apply
 
 log = logging.getLogger(__name__)
@@ -146,10 +152,14 @@ def _locations(conn: sqlite3.Connection, ids: list[str]) -> dict[str, str]:
 
 
 def apply_category(conn: sqlite3.Connection, root: Path, category: str) -> BatchResult:
+    """Move a category's decided units. Raises PendingMoves while the journal is unsettled."""
+    journal_errors: list[str] = []
+    reconcile_or_refuse(conn, root, journal_errors)
     keep, discard, _ = _lists(conn, category)
     skipped: list[tuple[str, str]] = []
     moves = plan_apply(conn, root, keep, discard, skipped)
     result = execute(conn, root, moves, "apply", f"apply {category}")
+    result.errors.extend(f"journal: {e}" for e in journal_errors)
     result.errors.extend(f"skipped {uid}: {reason}" for uid, reason in skipped)
     try:
         _settle(conn, keep, discard)
@@ -202,9 +212,25 @@ def _delete(path: Path) -> None:
 
 
 def purge_trash(
-    conn: sqlite3.Connection, root: Path, expected_files: int, expected_bytes: int
+    conn: sqlite3.Connection,
+    root: Path,
+    expected_files: int,
+    expected_bytes: int,
+    errors: list[str] | None = None,
 ) -> int:
-    """Permanently delete every file of every trashed unit. Returns files deleted."""
+    """Permanently delete every file of every trashed unit. Returns files deleted.
+
+    The journal is reconciled first (PendingMoves while a move stays unsettled), so the
+    totals are compared against the settled trash. Reconcile problems go to `errors`,
+    or to the log when no list is passed.
+    """
+    journal_errors: list[str] = []
+    reconcile_or_refuse(conn, root, journal_errors)
+    for e in journal_errors:
+        if errors is not None:
+            errors.append(f"journal: {e}")
+        else:
+            log.warning("journal: %s", e)
     totals = trash_totals(conn)
     if totals != (expected_files, expected_bytes):
         raise PurgeMismatch(f"trash holds {totals}, expected {(expected_files, expected_bytes)}")

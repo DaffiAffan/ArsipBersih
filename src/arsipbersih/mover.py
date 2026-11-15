@@ -55,6 +55,10 @@ class MoveConflict(Exception):
     """A destination (or its .partial) already exists on disk or in the files table."""
 
 
+class PendingMoves(Exception):
+    """Interrupted moves are still unsettled after reconcile, so no new batch may start."""
+
+
 class _CopyMismatch(OSError):
     """A cross-device copy does not hash the same as its source."""
 
@@ -682,6 +686,24 @@ def reconcile(conn: sqlite3.Connection, root: Path, errors: list[str] | None = N
         except OSError as e:
             errors.append(f"{src_rel} -> {dst_rel}: left pending: {_describe(e)}")
     return fixed + _rejoin_split_units(conn, root, errors)
+
+
+def reconcile_or_refuse(conn: sqlite3.Connection, root: Path, errors: list[str]) -> int:
+    """Reconcile before a new batch; raise PendingMoves while any row is still pending.
+
+    A batch planned on top of an unsettled move would work from stale paths. Reconcile
+    problems are appended to `errors`. Returns rows fixed.
+    """
+    seen = len(errors)
+    fixed = reconcile(conn, root, errors)
+    pending = conn.execute("select count(*) from moves where status='pending'").fetchone()[0]
+    if pending:
+        detail = "; ".join(errors[seen : seen + 5])
+        raise PendingMoves(
+            f"{pending} interrupted move(s) could not be settled (is a drive disconnected?)."
+            f" Nothing was moved.{' ' + detail if detail else ''}"
+        )
+    return fixed
 
 
 # --- undo --------------------------------------------------------------------------------

@@ -19,7 +19,14 @@ from .hashing import run_hashing
 from .inventory import InventoryResult, run_inventory
 from .layout import SOURCE_DIR
 from .metadata import run_metadata
-from .mover import BatchResult, check_space, execute, reconcile, remove_empty_dirs
+from .mover import (
+    BatchResult,
+    check_space,
+    execute,
+    reconcile,
+    reconcile_or_refuse,
+    remove_empty_dirs,
+)
 from .pairing import build_units, confirm_live_photos
 from .planner import compute_plans, plan_rapikan
 from .tools import ToolStatus, check_tools
@@ -166,11 +173,14 @@ def rapikan(root: Path) -> BatchResult:
     root = Path(root)
     conn = open_db(root)
     try:
+        journal_errors: list[str] = []
+        reconcile_or_refuse(conn, root, journal_errors)  # raises PendingMoves
         if conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone() is None:
             raise ScanIncomplete("The last scan did not finish. Run `scan` again before `tidy`.")
         skipped: list[tuple[str, str]] = []
         moves = plan_rapikan(conn, root, skipped)
-        notes = [f"skipped {unit_id}: {reason}" for unit_id, reason in skipped]
+        notes = [f"journal: {e}" for e in journal_errors]
+        notes += [f"skipped {unit_id}: {reason}" for unit_id, reason in skipped]
         if not moves:
             return BatchResult(batch_id="", moved_units=0, failed_units=0, errors=notes)
         check_space(root, moves)

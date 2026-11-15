@@ -17,7 +17,14 @@ from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
 from .layout import REVIEW_DIR, long_path, to_abs
-from .mover import InsufficientSpace, check_space, undo_all, undo_batch
+from .mover import (
+    InsufficientSpace,
+    PendingMoves,
+    check_space,
+    reconcile_or_refuse,
+    undo_all,
+    undo_batch,
+)
 from . import pipeline
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
 from .planner import compute_plans, plan_rapikan
@@ -251,7 +258,7 @@ def tidy(
         return
     try:
         result = rapikan(root)
-    except ScanIncomplete as e:
+    except (ScanIncomplete, PendingMoves) as e:
         typer.echo(str(e))
         raise typer.Exit(1)
     except InsufficientSpace as e:
@@ -279,12 +286,18 @@ def undo(
         typer.echo("Error: give exactly one of --batch ID or --all.", err=True)
         raise typer.Exit(2)
     conn = open_db(root)
+    journal_errors: list[str] = []
     try:
+        try:
+            reconcile_or_refuse(conn, root, journal_errors)
+        except PendingMoves as e:
+            typer.echo(str(e))
+            raise typer.Exit(1)
         result = undo_all(conn, root) if all_ else undo_batch(conn, root, batch)
     finally:
         conn.close()
     typer.echo(f"Restored units: {result.moved_units}; failed units: {result.failed_units}")
-    for err in result.errors:
+    for err in [f"journal: {e}" for e in journal_errors] + result.errors:
         typer.echo(f"  {err}")
     if result.failed_units:
         raise typer.Exit(1)

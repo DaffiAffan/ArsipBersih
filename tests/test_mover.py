@@ -141,6 +141,23 @@ def test_reconcile_rejoins_unit_split_by_crash(root):
     assert conn.execute("select location from units").fetchone()[0] == "source"
 
 
+def test_rapikan_settles_pending_row_before_planning(root):
+    import json
+
+    from arsipbersih.pipeline import SCAN_DONE_KEY, rapikan
+
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    with conn:
+        conn.execute("insert into settings(key, value) values(?, ?)", (SCAN_DONE_KEY, json.dumps("x")))
+    insert_pending(conn, uid, fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")
+    (root / "Arsip").mkdir(); os.rename(root / "Sumber/HP/DCIM/IMG_1.jpg", root / "Arsip/IMG_1.jpg")
+    r = rapikan(root)
+    assert (r.moved_units, r.failed_units) == (0, 0)
+    assert conn.execute("select status from moves").fetchone()[0] == "done"
+    assert conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0] == "Arsip/IMG_1.jpg"
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
+
+
 def test_undo_batch_restores_and_remove_empty_dirs(root):
     conn = open_db(root); uid, fid = _one_unit(conn, root)
     r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])], "rapikan", "t")
