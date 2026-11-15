@@ -1,0 +1,148 @@
+"""SQLite state database (schema v1)."""
+
+from __future__ import annotations
+
+import sqlite3
+import uuid
+from pathlib import Path
+
+from .layout import STATE_DIR, long_path
+
+SCHEMA_VERSION = 1
+
+SCHEMA = """
+create table if not exists units (
+    id text primary key,
+    primary_file_id text,
+    pair_kind text not null default 'single' check (pair_kind in ('single','live_photo','raw_jpg')),
+    taken_at text,
+    date_source text check (date_source is null or date_source in ('exif','quicktime','filename')),
+    event_key text,
+    event_name text,
+    event_subpath text,
+    location text not null default 'source' check (location in ('source','archive','review','trash')),
+    primary_category text,
+    planned_archive_dir text,
+    planned_review_dir text,
+    seen integer not null default 0
+);
+
+create table if not exists files (
+    id text primary key,
+    unit_id text references units(id),
+    rel_path text not null unique,
+    orig_rel_path text,
+    size integer,
+    mtime_ns integer,
+    kind text,
+    ext text,
+    source_label text,
+    sha256 text,
+    hash_status text check (hash_status is null or hash_status in ('done','error')),
+    meta_status text check (meta_status is null or meta_status in ('done','error')),
+    visual_status text check (visual_status is null or visual_status in ('done','error')),
+    error text,
+    missing integer not null default 0,
+    purged integer not null default 0
+);
+create index if not exists idx_files_unit on files(unit_id);
+create index if not exists idx_files_size on files(size);
+
+create table if not exists media_info (
+    file_id text primary key references files(id),
+    make text,
+    model text,
+    width integer,
+    height integer,
+    duration_s real,
+    video_codec text,
+    has_audio integer,
+    has_gps integer,
+    exif_datetime text,
+    qt_datetime text,
+    phash text,
+    frame_phashes text,
+    sharpness real,
+    luma_mean real,
+    luma_std real,
+    clipping real,
+    frame_lumas text,
+    decode_ok integer
+);
+
+create table if not exists flags (
+    id text primary key,
+    unit_id text not null references units(id),
+    category text not null,
+    score real,
+    reason text,
+    unique (unit_id, category)
+);
+
+create table if not exists groups (
+    id text primary key,
+    kind text not null,
+    suggested_keep_unit_id text
+);
+
+create table if not exists group_members (
+    group_id text not null references groups(id),
+    unit_id text not null references units(id),
+    primary key (group_id, unit_id)
+);
+
+create table if not exists decisions (
+    unit_id text primary key references units(id),
+    decision text not null check (decision in ('keep','discard')),
+    decided_at text,
+    applied integer not null default 0
+);
+
+create table if not exists batches (
+    id text primary key,
+    kind text not null check (kind in ('rapikan','apply','undo','purge')),
+    label text,
+    created_at text
+);
+
+create table if not exists moves (
+    id text primary key,
+    batch_id text not null references batches(id),
+    unit_id text,
+    file_id text,
+    src_rel text,
+    dst_rel text,
+    status text not null check (status in ('pending','done','failed','undone','purged')),
+    created_at text,
+    done_at text
+);
+
+create table if not exists event_overrides (
+    id text primary key,
+    kind text not null check (kind in ('not_event','rename','merge')),
+    name_key text not null,
+    value text
+);
+
+create table if not exists settings (
+    key text primary key,
+    value text not null
+);
+"""
+
+
+def new_id() -> str:
+    return str(uuid.uuid4())
+
+
+def open_db(root: Path) -> sqlite3.Connection:
+    state = Path(root) / STATE_DIR
+    state.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(long_path(state / "arsip.db"))
+    conn.row_factory = sqlite3.Row
+    conn.execute("pragma journal_mode=wal")
+    conn.execute("pragma foreign_keys=on")
+    conn.executescript(SCHEMA)
+    conn.execute(f"pragma user_version={SCHEMA_VERSION}")
+    conn.commit()
+    return conn

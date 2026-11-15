@@ -1,0 +1,36 @@
+[project]
+name = "arsipbersih"
+version = "0.1.0"
+description = "Offline tool that cleans up a personal photo and video collection"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow",
+    "pillow-heif",
+    "rawpy",
+    "opencv-python-headless",
+    "numpy>=2.0",
+    "tzdata",
+    "typer",
+]
+
+[project.scripts]
+arsipbersih = "arsipbersih.cli:app"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arsipbersih"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "slow: performance tests, run on demand",
+    "requires_exiftool: needs ExifTool (skipped when missing)",
+    "requires_ffmpeg: needs ffmpeg/ffprobe (skipped when missing)",
+]

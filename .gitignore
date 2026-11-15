@@ -1,0 +1,34 @@
+# Working documents (owner's rule: docs are not committed)
+docs/
+CLAUDE.md
+.superpowers/
+
+# ArsipBersih runtime data (lives next to the photo root, but never in the repo)
+.arsipbersih/
+
+# Local external tools (ExifTool, ffmpeg binaries)
+tools/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Environment & editors
+.env
+.env.*
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
