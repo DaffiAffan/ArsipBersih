@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from .classify import run_classify
@@ -25,6 +26,13 @@ from .tools import ToolStatus, check_tools
 from .visual import run_visual
 
 STAGES = ("inventory", "pairing", "hash", "metadata", "visual", "grouping", "classify", "events", "plan")
+
+
+SCAN_DONE_KEY = "last_scan_completed_at"
+
+
+class ScanIncomplete(Exception):
+    """Raised when tidy is attempted after a scan that did not finish."""
 
 
 @dataclass
@@ -68,6 +76,8 @@ def run_scan(
     conn = open_db(root)
     try:
         settings = load_settings(conn)
+        with conn:
+            conn.execute("delete from settings where key = ?", (SCAN_DONE_KEY,))
         summary = ScanSummary(InventoryResult(), {}, [], False, check_tools())
 
         def begin(stage: str):
@@ -123,7 +133,12 @@ def run_scan(
 
         begin("plan")
         compute_plans(conn)
-        conn.commit()
+        with conn:
+            conn.execute(
+                "insert into settings(key, value) values(?, ?)"
+                " on conflict(key) do update set value = excluded.value",
+                (SCAN_DONE_KEY, json.dumps(datetime.now().isoformat(timespec="seconds"))),
+            )
         return summary
     finally:
         conn.close()
@@ -134,6 +149,8 @@ def rapikan(root: Path) -> BatchResult:
     root = Path(root)
     conn = open_db(root)
     try:
+        if conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone() is None:
+            raise ScanIncomplete("The last scan did not finish. Run `scan` again before `tidy`.")
         skipped: list[tuple[str, str]] = []
         moves = plan_rapikan(conn, root, skipped)
         notes = [f"skipped {unit_id}: {reason}" for unit_id, reason in skipped]
