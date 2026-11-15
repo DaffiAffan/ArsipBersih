@@ -455,29 +455,46 @@ def _remove_stray_partials(
             errors.append(f"{rel}: left in place: {_describe(e)}")
 
 
-def _adopt_partial(conn, root: Path, file_id: str, rels: tuple[str, ...]) -> str | None:
-    """Rename a complete <rel>.partial into place while the file is at neither endpoint.
+def _reachable(p: Path) -> bool:
+    """Whether p's directory is online; isdir follows junctions to their target."""
+    return os.path.isdir(long_path(p.parent))
+
+
+def _adopt_partial(
+    conn, root: Path, file_id: str, candidates: tuple[tuple[str, str], ...], errors: list[str]
+) -> str | None:
+    """Rename a complete <target>.partial into place while the file is at neither endpoint.
 
     A copy is fsynced and verified before its source is deleted, so a .partial whose size
     (and SHA-256, when known) equals the file's record is the file itself, left behind
-    when the final rename was lost. Returns the rel it now sits at, or None.
+    when the final rename was lost. That holds only while the directory the file left is
+    reachable: an offline drive or junction target also makes a path "missing", and a copy
+    cut off before its fsync can be full-size with an unwritten tail. Each candidate is
+    (target_rel, left_rel). Returns the rel the file now sits at, or None.
     """
     row = conn.execute("select size, sha256 from files where id=?", (file_id,)).fetchone()
     if row is None or row[0] is None:
         return None
     size, sha = row
-    for rel in rels:
-        target = _abs(root, rel)
+    for target_rel, left_rel in candidates:
+        target = _abs(root, target_rel)
         partial = _partial(target)
-        if (
+        if not (
             _exists(partial)
             and not _exists(target)
-            and not _tracked(conn, rel + PARTIAL_SUFFIX, nocase=True)
+            and not _tracked(conn, target_rel + PARTIAL_SUFFIX, nocase=True)
             and os.stat(long_path(partial)).st_size == size
-            and (sha is None or sha256_file(partial) == sha)
         ):
-            os.rename(long_path(partial), long_path(target))  # Windows: never replaces
-            return rel
+            continue
+        if not (_reachable(_abs(root, left_rel)) and _reachable(target)):
+            errors.append(
+                f"{left_rel}: endpoint offline, not adopting {target_rel}{PARTIAL_SUFFIX}"
+            )
+            continue
+        if sha is not None and sha256_file(partial) != sha:
+            continue
+        os.rename(long_path(partial), long_path(target))  # Windows: never replaces
+        return target_rel
     return None
 
 
@@ -524,7 +541,8 @@ def _settle_row(conn, root: Path, row, errors: list[str]) -> bool:
     src_ok, dst_ok = _exists(src), _exists(dst)
     dst_ours = dst_ok and _size_matches(conn, file_id, dst)
     if not (src_ok or dst_ours):
-        if _adopt_partial(conn, root, file_id, (dst_rel, src_rel)) is None:
+        candidates = ((dst_rel, src_rel), (src_rel, dst_rel))
+        if _adopt_partial(conn, root, file_id, candidates, errors) is None:
             errors.append(f"{src_rel} -> {dst_rel}: file at neither path, left pending")
             return False
         src_ok, dst_ok = _exists(src), _exists(dst)
@@ -554,20 +572,35 @@ def _settle_row(conn, root: Path, row, errors: list[str]) -> bool:
 def _return_to_source(
     conn, root: Path, file_id: str, src_rel: str, dst_rel: str, errors: list[str]
 ) -> bool:
-    """Put a done file of a split unit back at src. False when a later move superseded it."""
+    """Put a done file of a split unit back at src. False when it is skipped."""
     row = conn.execute("select rel_path, purged from files where id=?", (file_id,)).fetchone()
-    if row is None or row[1] or row[0] != dst_rel:
-        return False  # moved on or purged since: a later batch owns its location now
+    if row is None or row[1]:
+        return False  # purged since
+    if row[0] == src_rel:  # the done row's rel_path update was refused (UNIQUE clash)
+        errors.append(f"{dst_rel}: unit stays split, its files record still points at {src_rel}")
+        return False
+    if row[0] != dst_rel:
+        return False  # moved on since: a later batch owns its location now
     src, dst = _abs(root, src_rel), _abs(root, dst_rel)
     src_ok, dst_ok = _exists(src), _exists(dst)
     if src_ok and not dst_ok and _size_matches(conn, file_id, src):
         return True  # it went back before a crash; only the DB is left
     if not src_ok and not dst_ok:
-        if _adopt_partial(conn, root, file_id, (src_rel,)) is None:
+        if _adopt_partial(conn, root, file_id, ((src_rel, dst_rel),), errors) is None:
             raise FileNotFoundError(f"file at neither {src_rel} nor {dst_rel}")
         return True
     if dst_ok and not _size_matches(conn, file_id, dst):
         raise MoveConflict(f"{dst_rel} holds another file")
+    if src_ok and dst_ok:
+        # A cross-device return cut off after its copy reached src, before dst was removed.
+        if (
+            not _maybe_same_file(src, dst)
+            and not _tracked(conn, dst_rel, file_id, nocase=True)
+            and sha256_file(src) == sha256_file(dst)
+        ):
+            os.unlink(long_path(dst))  # identical copy; the file is at src
+            return True
+        raise MoveConflict(f"{src_rel} is occupied by another file")
     _remove_stray_partials(conn, root, src_rel, dst_rel, src_ok, dst_ok, dst_ok, errors)
     _move_file(dst, src)  # never overwrites: an occupied src is a MoveConflict
     return True

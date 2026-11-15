@@ -108,6 +108,19 @@ def test_reconcile_half_copied_cross_drive(root):
     assert conn.execute("select status from moves").fetchone()[0] == "failed"
 
 
+def test_reconcile_does_not_adopt_partial_when_source_dir_offline(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    insert_pending(conn, uid, fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")
+    # A full-size .partial, and the source's directory unreachable (drive unplugged).
+    (root / "Arsip").mkdir(); os.rename(root / "Sumber/HP/DCIM/IMG_1.jpg", root / "Arsip/IMG_1.jpg.partial")
+    (root / "Sumber/HP/DCIM").rmdir(); (root / "Sumber/HP").rmdir()
+    errors = []
+    assert reconcile(conn, root, errors) == 0
+    assert (root / "Arsip/IMG_1.jpg.partial").exists() and not (root / "Arsip/IMG_1.jpg").exists()
+    assert conn.execute("select status from moves").fetchone()[0] == "pending"
+    assert any("endpoint offline" in e for e in errors)
+
+
 def test_reconcile_rejoins_unit_split_by_crash(root):
     conn = open_db(root)
     d = root / "Sumber/HP/DCIM"; d.mkdir(parents=True)
