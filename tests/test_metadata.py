@@ -32,3 +32,18 @@ def test_run_metadata_sets_taken_at_and_survives_bad_file(root, make_image):
     got = dict(conn.execute("select f.rel_path, u.taken_at from units u join files f on f.id=u.primary_file_id").fetchall())
     assert got["Sumber/HP/DCIM/DSC_1.JPG"] == "2023-08-12T14:30:22"
     assert got["Sumber/HP/DCIM/IMG_20220101_101010.jpg"] == "2022-01-01T10:10:10"
+
+
+@requires_exiftool
+@requires_ffmpeg
+def test_ffprobe_failure_marks_video_error(root, make_video, monkeypatch):
+    make_video(root / "Sumber/HP/VID_1.mp4", seconds=1.0)
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("arsipbersih.metadata.probe_video", boom)
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    status, error = conn.execute("select meta_status, error from files where kind='video'").fetchone()
+    assert status == "error" and error.startswith("ffprobe:")

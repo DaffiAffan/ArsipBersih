@@ -71,8 +71,8 @@ class ExifTool:
         text = out.decode("utf-8", errors="replace").strip()
         return json.loads(text) if text else []
 
-    def read(self, paths: list[Path]) -> list[dict]:
-        results: list[dict] = []
+    def read(self, paths: list[Path]) -> list[dict | None]:
+        results: list[dict | None] = []
         for i in range(0, len(paths), BATCH):
             chunk = paths[i : i + BATCH]
             entries = self._execute(chunk)
@@ -80,7 +80,7 @@ class ExifTool:
                 results.extend(entries)
                 continue
             by_src = {str(e.get("SourceFile", "")).replace("\\", "/"): e for e in entries}
-            results.extend(by_src.get(str(p).replace("\\", "/"), {}) for p in chunk)
+            results.extend(by_src.get(str(p).replace("\\", "/")) for p in chunk)
         return results
 
 
@@ -228,7 +228,13 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
         try:
             if batch_err is not None:
                 raise RuntimeError(batch_err)
-            fields = extract_exif_fields(entry) if entry is not None else {}
+            fields = extract_exif_fields(entry) if entry else {}
+            status, err = None, None
+            if et is not None:
+                if entry:
+                    status = "done"
+                else:
+                    status, err = "error", "exiftool: no metadata returned"
             if row["kind"] == "video" and ffprobe:
                 try:
                     v = probe_video(path, ffprobe)
@@ -238,9 +244,11 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
                     fields["height"] = fields.get("height") or v["height"]
                     if not fields.get("qt_datetime") and v["creation_time"]:
                         fields["qt_datetime"] = v["creation_time"]
-                except Exception:  # noqa: BLE001 - an unprobeable video is not fatal
-                    pass
-            _store(conn, fid, fields, "done" if entry is not None else None)
+                except Exception as e:  # noqa: BLE001
+                    status = "error"
+                    msg = f"ffprobe: {type(e).__name__}: {e}" if not str(e) else f"ffprobe: {e}"
+                    err = msg[:500]
+            _store(conn, fid, fields, status, err)
         except Exception as e:  # noqa: BLE001
             _store(conn, fid, {}, "error", f"{type(e).__name__}: {e}")
 
