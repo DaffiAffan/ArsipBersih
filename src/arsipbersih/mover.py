@@ -5,16 +5,20 @@ This is the only module that moves media files. Its invariants:
 - An existing path is never replaced: every destination is checked right before each move.
 - A `moves` row with status `pending` is committed before the filesystem is touched, so
   `reconcile` can settle any crash from what is on disk.
-- A cross-device move deletes the source only after the copy's SHA-256 matches it.
-- A unit moves all-or-nothing: when one of its files fails, the files already moved go back.
+- A cross-device move deletes the source only after the copy is fsynced and its SHA-256
+  matches it.
+- A unit moves all-or-nothing: when one of its files fails, the files already moved go
+  back, and `reconcile` rejoins a unit that a hard crash left split.
 - Besides the source of a verified cross-device move, the only paths ever deleted are
-  `.partial` copies this module made, a destination copy whose SHA-256 equals its
+  `.partial` copies this module made (after a failure, or in `reconcile` when the copy is a
+  byte-prefix of the surviving file), a destination copy whose SHA-256 equals its
   still-present source (`reconcile`), and empty directories (`remove_empty_dirs`).
 """
 
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
 import shutil
 import sqlite3
@@ -30,6 +34,7 @@ from arsipbersih.planner import FileMove, UnitMove
 
 SPACE_RESERVE = 1 << 30  # bytes left free on a destination drive
 PARTIAL_SUFFIX = ".partial"
+COPY_CHUNK = 1 << 20
 LOCATION_BY_TOP = {
     SOURCE_DIR: "source",
     ARCHIVE_DIR: "archive",
@@ -128,6 +133,27 @@ def _maybe_same_file(a: Path, b: Path) -> bool:
     return sa.st_dev == sb.st_dev and sa.st_ino == sb.st_ino
 
 
+def _is_prefix_of(part: Path, whole: Path) -> bool:
+    """Whether the bytes of part are a prefix of (or equal to) the bytes of whole."""
+    if os.stat(long_path(part)).st_size > os.stat(long_path(whole)).st_size:
+        return False
+    with open(long_path(part), "rb") as a, open(long_path(whole), "rb") as b:
+        while block := a.read(COPY_CHUNK):
+            if b.read(len(block)) != block:
+                return False
+    return True
+
+
+def _require_deletable(src: Path) -> None:
+    """Fail before copying when a cross-device move could not delete its source."""
+    if os.name == "nt":  # the read-only attribute blocks DeleteFile
+        blocked = not os.stat(long_path(src)).st_mode & stat.S_IWRITE
+    else:  # POSIX: deleting needs write access to the directory
+        blocked = not os.access(long_path(src.parent), os.W_OK | os.X_OK)
+    if blocked:
+        raise PermissionError(f"sumber read-only: {src}")
+
+
 def _is_cross_device(e: OSError) -> bool:
     return e.errno == errno.EXDEV or getattr(e, "winerror", None) == _WIN_ERROR_NOT_SAME_DEVICE
 
@@ -145,21 +171,32 @@ def _describe(e: BaseException) -> str:
 def _cleanup_partial(partial: Path, exc: BaseException) -> None:
     """Delete a .partial this call created, after a failure; a leftover is noted on exc."""
     try:
-        os.unlink(long_path(partial))
-    except FileNotFoundError:
-        pass
+        if _exists(partial):
+            # Our own file only: clear a read-only bit copystat may have carried over.
+            os.chmod(long_path(partial), stat.S_IWRITE | stat.S_IREAD)
+            os.unlink(long_path(partial))
     except OSError as err:
         exc.add_note(f"could not remove {partial}: {err}")
 
 
 def _copy_verify_move(src: Path, dst: Path) -> None:
-    """Cross-device move: copy to <dst>.partial, verify SHA-256, rename into place, delete src."""
+    """Cross-device move: copy to <dst>.partial, fsync, verify SHA-256, rename, delete src."""
+    _require_deletable(src)
     partial = _partial(dst)
-    if _exists(partial):
-        raise MoveConflict(f"partial file exists: {partial}")
     try:
-        shutil.copy2(long_path(src), long_path(partial))
-        if sha256_file(partial) != sha256_file(src):
+        out = open(long_path(partial), "xb")  # exclusive create: never truncates a file
+    except FileExistsError:
+        raise MoveConflict(f"partial file exists: {partial}") from None
+    try:
+        src_hash = hashlib.sha256()
+        with out, open(long_path(src), "rb") as f:
+            while block := f.read(COPY_CHUNK):
+                src_hash.update(block)
+                out.write(block)
+            out.flush()
+            os.fsync(out.fileno())  # durable before the source can be deleted
+        shutil.copystat(long_path(src), long_path(partial))
+        if sha256_file(partial) != src_hash.hexdigest():
             raise _CopyMismatch(f"copy does not match its source: {src}")
         if _exists(dst):
             raise MoveConflict(f"destination exists: {dst}")
@@ -236,8 +273,9 @@ def _check_unit(conn: sqlite3.Connection, root: Path, um: UnitMove) -> None:
     if um.to_location not in _LOCATIONS:
         raise ValueError(f"unknown location: {um.to_location!r}")
     for fm in um.files:
-        _abs(root, fm.src_rel)
-        _abs(root, fm.dst_rel)
+        src, dst = _abs(root, fm.src_rel), _abs(root, fm.dst_rel)
+        if _exists(src) and not _same_device(src, dst):
+            _require_deletable(src)  # fail the unit up front instead of copying
         row = conn.execute(
             "select rel_path, purged from files where id=?", (fm.file_id,)
         ).fetchone()
@@ -319,6 +357,9 @@ def _run_batch(
     label: str,
     plan: list[tuple[UnitMove, list[str] | None]],
 ) -> BatchResult:
+    plan = [(um, originals) for um, originals in plan if um.files]
+    if not plan:
+        return BatchResult("", 0, 0, [])  # nothing to move: no empty batch row
     check_space(root, [um for um, _ in plan])
     batch_id = new_id()
     with conn:
@@ -328,8 +369,6 @@ def _run_batch(
         )
     result = BatchResult(batch_id, 0, 0, [])
     for um, originals in plan:
-        if not um.files:
-            continue
         errors = _run_unit(conn, root, batch_id, um, originals)
         if errors:
             result.failed_units += 1
@@ -367,7 +406,10 @@ def check_space(root: Path, moves: list[UnitMove]) -> None:
 def execute(
     conn: sqlite3.Connection, root: Path, moves: list[UnitMove], kind: str, label: str
 ) -> BatchResult:
-    """Move units as one journaled batch. Raises InsufficientSpace before moving anything."""
+    """Move units as one journaled batch. Raises InsufficientSpace before moving anything.
+
+    With nothing to move, no batch row is written and `batch_id` is empty.
+    """
     return _run_batch(conn, _norm(root), kind, label, [(um, None) for um in moves])
 
 
@@ -375,30 +417,68 @@ def execute(
 
 
 def _remove_stray_partials(
-    conn, root: Path, src_rel: str, dst_rel: str, src_ok: bool, dst_ok: bool, dst_ours: bool
+    conn,
+    root: Path,
+    src_rel: str,
+    dst_rel: str,
+    src_ok: bool,
+    dst_ok: bool,
+    dst_ours: bool,
+    errors: list[str],
 ) -> None:
-    """Delete the .partial an interrupted row left behind.
+    """Delete the .partial an interrupted move left behind, when it holds nothing unique.
 
-    A .partial of this module exists only while its own path is missing: <dst>.partial is
-    a copy of src (forward copy), <src>.partial a copy of dst (rollback copy). So it is
-    deleted only in that state and only while the other endpoint holds the file. A path
-    the files table knows is a user file and is kept.
+    <dst>.partial is a forward copy of src and <src>.partial a rollback copy of dst; each
+    exists only while its own path is missing. A candidate is deleted only in that state,
+    only when its bytes are a prefix of (or equal to) the endpoint holding the file, and
+    never when the files table knows its path. Anything else is left in place. A failed
+    deletion is reported; the leftover then only blocks a later move to the same path.
     """
     src, dst = _abs(root, src_rel), _abs(root, dst_rel)
     candidates = []
     if src_ok and not dst_ok:
-        candidates.append(dst_rel + PARTIAL_SUFFIX)
+        candidates.append((dst_rel + PARTIAL_SUFFIX, src))
     if dst_ours and not src_ok:
-        candidates.append(src_rel + PARTIAL_SUFFIX)
-    for rel in candidates:
+        candidates.append((src_rel + PARTIAL_SUFFIX, dst))
+    for rel, survivor in candidates:
         partial = _abs(root, rel)
+        try:
+            if (
+                _exists(partial)
+                and not _tracked(conn, rel, nocase=True)
+                and not _maybe_same_file(partial, src)
+                and not _maybe_same_file(partial, dst)
+                and _is_prefix_of(partial, survivor)
+            ):
+                os.unlink(long_path(partial))
+        except OSError as e:
+            errors.append(f"{rel}: left in place: {_describe(e)}")
+
+
+def _adopt_partial(conn, root: Path, file_id: str, rels: tuple[str, ...]) -> str | None:
+    """Rename a complete <rel>.partial into place while the file is at neither endpoint.
+
+    A copy is fsynced and verified before its source is deleted, so a .partial whose size
+    (and SHA-256, when known) equals the file's record is the file itself, left behind
+    when the final rename was lost. Returns the rel it now sits at, or None.
+    """
+    row = conn.execute("select size, sha256 from files where id=?", (file_id,)).fetchone()
+    if row is None or row[0] is None:
+        return None
+    size, sha = row
+    for rel in rels:
+        target = _abs(root, rel)
+        partial = _partial(target)
         if (
             _exists(partial)
-            and not _tracked(conn, rel, nocase=True)
-            and not _maybe_same_file(partial, src)
-            and not _maybe_same_file(partial, dst)
+            and not _exists(target)
+            and not _tracked(conn, rel + PARTIAL_SUFFIX, nocase=True)
+            and os.stat(long_path(partial)).st_size == size
+            and (sha is None or sha256_file(partial) == sha)
         ):
-            os.unlink(long_path(partial))
+            os.rename(long_path(partial), long_path(target))  # Windows: never replaces
+            return rel
+    return None
 
 
 def _size_matches(conn, file_id: str, p: Path) -> bool:
@@ -427,22 +507,136 @@ def _settle_location(conn, batch_id: str, unit_id: str | None) -> None:
             conn.execute("update units set location=? where id=?", (location, unit_id))
 
 
-def reconcile(conn: sqlite3.Connection, root: Path) -> int:
-    """Settle `pending` rows left by a crash from what is on disk. Returns rows settled.
+def _revert_original(conn, file_id: str, undo_src: str, undo_dst: str) -> None:
+    conn.execute(
+        "update moves set status='done' where id = ("
+        " select m.id from moves m join batches b on b.id = m.batch_id"
+        " where m.file_id=? and m.src_rel=? and m.dst_rel=? and m.status='undone'"
+        " and b.kind in ('rapikan','apply') order by m.rowid desc limit 1)",
+        (file_id, undo_dst, undo_src),
+    )
 
-    A row that cannot be settled now (the file is at neither path, e.g. a drive is
-    disconnected, or an I/O error) stays pending and is retried on the next run.
+
+def _settle_row(conn, root: Path, row, errors: list[str]) -> bool:
+    """Settle one pending row from what is on disk. False when it must stay pending."""
+    row_id, batch_id, unit_id, file_id, src_rel, dst_rel, kind = row
+    src, dst = _abs(root, src_rel), _abs(root, dst_rel)
+    src_ok, dst_ok = _exists(src), _exists(dst)
+    dst_ours = dst_ok and _size_matches(conn, file_id, dst)
+    if not (src_ok or dst_ours):
+        if _adopt_partial(conn, root, file_id, (dst_rel, src_rel)) is None:
+            errors.append(f"{src_rel} -> {dst_rel}: file at neither path, left pending")
+            return False
+        src_ok, dst_ok = _exists(src), _exists(dst)
+        dst_ours = dst_ok and _size_matches(conn, file_id, dst)
+    # Disk first, then the row: a crash in between leaves the row pending.
+    _remove_stray_partials(conn, root, src_rel, dst_rel, src_ok, dst_ok, dst_ours, errors)
+    if dst_ours and not src_ok:
+        with conn:
+            _record_done(conn, row_id, FileMove(file_id, src_rel, dst_rel), _now(), None)
+            if kind == "undo":
+                _mark_original_undone(conn, file_id, src_rel, dst_rel)
+            _settle_location(conn, batch_id, unit_id)
+        return True
+    if (
+        src_ok
+        and dst_ok
+        and not _maybe_same_file(src, dst)
+        and not _tracked(conn, dst_rel, nocase=True)
+        and sha256_file(dst) == sha256_file(src)
+    ):
+        os.unlink(long_path(dst))  # our verified copy; the original is at src
+    with conn:
+        conn.execute("update moves set status='failed' where id=?", (row_id,))
+    return True
+
+
+def _return_to_source(
+    conn, root: Path, file_id: str, src_rel: str, dst_rel: str, errors: list[str]
+) -> bool:
+    """Put a done file of a split unit back at src. False when a later move superseded it."""
+    row = conn.execute("select rel_path, purged from files where id=?", (file_id,)).fetchone()
+    if row is None or row[1] or row[0] != dst_rel:
+        return False  # moved on or purged since: a later batch owns its location now
+    src, dst = _abs(root, src_rel), _abs(root, dst_rel)
+    src_ok, dst_ok = _exists(src), _exists(dst)
+    if src_ok and not dst_ok and _size_matches(conn, file_id, src):
+        return True  # it went back before a crash; only the DB is left
+    if not src_ok and not dst_ok:
+        if _adopt_partial(conn, root, file_id, (src_rel,)) is None:
+            raise FileNotFoundError(f"file at neither {src_rel} nor {dst_rel}")
+        return True
+    if dst_ok and not _size_matches(conn, file_id, dst):
+        raise MoveConflict(f"{dst_rel} holds another file")
+    _remove_stray_partials(conn, root, src_rel, dst_rel, src_ok, dst_ok, dst_ok, errors)
+    _move_file(dst, src)  # never overwrites: an occupied src is a MoveConflict
+    return True
+
+
+def _rejoin_split_units(conn, root: Path, errors: list[str]) -> int:
+    """Move the done files of a half-moved unit back to their source. Returns rows fixed.
+
+    A unit is split when its rows in one batch are partly done and partly failed (a hard
+    crash mid-unit, or a failed rollback). Its done files go back through the
+    never-overwrite _move_file, their rows become failed, and rel_path returns to src.
+    units.location never changed for such a unit, so it keeps its pre-batch value. For an
+    undo batch the original rows go back to done. A file that cannot go back stays where
+    it is and is reported.
+    """
+    groups = conn.execute(
+        "select m.batch_id, m.unit_id, b.kind from moves m join batches b on b.id = m.batch_id"
+        " group by m.batch_id, m.unit_id"
+        " having sum(m.status='done') > 0 and sum(m.status='failed') > 0"
+        " and sum(m.status='pending') = 0"
+    ).fetchall()
+    fixed = 0
+    for batch_id, unit_id, kind in groups:
+        rows = conn.execute(
+            "select id, file_id, src_rel, dst_rel from moves"
+            " where batch_id=? and unit_id is ? and status='done' order by rowid desc",
+            (batch_id, unit_id),
+        ).fetchall()
+        for row_id, file_id, src_rel, dst_rel in rows:
+            try:
+                if not _return_to_source(conn, root, file_id, src_rel, dst_rel, errors):
+                    continue
+            except Exception as e:  # noqa: BLE001 - the file stays put and is reported
+                errors.append(
+                    f"split unit {unit_id}: {dst_rel} not returned to {src_rel}: {_describe(e)}"
+                )
+                continue
+            with conn:
+                conn.execute(
+                    "update moves set status='failed', done_at=null where id=?", (row_id,)
+                )
+                _set_rel_path(conn, file_id, src_rel)
+                if kind == "undo":
+                    _revert_original(conn, file_id, src_rel, dst_rel)
+            fixed += 1
+    return fixed
+
+
+def reconcile(conn: sqlite3.Connection, root: Path, errors: list[str] | None = None) -> int:
+    """Settle the journal after a crash from what is on disk. Returns rows fixed.
+
+    Pending rows become done or failed, then units left half-moved are rejoined at their
+    source. A row that cannot be settled now (the file is at neither path, e.g. a drive is
+    disconnected, or an I/O error) stays pending and is retried on the next run. Problems
+    are appended to `errors` when a list is passed.
     """
     root = _norm(root)
+    errors = [] if errors is None else errors
     rows = conn.execute(
         "select m.id, m.batch_id, m.unit_id, m.file_id, m.src_rel, m.dst_rel, b.kind"
         " from moves m join batches b on b.id = m.batch_id"
         " where m.status='pending' order by m.rowid"
     ).fetchall()
     fixed = 0
-    for row_id, batch_id, unit_id, file_id, src_rel, dst_rel, kind in rows:
+    for row in rows:
+        row_id, src_rel, dst_rel = row[0], row[4], row[5]
         try:
-            src, dst = _abs(root, src_rel), _abs(root, dst_rel)
+            _abs(root, src_rel)
+            _abs(root, dst_rel)
         except ValueError:
             # Such a row fails validation before any move, so nothing moved.
             with conn:
@@ -450,33 +644,11 @@ def reconcile(conn: sqlite3.Connection, root: Path) -> int:
             fixed += 1
             continue
         try:
-            src_ok, dst_ok = _exists(src), _exists(dst)
-            dst_ours = dst_ok and _size_matches(conn, file_id, dst)
-            if not (src_ok or dst_ours):
-                continue  # the file is at neither path: stays pending, see docstring
-            # Disk first, then the row: a crash in between leaves the row pending.
-            _remove_stray_partials(conn, root, src_rel, dst_rel, src_ok, dst_ok, dst_ours)
-            if dst_ours and not src_ok:
-                with conn:
-                    _record_done(conn, row_id, FileMove(file_id, src_rel, dst_rel), _now(), None)
-                    if kind == "undo":
-                        _mark_original_undone(conn, file_id, src_rel, dst_rel)
-                    _settle_location(conn, batch_id, unit_id)
-            else:
-                if (
-                    src_ok
-                    and dst_ok
-                    and not _maybe_same_file(src, dst)
-                    and not _tracked(conn, dst_rel, nocase=True)
-                    and sha256_file(dst) == sha256_file(src)
-                ):
-                    os.unlink(long_path(dst))  # our verified copy; the original is at src
-                with conn:
-                    conn.execute("update moves set status='failed' where id=?", (row_id,))
-        except OSError:
-            continue  # stays pending: see docstring
-        fixed += 1
-    return fixed
+            if _settle_row(conn, root, row, errors):
+                fixed += 1
+        except OSError as e:
+            errors.append(f"{src_rel} -> {dst_rel}: left pending: {_describe(e)}")
+    return fixed + _rejoin_split_units(conn, root, errors)
 
 
 # --- undo --------------------------------------------------------------------------------
@@ -505,7 +677,8 @@ def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResu
     """Reverse the done rows of a rapikan/apply batch as a new `undo` batch.
 
     Each unit goes back all-or-nothing; a unit whose original path is occupied, or whose
-    file has moved on since, is skipped and reported in `errors`.
+    file has moved on since, is skipped and reported in `errors`. With no done rows left,
+    no batch row is written and `batch_id` is empty.
     """
     row = conn.execute("select kind from batches where id=?", (batch_id,)).fetchone()
     if row is None:

@@ -30,13 +30,14 @@ def _one_unit(conn, root, rel="Sumber/HP/DCIM/IMG_1.jpg", data=b"abc"):
     return uid, fid
 
 
-def insert_pending(conn, uid, fid, src, dst):
-    bid = new_id()
+def insert_pending(conn, uid, fid, src, dst, bid=None):
     with conn:
-        conn.execute(
-            "insert into batches (id, kind, label, created_at) values (?, 'rapikan', 't', ?)",
-            (bid, "2026-11-15T10:00:00"),
-        )
+        if bid is None:
+            bid = new_id()
+            conn.execute(
+                "insert into batches (id, kind, label, created_at) values (?, 'rapikan', 't', ?)",
+                (bid, "2026-11-15T10:00:00"),
+            )
         conn.execute(
             "insert into moves (id, batch_id, unit_id, file_id, src_rel, dst_rel, status, created_at)"
             " values (?, ?, ?, ?, ?, ?, 'pending', ?)",
@@ -104,6 +105,27 @@ def test_reconcile_half_copied_cross_drive(root):
     (root / "Arsip").mkdir(); (root / "Arsip/IMG_1.jpg.partial").write_bytes(b"ab")
     reconcile(conn, root)
     assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists() and not (root / "Arsip/IMG_1.jpg.partial").exists()
+    assert conn.execute("select status from moves").fetchone()[0] == "failed"
+
+
+def test_reconcile_rejoins_unit_split_by_crash(root):
+    conn = open_db(root)
+    d = root / "Sumber/HP/DCIM"; d.mkdir(parents=True)
+    (d / "IMG_1.HEIC").write_bytes(b"heic-bytes"); (d / "IMG_1.MOV").write_bytes(b"mov-bytes")
+    run_inventory(conn, root); build_units(conn)
+    uid = conn.execute("select id from units").fetchone()[0]
+    ids = {rel: fid for fid, rel in conn.execute("select id, rel_path from files")}
+    heic, mov = "Sumber/HP/DCIM/IMG_1.HEIC", "Sumber/HP/DCIM/IMG_1.MOV"
+    # Hard crash mid-unit: both rows pending, the HEIC already renamed, the MOV not yet.
+    bid = insert_pending(conn, uid, ids[heic], heic, "Arsip/2023/IMG_1.HEIC")
+    insert_pending(conn, uid, ids[mov], mov, "Arsip/2023/IMG_1.MOV", bid=bid)
+    (root / "Arsip/2023").mkdir(parents=True); os.rename(root / heic, root / "Arsip/2023/IMG_1.HEIC")
+    reconcile(conn, root)
+    assert (root / heic).read_bytes() == b"heic-bytes" and (root / mov).read_bytes() == b"mov-bytes"
+    assert not (root / "Arsip/2023/IMG_1.HEIC").exists()
+    assert [s for (s,) in conn.execute("select status from moves")] == ["failed", "failed"]
+    assert {rel for (rel,) in conn.execute("select rel_path from files")} == {heic, mov}
+    assert conn.execute("select location from units").fetchone()[0] == "source"
 
 
 def test_undo_batch_restores_and_remove_empty_dirs(root):
@@ -112,6 +134,8 @@ def test_undo_batch_restores_and_remove_empty_dirs(root):
     assert remove_empty_dirs(root / "Sumber") == 2      # DCIM, HP
     undo_batch(conn, root, r.batch_id)
     assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists()
+    assert undo_batch(conn, root, r.batch_id).batch_id == ""     # nothing left: no empty batch
+    assert conn.execute("select count(*) from batches").fetchone()[0] == 2
 
 
 def test_cross_device_copy_verifies_hash(root, monkeypatch):
