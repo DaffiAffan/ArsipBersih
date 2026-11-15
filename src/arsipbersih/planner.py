@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .classify import CATEGORY_PRIORITY, GROUP_CATEGORIES
+from .formats import GOPRO_AUX_EXTS, PHOTO_EXTS, RAW_EXTS, SIDECAR_EXTS, VIDEO_EXTS
 from .layout import (
     ARCHIVE_DIR,
     REVIEW_DIR,
@@ -134,6 +135,20 @@ def compute_plans(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
+_MEDIA_EXTS = PHOTO_EXTS | RAW_EXTS | VIDEO_EXTS | GOPRO_AUX_EXTS
+MAX_RESERVE_ATTEMPTS = 10_000
+
+
+def _split_name(fn: str) -> tuple[str, str]:
+    """(stem, ext) where a sidecar of a media file keeps both extensions (IMG_1.JPG.xmp)."""
+    stem, ext = posixpath.splitext(fn)
+    if ext.lstrip(".").lower() in SIDECAR_EXTS:
+        inner_stem, inner_ext = posixpath.splitext(stem)
+        if inner_ext.lstrip(".").lower() in _MEDIA_EXTS:
+            return inner_stem, inner_ext + ext
+    return stem, ext
+
+
 class NameReserver:
     def __init__(self, root: Path):
         self.root = root
@@ -163,8 +178,10 @@ class NameReserver:
 
     def reserve_unit(self, dst_dir: str, filenames: list[str], source_label: str) -> list[str]:
         label = sanitize_component(source_label or "_")
-        n = 1
-        while True:
+        lowered = [f.lower() for f in filenames]
+        if len(set(lowered)) != len(lowered):
+            raise ValueError(f"duplicate file names within one unit: {filenames}")
+        for n in range(1, MAX_RESERVE_ATTEMPTS + 1):
             if n == 1:
                 suffix = ""
             elif n == 2:
@@ -173,13 +190,13 @@ class NameReserver:
                 suffix = f"__{label}__{n - 1}"
             cand = []
             for fn in filenames:
-                stem, ext = posixpath.splitext(fn)
+                stem, ext = _split_name(fn)
                 cand.append(f"{stem}{suffix}{ext}")
             if self._free(dst_dir, cand):
                 for c in cand:
                     self._taken.add((dst_dir.lower(), c.lower()))
                 return cand
-            n += 1
+        raise RuntimeError(f"could not reserve names in {dst_dir} for {filenames}")
 
 
 def _build_move(

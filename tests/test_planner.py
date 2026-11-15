@@ -39,3 +39,17 @@ def test_plan_rapikan_routes_clean_keepers_and_flagged(conn_with, root):
     compute_plans(conn)
     moves = {m.files[0].dst_rel.split("/")[0]: m for m in plan_rapikan(conn, root)}
     assert set(moves) == {"Arsip", "_review"}
+
+
+def test_name_reserver_sidecar_keeps_pairing(root):
+    from arsipbersih.pairing import _group_stem
+
+    d = root / "Arsip/2023/2023-08"; d.mkdir(parents=True); (d / "IMG_1.JPG").write_bytes(b"x")
+    names = NameReserver(root).reserve_unit("Arsip/2023/2023-08", ["IMG_1.JPG", "IMG_1.JPG.xmp"], "HP")
+    assert names == ["IMG_1__HP.JPG", "IMG_1__HP.JPG.xmp"]
+    assert _group_stem(names[0], "jpg") == _group_stem(names[1], "xmp")
+
+
+def test_name_reserver_rejects_duplicate_names_in_unit(root):
+    with pytest.raises(ValueError, match="duplicate file names"):
+        NameReserver(root).reserve_unit("Arsip/x", ["A.jpg", "a.JPG"], "HP")
