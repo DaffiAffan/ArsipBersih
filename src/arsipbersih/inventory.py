@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .db import new_id
@@ -13,6 +13,7 @@ from .layout import ARCHIVE_DIR, SOURCE_DIR, long_path
 
 NO_LABEL = "_tanpa-label"
 BATCH_SIZE = 1000
+MAX_ERROR_PATHS = 50
 
 _INSERT = (
     "insert into files (id, rel_path, orig_rel_path, size, mtime_ns, kind, ext, source_label,"
@@ -28,6 +29,13 @@ class InventoryResult:
     missing: int = 0
     non_media: int = 0
     skipped_dirs: int = 0
+    errors: int = 0
+    error_paths: list[str] = field(default_factory=list)
+
+    def record_error(self, rel: str) -> None:
+        self.errors += 1
+        if len(self.error_paths) < MAX_ERROR_PATHS:
+            self.error_paths.append(rel)
 
 
 def _is_link(entry: os.DirEntry) -> bool:
@@ -45,6 +53,7 @@ def _walk(abs_dir: Path, rel_dir: str, result: InventoryResult):
         try:
             it = os.scandir(long_path(cur_abs))
         except OSError:
+            result.record_error(cur_rel)
             continue
         with it:
             for entry in it:
@@ -64,6 +73,7 @@ def _walk(abs_dir: Path, rel_dir: str, result: InventoryResult):
                         st = entry.stat(follow_symlinks=False)
                         yield child_abs, child_rel, st.st_size, st.st_mtime_ns
                 except OSError:
+                    result.record_error(child_rel)
                     continue
 
 

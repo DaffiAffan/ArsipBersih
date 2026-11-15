@@ -86,14 +86,13 @@ def detect_kind(path: Path) -> Kind:
     try:
         with open(long_path(path), "rb") as f:
             head = f.read(32)
-            if head[:1] == b"\x47":
+            kind = _kind_by_magic(head, ext) if head else None
+            if kind is None and head[:1] == b"\x47":
                 f.seek(188)
                 if f.read(1) == b"\x47":
                     return Kind.VIDEO
     except OSError:
         return _kind_by_ext(ext)
-    if head:
-        kind = _kind_by_magic(head, ext)
-        if kind is not None:
-            return kind
+    if kind is not None:
+        return kind
     return _kind_by_ext(ext)

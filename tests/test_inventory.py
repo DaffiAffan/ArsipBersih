@@ -48,3 +48,12 @@ def test_inventory_unicode_names(root, make_image):
     conn = open_db(root)
     run_inventory(conn, root)
     assert conn.execute("select count(*) from files").fetchone()[0] == 1
+
+
+def test_gif_with_ts_sync_byte_is_photo(root):
+    p = root / "Sumber/HP/a.gif"
+    p.parent.mkdir(parents=True)
+    data = bytearray(b"GIF89a" + bytes(300))
+    data[188] = 0x47
+    p.write_bytes(bytes(data))
+    assert detect_kind(p) is Kind.PHOTO
