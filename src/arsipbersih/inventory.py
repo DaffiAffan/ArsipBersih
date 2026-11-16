@@ -31,6 +31,7 @@ class InventoryResult:
     skipped_dirs: int = 0
     errors: int = 0
     error_paths: list[str] = field(default_factory=list)
+    missing_paths: list[str] = field(default_factory=list)
 
     def record_error(self, rel: str) -> None:
         self.errors += 1
@@ -172,6 +173,10 @@ def run_inventory(conn: sqlite3.Connection, root: Path) -> InventoryResult:
                 conn.execute("update files set missing=0 where id=?", (row["id"],))
             elif not exists and not row["missing"]:
                 conn.execute("update files set missing=1 where id=?", (row["id"],))
+                if key in seen_keys:
+                    continue  # a stale twin row; the file itself is still there
                 result.missing += 1
+                if len(result.missing_paths) < MAX_ERROR_PATHS:
+                    result.missing_paths.append(row["rel_path"])
     conn.commit()
     return result

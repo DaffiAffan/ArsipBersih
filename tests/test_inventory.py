@@ -88,3 +88,18 @@ def test_case_only_rename_keeps_one_row(root, make_image):
     run_inventory(conn, root)
     live = conn.execute("select rel_path from files where missing=0").fetchall()
     assert [x[0] for x in live] == ["Sumber/HP/DCIM/img_1.jpg"]
+
+
+def test_files_gone_since_last_scan_are_warned(root, make_image):
+    from arsipbersih.pipeline import _inventory_warnings
+
+    gone = make_image(root / "Sumber/HP/DCIM/IMG_1.jpg")
+    make_image(root / "Sumber/HP/DCIM/IMG_2.jpg", seed=1)
+    conn = open_db(root)
+    run_inventory(conn, root)
+    gone.unlink()
+    r = run_inventory(conn, root)
+    assert r.missing == 1 and r.missing_paths == ["Sumber/HP/DCIM/IMG_1.jpg"]
+    warnings = _inventory_warnings(r)
+    assert "1 files are gone since the last scan" in warnings
+    assert "gone: Sumber/HP/DCIM/IMG_1.jpg" in warnings

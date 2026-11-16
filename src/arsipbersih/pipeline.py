@@ -76,6 +76,9 @@ def _inventory_warnings(inv: InventoryResult) -> list[str]:
     if inv.errors:
         out.append(f"{inv.errors} paths could not be read")
         out.extend(f"unreadable: {p}" for p in inv.error_paths[:MAX_WARNED_PATHS])
+    if inv.missing:
+        out.append(f"{inv.missing} files are gone since the last scan")
+        out.extend(f"gone: {p}" for p in inv.missing_paths[:MAX_WARNED_PATHS])
     if inv.skipped_dirs:
         out.append(f"{inv.skipped_dirs} cache folders skipped")
     if inv.non_media:
