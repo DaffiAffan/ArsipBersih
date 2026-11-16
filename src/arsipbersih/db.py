@@ -9,6 +9,7 @@ from pathlib import Path
 from .layout import STATE_DIR, long_path
 
 SCHEMA_VERSION = 1
+BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
 create table if not exists units (
@@ -138,8 +139,9 @@ def new_id() -> str:
 def open_db(root: Path) -> sqlite3.Connection:
     state = Path(root) / STATE_DIR
     state.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(long_path(state / "arsip.db"))
+    conn = sqlite3.connect(long_path(state / "arsip.db"), timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"pragma busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("pragma journal_mode=wal")
     conn.execute("pragma foreign_keys=on")
     conn.executescript(SCHEMA)
