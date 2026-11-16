@@ -46,6 +46,7 @@ ROUTERS.append(_media_routes.router)
 from .routes import review as _review_routes  # noqa: E402
 
 ROUTERS.append(_review_routes.router)
+ROUTERS.append(_review_routes.pages)
 
 from .routes import plan as _plan_routes  # noqa: E402
 

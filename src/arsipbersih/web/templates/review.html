@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Review - ArsipBersih{% endblock %}
+{% block content %}
+<div class="rv-layout">
+  <nav class="rv-cats" id="rv-cats" aria-label="Kategori review">
+    {% for c in categories %}
+    <a href="/review/{{ c.category }}" data-cat="{{ c.category }}"{% if c.category == category %} class="active" aria-current="page"{% endif %}>
+      <span>{{ c.label }}</span><span class="rv-count">{{ c.count }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+  {% if category %}
+  <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}">
+    {% if mode == "grid" %}<div id="grid-root"></div>{% else %}<div id="group-root"></div>{% endif %}
+  </section>
+  {% else %}
+  <section class="rv-main"><p class="muted">Tidak ada yang perlu direview.</p></section>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+{% if mode == "group" %}<script type="module" src="/static/review-groups.js"></script>{% endif %}
+{% endblock %}

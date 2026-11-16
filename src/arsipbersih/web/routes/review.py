@@ -6,13 +6,14 @@ import sqlite3
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from ... import decisions
 from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES
 from ...db import open_db
 from .. import queries
-from ..deps import get_conn, get_root, start_job
+from ..deps import get_conn, get_root, render, start_job
 from ..jobs import batch_result_dict
 from ..messages import UserError
 
@@ -159,3 +160,59 @@ def apply(
     if p.keep + p.discard == 0:
         raise UserError("Belum ada keputusan untuk diterapkan", 400)
     return start_job(request, "apply", f"Terapkan {category}", _apply_job(root, category))
+
+# --- pages ---------------------------------------------------------------------------------
+
+pages = APIRouter()
+
+CATEGORY_LABELS = {
+    "rusak": "Rusak",
+    "duplikat-persis": "Duplikat persis",
+    "duplikat-versi": "Duplikat beda versi",
+    "mirip-beruntun": "Mirip beruntun",
+    "screenshot": "Screenshot",
+    "kiriman-chat": "Kiriman chat",
+    "download-meme": "Download/meme",
+    "pendamping-gopro": "Pendamping GoPro",
+    "sampah-hp": "Sampah HP",
+    "video-pendek-gelap": "Video pendek/gelap",
+    "kepencet": "Kepencet",
+    "burem": "Burem",
+    "gelap-terang": "Gelap/terang",
+}
+
+
+def _sidebar(conn: sqlite3.Connection) -> list[dict]:
+    rows = queries.category_counts(conn)
+    return [{**r, "label": CATEGORY_LABELS.get(r["category"], r["category"])} for r in rows]
+
+
+@pages.get("/review")
+def review_index(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+    cats = _sidebar(conn)
+    if cats:
+        return RedirectResponse(f"/review/{cats[0]['category']}", status_code=307)
+    return render(
+        request, "review.html", active="review", categories=[], category=None, mode=None, label=None
+    )
+
+
+@pages.get("/review/{category}", response_class=HTMLResponse)
+def review_category(category: str, request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+    if category in GROUP_CATEGORIES:
+        mode = "group"
+    elif category in GRID_CATEGORIES:
+        mode = "grid"
+    else:
+        resp = render(request, "placeholder.html", active="review", title="Kategori tidak dikenal")
+        resp.status_code = 404
+        return resp
+    return render(
+        request,
+        "review.html",
+        active="review",
+        categories=_sidebar(conn),
+        category=category,
+        mode=mode,
+        label=CATEGORY_LABELS.get(category, category),
+    )

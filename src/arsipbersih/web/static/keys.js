@@ -8,6 +8,15 @@ function isTyping(target) {
   return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable === true;
 }
 
+function isInteractive(target) {
+  if (!target || !target.tagName) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "button" || tag === "a" || tag === "video" || tag === "audio" || target.getAttribute("role") === "button";
+}
+
+const NO_REPEAT = new Set(["k", "d", "Enter"]);
+const ACTIVATES = new Set(["Enter", " "]);
+
 function normalize(key) {
   return key.length === 1 ? key.toLowerCase() : key;
 }
@@ -16,6 +25,12 @@ function onKeyDown(ev) {
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if (isTyping(ev.target)) return;
   const key = normalize(ev.key);
+  if (ACTIVATES.has(key) && isInteractive(ev.target)) return;
+  if (ev.repeat && NO_REPEAT.has(key)) {
+    const t = stack[stack.length - 1];
+    if (t && Object.prototype.hasOwnProperty.call(t, key)) ev.preventDefault();
+    return;
+  }
   const top = stack[stack.length - 1];
   if (!top || !Object.prototype.hasOwnProperty.call(top, key)) return;
   ev.preventDefault();

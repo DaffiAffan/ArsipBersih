@@ -85,6 +85,7 @@ function mediaPane(item) {
 }
 
 export function openViewer({ mode = "single", items, index = 0, onDecide, onIndex, onClose }) {
+  if (!items || !items.length) return { close() {}, go() {}, index: 0 };
   let i = Math.min(Math.max(index, 0), items.length - 1);
   let zoom = null;
   const overlay = el("div", { class: "vw-overlay", role: "dialog", "aria-modal": "true" });
