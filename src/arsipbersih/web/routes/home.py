@@ -125,4 +125,4 @@ def start_scan(request: Request):
             "warnings": list(s.warnings),
         }
 
-    return start_job(request, "scan", "Pindai", fn)
+    return start_job(request, "scan", "Scan", fn)

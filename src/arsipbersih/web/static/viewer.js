@@ -3,19 +3,19 @@ import { bindKeys } from "./keys.js";
 import { createZoom } from "./zoom.js";
 
 export const CATEGORY_LABELS = {
-  "rusak": "Rusak",
-  "duplikat-persis": "Duplikat persis",
+  "rusak": "Rusak (corrupt)",
+  "duplikat-persis": "Duplikat identik",
   "duplikat-versi": "Duplikat beda versi",
-  "mirip-beruntun": "Mirip beruntun",
+  "mirip-beruntun": "Burst / mirip",
   "screenshot": "Screenshot",
-  "kiriman-chat": "Kiriman chat",
-  "download-meme": "Download/meme",
-  "pendamping-gopro": "Pendamping GoPro",
-  "sampah-hp": "Sampah HP",
-  "video-pendek-gelap": "Video pendek/gelap",
-  "kepencet": "Kepencet",
-  "burem": "Burem",
-  "gelap-terang": "Gelap/terang",
+  "kiriman-chat": "Chat (WA/Telegram)",
+  "download-meme": "Download / meme",
+  "pendamping-gopro": "File GoPro (LRV/THM)",
+  "sampah-hp": "Trash HP",
+  "video-pendek-gelap": "Video pendek / gelap",
+  "kepencet": "Kepencet (tidak sengaja)",
+  "burem": "Blur",
+  "gelap-terang": "Terlalu gelap / terang",
 };
 
 function catLabel(c) { return CATEGORY_LABELS[c] || c; }
@@ -59,7 +59,7 @@ function infoPanel(item) {
     }
   }
   if (item.decision) {
-    const label = item.decision === "keep" ? "simpan" : item.decision === "discard" ? "buang" : item.decision;
+    const label = item.decision === "keep" ? "Keep" : item.decision === "discard" ? "Delete" : item.decision;
     box.append(el("div", { class: "vw-decision" }, `Keputusan: ${label}`));
   }
   return box;
@@ -93,7 +93,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const side = el("aside", { class: "vw-side" });
   const counter = el("span", { class: "vw-counter" });
   const bar = el("div", { class: "vw-bar" }, counter,
-    el("span", { class: "vw-hint" }, "← → pindah · K simpan · D buang · Enter terima saran · Spasi putar/jeda · Esc tutup"),
+    el("span", { class: "vw-hint" }, "← → pindah · S keep · D delete · Enter ikuti saran · Spasi play/pause · Esc tutup"),
     el("button", { type: "button", onclick: () => close() }, "Tutup"));
   overlay.append(bar, el("div", { class: "vw-body" }, stage, side));
   document.body.append(overlay);
@@ -133,7 +133,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const unbind = bindKeys({
     ArrowLeft: () => go(i - 1),
     ArrowRight: () => go(i + 1),
-    k: () => { if (onDecide) onDecide(current(), "keep"); },
+    s: () => { if (onDecide) onDecide(current(), "keep"); },
     d: () => { if (onDecide) onDecide(current(), "discard"); },
     Enter: () => { if (onDecide) onDecide(current(), "suggest"); go(i + 1); },
     Escape: () => close(),

@@ -47,7 +47,7 @@ def test_api_job_status_and_409(web):
 
 def test_stop_endpoint_sets_stop_event(web):
     jr = web.app_ref.state.jobs
-    jr.start("scan", "Pindai", lambda r, s: (s.wait(5), {})[1])
+    jr.start("scan", "Scan", lambda r, s: (s.wait(5), {})[1])
     assert web.post("/api/job/stop").status_code == 204
     assert jr.wait().status == "stopped"
 

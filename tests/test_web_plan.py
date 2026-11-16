@@ -24,7 +24,7 @@ def test_tidy_refused_before_scan_done(web, conn_with):
     _users_unit(conn_with)
     r = web.post("/api/tidy")
     assert r.status_code == 409
-    assert r.json()["detail"].startswith("Pindai terakhir belum selesai")
+    assert r.json()["detail"].startswith("Scan terakhir belum selesai")
 
 
 def test_plan_page_renders(web):

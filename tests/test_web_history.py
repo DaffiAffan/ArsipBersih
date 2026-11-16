@@ -115,7 +115,7 @@ def test_undo_requires_exactly_one_target(web, applied_units):
 
 def test_undo_all_job_restores(web, root, applied_units):
     r = web.post("/api/undo", json={"all": True})
-    assert r.status_code == 202 and r.json()["label"] == "Kembalikan semua"
+    assert r.status_code == 202 and r.json()["label"] == "Undo semua"
     st = _finish(web)
     assert st.status == "done" and st.result["moved_units"] == 3 and st.result["failed_units"] == 0
     conn = open_db(root)
@@ -132,7 +132,7 @@ def test_undo_all_job_restores(web, root, applied_units):
 def test_undo_one_batch_job(web, root, applied_units):
     batch = web.get("/api/history").json()["batches"][0]
     r = web.post("/api/undo", json={"batch_id": batch["id"]})
-    assert r.status_code == 202 and r.json()["label"] == "Kembalikan batch"
+    assert r.status_code == 202 and r.json()["label"] == "Undo batch"
     assert _finish(web).status == "done"
     assert web.get("/api/history").json()["trash"]["files"] == 0
 

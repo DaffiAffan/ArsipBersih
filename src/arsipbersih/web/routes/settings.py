@@ -144,5 +144,5 @@ def blur_examples(threshold: float, conn: sqlite3.Connection = Depends(get_conn)
 def calibrate(conn: sqlite3.Connection = Depends(get_conn)):
     suggested = suggest_blur_threshold(conn)  # 0.0 means no analysed photos
     if not suggested:
-        raise UserError("Belum ada foto yang dianalisis. Jalankan pindai dulu.", 400)
+        raise UserError("Belum ada foto yang dianalisis. Jalankan scan dulu.", 400)
     return {"suggested": suggested}

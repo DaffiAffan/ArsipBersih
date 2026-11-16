@@ -130,7 +130,7 @@ async function save() {
     fill(d);
     if (d.rescan_needed) {
       msg.style.color = "";
-      msg.replaceChildren("Tersimpan. Pindai ulang supaya pengaturan baru berlaku. ", el("a", { href: "/" }, "Ke Beranda"));
+      msg.replaceChildren("Tersimpan. Scan ulang supaya pengaturan baru berlaku. ", el("a", { href: "/" }, "Ke Beranda"));
     } else say("Tersimpan.");
   } catch (e) { say(e.message, false); }
 }

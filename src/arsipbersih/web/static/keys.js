@@ -14,7 +14,7 @@ function isInteractive(target) {
   return tag === "button" || tag === "a" || tag === "video" || tag === "audio" || target.getAttribute("role") === "button";
 }
 
-const NO_REPEAT = new Set(["k", "d", "Enter"]);
+const NO_REPEAT = new Set(["s", "d", "Enter"]);
 const ACTIVATES = new Set(["Enter", " "]);
 
 function normalize(key) {

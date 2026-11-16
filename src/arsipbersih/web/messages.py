@@ -22,7 +22,7 @@ _BY_CLASS = {
         "Ada perpindahan yang terputus dan belum bisa diselesaikan (harddisk terlepas?). "
         "Tidak ada file yang dipindah. Buka Riwayat untuk melihat dan melepaskannya."
     ),
-    ScanIncomplete: "Pindai terakhir belum selesai. Jalankan pindai lagi sebelum merapikan.",
+    ScanIncomplete: "Scan terakhir belum selesai. Jalankan scan lagi sebelum merapikan.",
     InsufficientSpace: "Ruang disk tidak cukup untuk memindah file ini. Tidak ada file yang dipindah.",
     PurgeMismatch: "Isi _sampah berubah sejak kamu konfirmasi. Muat ulang halaman, lalu konfirmasi lagi.",
     UnknownBatch: "Batch tidak ditemukan.",
