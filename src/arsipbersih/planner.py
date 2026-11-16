@@ -253,14 +253,19 @@ def _keepers(conn: sqlite3.Connection) -> set[str]:
     }
 
 
-def _units_with_missing_files(conn: sqlite3.Connection) -> set[str]:
-    return {
-        r[0]
-        for r in conn.execute(
-            "select distinct unit_id from files"
-            " where unit_id is not null and missing = 1 and purged = 0"
-        )
-    }
+def missing_files_by_unit(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for r in conn.execute(
+        "select unit_id, rel_path from files"
+        " where unit_id is not null and missing = 1 and purged = 0"
+        " order by rel_path"
+    ):
+        out.setdefault(r[0], []).append(r[1])
+    return out
+
+
+def _missing_reason(rel_paths: list[str]) -> str:
+    return "file missing on disk: " + ", ".join(rel_paths)
 
 
 def plan_rapikan(
@@ -270,7 +275,7 @@ def plan_rapikan(
     (no review category shows them any more, so they go back to their archive folder)."""
     months = _event_months(conn)
     keepers = _keepers(conn)
-    incomplete = _units_with_missing_files(conn)
+    incomplete = missing_files_by_unit(conn)
     rows = conn.execute(
         _UNIT_SQL + " where u.location = 'source'"
         " or (u.location = 'review' and u.primary_category is null)"
@@ -282,7 +287,7 @@ def plan_rapikan(
         if u["id"] in incomplete:
             # Moving the rest would split the unit; nothing moves until the file is back.
             if skipped is not None:
-                skipped.append((u["id"], "file missing on disk"))
+                skipped.append((u["id"], _missing_reason(incomplete[u["id"]])))
             continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
@@ -327,9 +332,31 @@ def plan_apply(
     def fetch(uid: str):
         return conn.execute(_UNIT_SQL + " where u.id=?", (uid,)).fetchone()
 
+    def gone(uid: str) -> bool:
+        rels = [
+            r[0]
+            for r in conn.execute(
+                "select rel_path from files where unit_id=? and purged=0"
+                " order by rel_path",
+                (uid,),
+            )
+        ]
+        flagged = {
+            r[0]
+            for r in conn.execute(
+                "select rel_path from files where unit_id=? and purged=0 and missing=1", (uid,)
+            )
+        }
+        bad = [r for r in rels if r in flagged or not os.path.exists(long_path(to_abs(root, r)))]
+        if bad and skipped is not None:
+            skipped.append((uid, _missing_reason(bad)))
+        return bool(bad)
+
     for uid in keep_ids:
         u = fetch(uid)
         if u is None or u["location"] == "archive":
+            continue
+        if gone(uid):
             continue
         dst = u["planned_archive_dir"] or _archive_dir(u, months)
         m = _try_build(conn, reserver, u, dst, "archive", skipped)
@@ -338,6 +365,8 @@ def plan_apply(
     for uid in discard_ids:
         u = fetch(uid)
         if u is None or u["location"] == "trash":
+            continue
+        if gone(uid):
             continue
         dst = _review_dir(u, TRASH_DIR, _discard_category(conn, u))
         m = _try_build(conn, reserver, u, dst, "trash", skipped)

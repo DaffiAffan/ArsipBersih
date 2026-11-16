@@ -4,6 +4,7 @@ from arsipbersih.planner import (
     NameReserver,
     archive_dir_for,
     compute_plans,
+    plan_apply,
     plan_rapikan,
     review_dir_for,
 )
@@ -90,3 +91,20 @@ def test_plan_rapikan_returns_uncategorized_review_unit_to_archive(conn_with, ro
     assert len(moves) == 1
     assert moves[0].to_location == "archive"
     assert moves[0].files[0].dst_rel == "Arsip/2023/2023-08/IMG_1.jpg"
+
+
+def test_plan_rapikan_names_missing_path(root, conn_with):
+    conn = conn_with([{"name": "IMG_1.jpg"}])
+    conn.execute("update files set missing=1"); conn.commit()
+    skipped = []
+    assert plan_rapikan(conn, root, skipped) == []
+    assert skipped[0][1] == "file missing on disk: Sumber/HP/DCIM/IMG_1.jpg"
+
+
+def test_plan_apply_skips_unit_whose_file_is_gone(root, conn_with):
+    conn = conn_with([{"name": "IMG_2.jpg", "loc": "review", "path": "_review/burem/HP",
+                       "category": "burem"}])
+    uid = conn.execute("select id from units").fetchone()[0]
+    skipped = []
+    assert plan_apply(conn, root, [], [uid], skipped) == []
+    assert skipped == [(uid, "file missing on disk: _review/burem/HP/IMG_2.jpg")]
