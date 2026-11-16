@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import uuid
 from pathlib import Path
 
 from ..formats import Kind
@@ -66,10 +67,18 @@ def _make_image_cache(root: Path, file_row, dst: Path, max_px: int) -> Path | No
     kind = _kind(file_row)
     if kind not in (Kind.PHOTO, Kind.RAW):
         return None
+    # Write to a temp sibling, then replace: dst.exists() must mean "complete".
+    tmp = dst.with_name(f"{dst.stem}.{uuid.uuid4().hex}.tmp.webp")
     try:
-        _save_webp(_load_rgb(src, kind, max_px), dst, max_px)
+        _save_webp(_load_rgb(src, kind, max_px), tmp, max_px)
+        os.replace(tmp, dst)
     except Exception:
         return None
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
     return dst
 
 
@@ -100,8 +109,9 @@ def _transcode(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     partial = dst.with_name(dst.stem + ".partial.mp4")
     cmd = [
-        ffmpeg, "-nostdin", "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a?",
-        "-vf", "scale=-2:'min(720,ih)'", "-c:v", "libx264", "-preset", "veryfast",
+        ffmpeg, "-nostdin", "-y", "-i", long_path(src), "-map", "0:v:0", "-map", "0:a?",
+        # trunc(.../2)*2: libx264 with yuv420p needs even height (odd sources failed)
+        "-vf", "scale=-2:'trunc(min(720,ih)/2)*2'", "-c:v", "libx264", "-preset", "veryfast",
         "-crf", "28", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart", str(partial),
     ]
@@ -118,7 +128,10 @@ def _transcode(src: Path, dst: Path) -> None:
     except Exception as exc:
         raise MediaUnavailable(f"Video tidak bisa diputar: {type(exc).__name__}: {exc}") from exc
     finally:
-        partial.unlink(missing_ok=True)
+        try:
+            partial.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def ensure_playable_video(root, file_row) -> Path:
