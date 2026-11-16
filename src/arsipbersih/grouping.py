@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .config import Settings
+from .dates import filename_has_time
 from .db import new_id
 from .pairing import gopro_clip_id
 from .pathrules import has_camera_name, is_chat, is_download, segments_of
@@ -45,6 +46,7 @@ class UnitView:
     duration_s: float | None
     kind: str | None
     sha256: str | None
+    date_source: str | None = None
     file_count: int = 1  # present files of the unit (RAW+JPG, Live Photo, sidecars)
     unit_bytes: int = 0  # their total size
 
@@ -58,7 +60,7 @@ class GroupingResult:
 
 def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
     rows = conn.execute(
-        "select u.id as unit_id, u.location, u.taken_at, f.rel_path, f.orig_rel_path, "
+        "select u.id as unit_id, u.location, u.taken_at, u.date_source, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
         "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
         "c.n as file_count, c.bytes as unit_bytes "
@@ -79,6 +81,7 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
             width=r["width"], height=r["height"], size=r["size"], sharpness=r["sharpness"],
             taken_at=r["taken_at"], phash=r["phash"], frame_phashes=frames,
             duration_s=r["duration_s"], kind=r["kind"], sha256=r["sha256"],
+            date_source=r["date_source"],
             file_count=r["file_count"] or 1, unit_bytes=r["unit_bytes"] or 0,
         ))
     return views
@@ -243,6 +246,11 @@ def _burst_id(filename: str) -> str | None:
     return None
 
 
+def _time_known(u: UnitView) -> bool:
+    """A date-only filename (WhatsApp) stores 00:00:00; such units have no capture time."""
+    return u.date_source != "filename" or filename_has_time(u.filename)
+
+
 def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitView]]:
     from datetime import datetime
 
@@ -251,7 +259,7 @@ def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitV
 
     timed = []
     for u in photos:
-        if u.taken_at and u.phash:
+        if u.taken_at and u.phash and _time_known(u):
             try:
                 timed.append((u.source_label or "", datetime.fromisoformat(u.taken_at), u))
             except ValueError:

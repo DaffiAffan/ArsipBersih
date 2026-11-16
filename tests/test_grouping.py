@@ -163,3 +163,23 @@ def test_stale_decisions_cleared_when_keeper_changes(conn_with):
     run_grouping(conn, s)  # archive wins: keeper flips to `other`
     assert conn.execute("select suggested_keep_unit_id from groups").fetchone()[0] == other
     assert conn.execute("select count(*) from decisions").fetchone()[0] == 0
+
+
+def test_date_only_filename_times_do_not_form_bursts(conn_with):
+    conn = conn_with([
+        dict(name=f"IMG-20230114-WA00{i:02d}.jpg", path="Sumber/HP/WhatsApp/Media/Images", src="HP",
+             taken="2023-01-14T00:00:00", date_source="filename", phash="ff00ff00ff00ff00",
+             w=1280, h=720, sha=f"w{i}")
+        for i in range(3)
+    ] + [
+        dict(name="IMG_20230812_143022.jpg", src="HP", taken="2023-08-12T14:30:22",
+             date_source="filename", phash="00ff00ff00ff00ff", sha="t1"),
+        dict(name="IMG_20230812_143024.jpg", src="HP", taken="2023-08-12T14:30:24",
+             date_source="filename", phash="00ff00ff00ff00ff", sha="t2"),
+    ])
+    assert run_grouping(conn, Settings()).burst == 1
+    names = {r[0].rsplit("/", 1)[-1] for r in conn.execute(
+        "select f.rel_path from group_members m join groups g on g.id = m.group_id "
+        "join units u on u.id = m.unit_id join files f on f.id = u.primary_file_id "
+        "where g.kind='mirip-beruntun'")}
+    assert names == {"IMG_20230812_143022.jpg", "IMG_20230812_143024.jpg"}

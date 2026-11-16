@@ -38,6 +38,23 @@ def parse_filename_date(name: str) -> datetime | None:
     return None
 
 
+def filename_has_time(name: str) -> bool:
+    """True when the first filename date pattern that parses also carries a time of day.
+
+    WhatsApp names (IMG-20230812-WA0001) only give the day; their 00:00:00 is not a real time.
+    """
+    for pattern in _FILENAME_PATTERNS:
+        m = pattern.search(name)
+        if not m:
+            continue
+        try:
+            datetime(*(int(g) for g in m.groups()))
+        except ValueError:
+            continue
+        return len(m.groups()) > 3
+    return False
+
+
 def parse_exif_datetime(s: str | None) -> datetime | None:
     if not s:
         return None
