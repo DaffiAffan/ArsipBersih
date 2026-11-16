@@ -45,6 +45,8 @@ class UnitView:
     duration_s: float | None
     kind: str | None
     sha256: str | None
+    file_count: int = 1  # present files of the unit (RAW+JPG, Live Photo, sidecars)
+    unit_bytes: int = 0  # their total size
 
 
 @dataclass
@@ -58,9 +60,12 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
     rows = conn.execute(
         "select u.id as unit_id, u.location, u.taken_at, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
-        "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness "
+        "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
+        "c.n as file_count, c.bytes as unit_bytes "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
+        "left join (select unit_id, count(*) as n, coalesce(sum(size), 0) as bytes from files "
+        "  where missing = 0 and purged = 0 group by unit_id) c on c.unit_id = u.id "
         "where u.location != 'trash' and f.missing = 0 and f.purged = 0 order by u.id"
     ).fetchall()
     views = []
@@ -74,6 +79,7 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
             width=r["width"], height=r["height"], size=r["size"], sharpness=r["sharpness"],
             taken_at=r["taken_at"], phash=r["phash"], frame_phashes=frames,
             duration_s=r["duration_s"], kind=r["kind"], sha256=r["sha256"],
+            file_count=r["file_count"] or 1, unit_bytes=r["unit_bytes"] or 0,
         ))
     return views
 
@@ -93,15 +99,23 @@ def _exact_key(u: UnitView) -> tuple:
     )
 
 
+def _completeness(u: UnitView) -> tuple[int, int]:
+    """Most files, then most bytes: a RAW+JPG or Live Photo unit outranks a bare copy, so
+    accepting the suggestion never trashes the RAW or the MOV."""
+    return (-u.file_count, -u.unit_bytes)
+
+
 def choose_keeper_exact(units: list[UnitView]) -> str:
-    pool = [u for u in units if u.location == "archive"] or units
+    best = min(_completeness(u) for u in units)
+    complete = [u for u in units if _completeness(u) == best]
+    pool = [u for u in complete if u.location == "archive"] or complete
     return min(pool, key=_exact_key).unit_id
 
 
 def choose_keeper_version(units: list[UnitView]) -> str:
     def key(u: UnitView) -> tuple:
-        return (-((u.width or 0) * (u.height or 0)), -(u.size or 0), not (u.make or u.model),
-                *_exact_key(u))
+        return (*_completeness(u), -((u.width or 0) * (u.height or 0)), -(u.size or 0),
+                not (u.make or u.model), *_exact_key(u))
 
     return min(units, key=key).unit_id
 

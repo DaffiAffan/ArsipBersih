@@ -40,6 +40,26 @@ def test_exact_keeper_prefers_archive_then_camera_original(conn_with):
     assert unit_location(conn, g) == "archive"
 
 
+def test_exact_keeper_prefers_raw_jpg_unit_over_archived_bare_copy(conn_with):
+    from arsipbersih.db import new_id
+
+    conn = conn_with([
+        dict(name="IMG_1.jpg", path="Sumber/HP/DCIM", sha="aa", loc="source"),
+        dict(name="IMG_1.jpg", path="Arsip/2023/2023-08", sha="aa", loc="archive"),
+    ])
+    raw_unit = conn.execute("select unit_id from files where rel_path like 'Sumber/%'").fetchone()[0]
+    conn.execute(
+        "insert into files(id, unit_id, rel_path, orig_rel_path, size, mtime_ns, kind, ext, source_label)"
+        " values(?,?,?,?,?,?,?,?,?)",
+        (new_id(), raw_unit, "Sumber/HP/DCIM/IMG_1.dng", "Sumber/HP/DCIM/IMG_1.dng", 20_000_000, 0,
+         "raw", "dng", "HP"),
+    )
+    conn.execute("update units set pair_kind='raw_jpg' where id=?", (raw_unit,))
+    run_grouping(conn, Settings())
+    g = conn.execute("select suggested_keep_unit_id from groups where kind='duplikat-persis'").fetchone()[0]
+    assert g == raw_unit
+
+
 def test_missing_keeper_copy_does_not_group_with_surviving_twin(conn_with):
     conn = conn_with([
         dict(name="IMG_20230812_143022.jpg", path="Sumber/HP/DCIM/Camera", sha="aa", loc="source"),
