@@ -58,3 +58,19 @@ def test_root_switch_rejects_bad_paths(web, tmp_path):
         r = web.post("/api/root", json={"path": p})
         assert r.status_code == 400, p
     assert web.app_ref.state.root == before
+
+
+def test_root_switch_db_failure_is_400(web, tmp_path, monkeypatch):
+    import sqlite3
+
+    new = tmp_path / "ok"
+    (new / "Sumber").mkdir(parents=True)
+
+    def boom(root, *a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr("arsipbersih.web.routes.home.open_db", boom)
+    before = web.app_ref.state.root
+    r = web.post("/api/root", json={"path": str(new)})
+    assert r.status_code == 400 and "Folder ini tidak bisa dipakai" in r.json()["detail"]
+    assert web.app_ref.state.root == before
