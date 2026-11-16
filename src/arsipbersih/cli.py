@@ -366,5 +366,23 @@ def calibrate(
         conn.close()
 
 
+@app.command()
+def serve(
+    root: Path = _root_arg(),
+    port: int = typer.Option(8765, help="Local port (127.0.0.1 only)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not open the browser."),
+) -> None:
+    """Start the local review UI."""
+    import webbrowser
+
+    import uvicorn
+
+    from .web.app import create_app
+
+    if not no_browser:
+        threading.Timer(1.0, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
+    uvicorn.run(create_app(root, port=port), host="127.0.0.1", port=port)
+
+
 if __name__ == "__main__":
     app()
