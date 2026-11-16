@@ -15,6 +15,7 @@ let pendingApply = 0;
 let compare = null; // { index, group, focus, unbind }
 let message = "";
 let applying = false;
+let busy = false;
 
 const DECISION_LABEL = { keep: "Simpan", discard: "Buang" };
 
@@ -125,7 +126,8 @@ function applySuggestionLocal(g) {
 
 async function acceptFocused() {
   const g = data.groups[focus];
-  if (!g) return;
+  if (!g || busy) return;
+  busy = true;
   try {
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
     applySuggestionLocal(g);
@@ -133,14 +135,14 @@ async function acceptFocused() {
     if (focus < data.groups.length - 1) focus += 1;
     renderList();
     refreshChrome().then(renderList);
-  } catch (e) { fail(e); }
+  } catch (e) { fail(e); } finally { busy = false; }
 }
 
 const unbindList = bindKeys({
-  ArrowLeft: () => { if (focus > 0) { focus -= 1; renderList(); } },
-  ArrowRight: () => { if (focus < data.groups.length - 1) { focus += 1; renderList(); } },
+  ArrowLeft: () => { if (!busy && focus > 0) { focus -= 1; renderList(); } },
+  ArrowRight: () => { if (!busy && focus < data.groups.length - 1) { focus += 1; renderList(); } },
   Enter: acceptFocused,
-  " ": () => { if (data.groups[focus]) openCompare(focus); },
+  " ": () => { if (!busy && data.groups[focus]) openCompare(focus); },
 });
 window.addEventListener("pagehide", unbindList);
 
@@ -149,6 +151,7 @@ window.addEventListener("pagehide", unbindList);
 async function openCompare(index) {
   const g = data.groups[index];
   if (!g) { closeCompare(); return; }
+  busy = true;
   try {
     const detail = await api("GET", `/api/review/group/${encodeURIComponent(g.id)}`);
     if (!compare) {
@@ -165,7 +168,8 @@ async function openCompare(index) {
     compare.group = detail;
     compare.focus = Math.max(0, detail.members.findIndex((m) => !m.is_keeper));
     renderCompare();
-  } catch (e) { closeCompare(); fail(e); }
+  } catch (e) { busy = false; await closeCompare(); fail(e); return; }
+  busy = false;
 }
 
 function infoRows(m) {
@@ -221,14 +225,15 @@ function moveCompareFocus(d) {
 
 async function decide(i, decision) {
   const m = compare && compare.group.members[i];
-  if (!m) return;
+  if (!m || busy) return;
+  busy = true;
   try {
     await api("POST", "/api/review/decision", { unit_id: m.unit_id, decision });
     m.decision = decision;
     message = "";
     renderCompare();
     refreshChrome();
-  } catch (e) { message = e.message; renderCompare(); }
+  } catch (e) { message = e.message; renderCompare(); } finally { busy = false; }
 }
 
 function decideFocused(decision) {
@@ -236,7 +241,8 @@ function decideFocused(decision) {
 }
 
 async function acceptCompare() {
-  if (!compare) return;
+  if (!compare || busy) return;
+  busy = true;
   const g = compare.group;
   const next = compare.index + 1;
   try {
@@ -244,9 +250,10 @@ async function acceptCompare() {
     applySuggestionLocal(g);
     message = "";
     refreshChrome();
+    busy = false;
     if (next < data.groups.length) await openCompare(next);
     else await closeCompare();
-  } catch (e) { message = e.message; renderCompare(); }
+  } catch (e) { message = e.message; renderCompare(); } finally { busy = false; }
 }
 
 async function closeCompare() {
@@ -272,8 +279,9 @@ function openCompareViewer(clicked) {
     onDecide: async (item, decision) => {
       try {
         if (decision === "suggest") {
-          await api("POST", "/api/review/accept", { group_ids: [g.id] });
-          applySuggestionLocal(g);
+          const sug = item.is_keeper ? "keep" : "discard";
+          await api("POST", "/api/review/decision", { unit_id: item.unit_id, decision: sug });
+          item.decision = sug;
         } else {
           await api("POST", "/api/review/decision", { unit_id: item.unit_id, decision });
           item.decision = decision;
@@ -297,7 +305,7 @@ function modal(title, ...body) {
 async function openApply() {
   let preview;
   try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) { fail(e); return; }
-  const unbind = bindKeys({ Escape: () => close() });
+  const unbind = bindKeys({ Escape: () => { if (!applying) close(); } });
   const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
@@ -323,19 +331,17 @@ async function openApply() {
       finished = true;
       setTimeout(() => stop(), 0);
       applying = false;
-      showApplyResult(st, close);
+      if (box.isConnected) showApplyResult(st, close, box);
+      loadList().catch(fail);
     });
   });
 }
 
 function count(v) { return Array.isArray(v) ? v.length : Number(v) || 0; }
 
-function showApplyResult(st, close) {
-  const box = document.querySelector(".rv-dialog");
-  const done = el("button", { type: "button", class: "primary", onclick: async () => {
-    close();
-    try { await loadList(); } catch (e) { fail(e); }
-  } }, "Tutup");
+function showApplyResult(st, close, overlay) {
+  const box = overlay.querySelector(".rv-dialog");
+  const done = el("button", { type: "button", class: "primary", onclick: close }, "Tutup");
   const parts = [el("h2", {}, "Hasil")];
   if (st.status === "done" && st.result) {
     const r = st.result;
