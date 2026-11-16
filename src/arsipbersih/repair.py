@@ -106,10 +106,11 @@ def list_missing(conn: sqlite3.Connection) -> list[MissingFile]:
 def forget_file(conn: sqlite3.Connection, root: Path, file_id: str) -> None:
     """Mark a file that is absent from disk as deliberately deleted (purged)."""
     root = _norm(root)
-    row = conn.execute("select rel_path from files where id=?", (file_id,)).fetchone()
-    if row is None:
+    if conn.execute("select 1 from files where id=?", (file_id,)).fetchone() is None:
         raise KeyError(file_id)
     reconcile(conn, root)
+    # Read after reconcile: it may have moved rel_path from src to dst.
+    row = conn.execute("select rel_path from files where id=?", (file_id,)).fetchone()
     if conn.execute(
         "select 1 from moves where file_id=? and status='pending'", (file_id,)
     ).fetchone():

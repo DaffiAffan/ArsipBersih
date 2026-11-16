@@ -158,3 +158,15 @@ def test_release_returns_the_done_file_of_a_split_unit(root, conn_with):
     assert not (root / "Arsip" / "2024" / "2024-01" / "IMG_2.jpg").exists()
     assert conn.execute("select rel_path from files where id=?", (f2,)).fetchone()[0] == src2
     assert conn.execute("select status from moves where id=?", (rid2,)).fetchone()[0] == "failed"
+
+
+def test_forget_file_uses_the_path_reconcile_settled(root, conn_with):
+    conn = conn_with([{"name": "IMG_1.jpg", "size": 1}])
+    _dirs(root)
+    _pending(conn)
+    fid = conn.execute("select id from files").fetchone()[0]
+    (root / "Arsip" / "2024" / "2024-01" / "IMG_1.jpg").write_bytes(b"x")  # src absent
+    with pytest.raises(StillOnDisk):
+        forget_file(conn, root, fid)
+    assert conn.execute("select purged from files").fetchone()[0] == 0
+    assert conn.execute("select rel_path from files").fetchone()[0].startswith("Arsip/")
