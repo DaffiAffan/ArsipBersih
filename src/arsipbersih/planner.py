@@ -266,11 +266,15 @@ def _units_with_missing_files(conn: sqlite3.Connection) -> set[str]:
 def plan_rapikan(
     conn: sqlite3.Connection, root: Path, skipped: list[tuple[str, str]] | None = None
 ) -> list[UnitMove]:
+    """Plan every source unit, plus review units that lost their category on a re-scan
+    (no review category shows them any more, so they go back to their archive folder)."""
     months = _event_months(conn)
     keepers = _keepers(conn)
     incomplete = _units_with_missing_files(conn)
     rows = conn.execute(
-        _UNIT_SQL + " where u.location = 'source' order by pf.orig_rel_path, u.id"
+        _UNIT_SQL + " where u.location = 'source'"
+        " or (u.location = 'review' and u.primary_category is null)"
+        " order by pf.orig_rel_path, u.id"
     ).fetchall()
     reserver = NameReserver(root, conn)
     moves: list[UnitMove] = []

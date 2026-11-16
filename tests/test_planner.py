@@ -77,3 +77,16 @@ def test_plan_rapikan_skips_unplannable_unit(conn_with, root):
     moves = plan_rapikan(conn, root, skipped)
     assert [s[0] for s in skipped] == [uid]
     assert len(moves) == 1 and moves[0].unit_id != uid
+
+
+def test_plan_rapikan_returns_uncategorized_review_unit_to_archive(conn_with, root):
+    conn = conn_with([
+        dict(name="IMG_1.jpg", path="_review/burem/HP/DCIM", loc="review", taken="2023-08-12T10:00:00"),
+        dict(name="IMG_2.jpg", path="_review/burem/HP/DCIM", loc="review", taken="2023-08-12T10:00:01",
+             category="burem"),
+    ])
+    compute_plans(conn)
+    moves = plan_rapikan(conn, root)
+    assert len(moves) == 1
+    assert moves[0].to_location == "archive"
+    assert moves[0].files[0].dst_rel == "Arsip/2023/2023-08/IMG_1.jpg"
