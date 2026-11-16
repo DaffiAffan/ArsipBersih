@@ -302,22 +302,31 @@ function modal(title, ...body) {
   return overlay;
 }
 
+let applyOpen = false;
+
 async function openApply() {
+  if (applying || applyOpen) return;
+  applyOpen = true;
+  // Key layer first: while the dialog loads or is open, list keys stay inert.
+  let closeDialog = null;
+  const unbind = bindKeys({ Escape: () => { if (!applying && closeDialog) closeDialog(); } });
   let preview;
-  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) { fail(e); return; }
-  const unbind = bindKeys({ Escape: () => { if (!applying) close(); } });
+  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
+    unbind(); applyOpen = false; fail(e); return;
+  }
   const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
   const box = modal(`Terapkan: ${label}`, el("p", {}, preview.text), actions);
-  function close() { unbind(); box.remove(); }
+  function close() { unbind(); box.remove(); applyOpen = false; }
+  closeDialog = close;
   cancel.addEventListener("click", close);
   confirm.addEventListener("click", async () => {
     applying = true;
     confirm.disabled = true;
     cancel.disabled = true;
     let started;
-    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
+    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`, { keep: preview.keep, discard: preview.discard }); } catch (e) {
       applying = false;
       actions.before(el("p", { class: "vw-error" }, e.message));
       cancel.disabled = false;

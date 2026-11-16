@@ -443,10 +443,18 @@ function modal(title, ...body) {
   return overlay;
 }
 
+let applyOpen = false;
+
 async function openApply() {
-  if (applying) return;
+  if (applying || applyOpen) return;
+  applyOpen = true;
+  // Key layer first: while the dialog loads or is open, grid keys (k/d/Enter/arrows) stay inert.
+  let closeDialog = null;
+  const unbind = bindKeys({ Escape: () => { if (!applying && closeDialog) closeDialog(); } });
   seenPaused = true; // the modal covers the grid: scrolling behind it must not count as seen
   if (!(await flushSeen())) {
+    unbind();
+    applyOpen = false;
     seenPaused = false;
     resyncObserver();
     fail(new Error("Tidak bisa mengirim daftar item yang sudah dilihat. Coba lagi sebentar lagi."));
@@ -454,14 +462,14 @@ async function openApply() {
   }
   let preview;
   try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
-    seenPaused = false; resyncObserver(); fail(e); return;
+    unbind(); applyOpen = false; seenPaused = false; resyncObserver(); fail(e); return;
   }
-  const unbind = bindKeys({ Escape: () => { if (!applying) close(); } });
   const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
   const box = modal(`Terapkan: ${label}`, el("p", {}, preview.text), actions);
-  function close() { unbind(); box.remove(); seenPaused = false; resyncObserver(); }
+  function close() { unbind(); box.remove(); applyOpen = false; seenPaused = false; resyncObserver(); }
+  closeDialog = close;
   cancel.addEventListener("click", close);
   confirm.addEventListener("click", async () => {
     if (applying) return;
@@ -470,7 +478,7 @@ async function openApply() {
     confirm.disabled = true;
     cancel.disabled = true;
     let started;
-    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
+    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`, { keep: preview.keep, discard: preview.discard }); } catch (e) {
       applying = false;
       updateHead();
       actions.before(el("p", { class: "vw-error" }, e.message));
