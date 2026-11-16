@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from arsipbersih.config import Settings
+from arsipbersih.decisions import record
 from arsipbersih.grouping import find_close_pairs, run_grouping
 from arsipbersih.pathrules import is_chat, is_trash, segments_of
 
@@ -140,3 +141,25 @@ def test_version_search_scales():
     start = time.perf_counter()
     find_close_pairs(hashes, 6)
     assert time.perf_counter() - start < 300
+
+
+def test_stale_decisions_cleared_when_keeper_changes(conn_with):
+    conn = conn_with([
+        dict(name="IMG_A.jpg", path="Sumber/HP/DCIM", sha="s1", make="Canon"),
+        dict(name="IMG-20230101-WA0001.jpg", path="Sumber/HP/WhatsApp", sha="s1"),
+    ])
+    s = Settings()
+    run_grouping(conn, s)
+    keeper = conn.execute("select suggested_keep_unit_id from groups").fetchone()[0]
+    other = conn.execute(
+        "select unit_id from group_members where unit_id != ?", (keeper,)
+    ).fetchone()[0]
+    record(conn, keeper, "keep")
+    record(conn, other, "discard")
+    run_grouping(conn, s)  # nothing changed
+    assert conn.execute("select count(*) from decisions").fetchone()[0] == 2
+    conn.execute("update units set location='archive' where id=?", (other,))
+    conn.commit()
+    run_grouping(conn, s)  # archive wins: keeper flips to `other`
+    assert conn.execute("select suggested_keep_unit_id from groups").fetchone()[0] == other
+    assert conn.execute("select count(*) from decisions").fetchone()[0] == 0

@@ -276,6 +276,20 @@ def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitV
     return [[by_id[x] for x in g] for g in uf.groups()]
 
 
+def _group_signatures(conn: sqlite3.Connection) -> dict[str, set[tuple]]:
+    """Per unit: {(kind, keeper id, frozenset of member ids)} over the groups it belongs to."""
+    members: dict[str, list[str]] = defaultdict(list)
+    for r in conn.execute("select group_id, unit_id from group_members"):
+        members[r["group_id"]].append(r["unit_id"])
+    sigs: dict[str, set[tuple]] = defaultdict(set)
+    for g in conn.execute("select id, kind, suggested_keep_unit_id from groups"):
+        ids = members.get(g["id"], [])
+        sig = (g["kind"], g["suggested_keep_unit_id"], frozenset(ids))
+        for uid in ids:
+            sigs[uid].add(sig)
+    return sigs
+
+
 def run_grouping(conn: sqlite3.Connection, settings: Settings) -> GroupingResult:
     views = load_unit_views(conn)
     planned: list[tuple[str, list[UnitView], str]] = []  # (kind, members, keeper id)
@@ -305,6 +319,7 @@ def run_grouping(conn: sqlite3.Connection, settings: Settings) -> GroupingResult
         planned.append(("mirip-beruntun", members, keeper.unit_id))
 
     with conn:
+        before = _group_signatures(conn)
         conn.execute("delete from group_members")
         conn.execute("delete from groups")
         for kind, members, keeper in planned:
@@ -317,4 +332,9 @@ def run_grouping(conn: sqlite3.Connection, settings: Settings) -> GroupingResult
                 "insert into group_members(group_id, unit_id) values(?,?)",
                 [(gid, u.unit_id) for u in members],
             )
+        # A re-scan can change keepers or membership; an unapplied keep/discard decided against
+        # the old group must not follow a unit that is now the keeper (or left its group).
+        after = _group_signatures(conn)
+        stale = [(u,) for u, sig in before.items() if after.get(u) != sig]
+        conn.executemany("delete from decisions where unit_id=? and applied=0", stale)
     return GroupingResult(exact=len(exact), version=len(version), burst=len(burst))
