@@ -57,3 +57,5 @@ def test_review_grid_category_renders_grid_root(web):
     assert r.status_code == 200
     assert 'data-mode="grid"' in r.text
     assert 'id="grid-root"' in r.text
+    assert "/static/review-grid.js" in r.text
+    assert "/static/review-groups.js" not in r.text
