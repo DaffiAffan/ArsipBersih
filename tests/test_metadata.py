@@ -83,3 +83,27 @@ def test_exiftool_dying_mid_batch_is_retried_not_error(root, make_image, monkeyp
     assert calls == [2, 1, 1]  # the batch, then each file alone after a restart
     rows = conn.execute("select meta_status, error from files").fetchall()
     assert [tuple(r) for r in rows] == [("done", None), ("done", None)]
+
+
+@requires_exiftool
+def test_unreadable_reply_is_retried_per_file(root, make_image, monkeypatch):
+    import json
+
+    make_image(root / "Sumber/HP/DCIM/DSC_1.JPG", exif_datetime="2023:08:12 14:30:22")
+    make_image(root / "Sumber/HP/DCIM/DSC_2.JPG", seed=1, exif_datetime="2023:08:13 09:00:00")
+    real_read, calls = ExifTool.read, []
+
+    def garbled(self, paths):
+        calls.append(len(paths))
+        if len(paths) > 1 or paths[0].name == "DSC_2.JPG":
+            raise json.JSONDecodeError("Expecting value", "garbage", 0)
+        return real_read(self, paths)
+
+    monkeypatch.setattr(ExifTool, "read", garbled)
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    assert calls == [2, 1, 1]
+    rows = {r["rel_path"].rsplit("/", 1)[-1]: (r["meta_status"], r["error"])
+            for r in conn.execute("select rel_path, meta_status, error from files")}
+    assert rows["DSC_1.JPG"] == ("done", None)
+    assert rows["DSC_2.JPG"][0] == "error" and "unreadable reply" in rows["DSC_2.JPG"][1]
