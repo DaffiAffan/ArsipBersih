@@ -11,6 +11,9 @@ export async function api(method, url, body) {
   return data;
 }
 
+// The same location names everywhere in the UI (folder names on disk).
+export const LOCATION_LABELS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
+
 export function fmtBytes(n) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;

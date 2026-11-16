@@ -1,8 +1,6 @@
-import { api, el, fmtBytes } from "/static/api.js";
+import { api, el, fmtBytes, LOCATION_LABELS as LOCATIONS } from "/static/api.js";
 import { watchJob } from "/static/job.js";
 import { CATEGORY_LABELS } from "./viewer.js";
-
-const LOCATIONS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
 
 function row(label, value) {
   return el("tr", {}, el("td", {}, label), el("td", {}, String(value)));
