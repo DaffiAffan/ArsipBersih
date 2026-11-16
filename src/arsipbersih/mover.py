@@ -59,6 +59,14 @@ class PendingMoves(Exception):
     """Interrupted moves are still unsettled after reconcile, so no new batch may start."""
 
 
+class UnknownBatch(ValueError):
+    """No batch has this id."""
+
+
+class NotUndoable(ValueError):
+    """The batch kind (undo, purge) cannot be undone."""
+
+
 class _CopyMismatch(OSError):
     """A cross-device copy does not hash the same as its source."""
 
@@ -69,6 +77,7 @@ class BatchResult:
     moved_units: int
     failed_units: int
     errors: list[str]
+    skipped_units: int = 0  # planned out before the batch (nothing moved for them)
 
 
 # --- paths -------------------------------------------------------------------------------
@@ -737,9 +746,9 @@ def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResu
     """
     row = conn.execute("select kind from batches where id=?", (batch_id,)).fetchone()
     if row is None:
-        raise ValueError(f"unknown batch: {batch_id}")
+        raise UnknownBatch(f"unknown batch: {batch_id}")
     if row[0] not in _UNDOABLE_KINDS:
-        raise ValueError(f"a {row[0]!r} batch cannot be undone")
+        raise NotUndoable(f"a {row[0]!r} batch cannot be undone")
     return _undo(conn, root, [batch_id], f"undo {batch_id}")
 
 

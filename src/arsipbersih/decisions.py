@@ -161,6 +161,7 @@ def apply_category(conn: sqlite3.Connection, root: Path, category: str) -> Batch
     result = execute(conn, root, moves, "apply", f"apply {category}")
     result.errors.extend(f"journal: {e}" for e in journal_errors)
     result.errors.extend(f"skipped {uid}: {reason}" for uid, reason in skipped)
+    result.skipped_units = len(skipped)
     try:
         _settle(conn, keep, discard)
     except Exception as e:  # noqa: BLE001 - the files already moved; never lose the result

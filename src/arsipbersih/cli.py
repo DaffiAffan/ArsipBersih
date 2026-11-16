@@ -19,7 +19,9 @@ from .events import EventSummary, add_override, run_events
 from .layout import REVIEW_DIR, long_path, to_abs
 from .mover import (
     InsufficientSpace,
+    NotUndoable,
     PendingMoves,
+    UnknownBatch,
     check_space,
     reconcile_or_refuse,
     undo_all,
@@ -264,14 +266,16 @@ def tidy(
     except InsufficientSpace as e:
         typer.echo(f"Not enough free space: {e}")
         raise typer.Exit(1)
-    if not result.moved_units and not result.failed_units:
+    if not result.moved_units and not result.failed_units and not result.skipped_units:
         typer.echo("Nothing to move.")
     typer.echo(f"Moved units: {result.moved_units}; failed units: {result.failed_units}")
+    if result.skipped_units:
+        typer.echo(f"Skipped units: {result.skipped_units} (nothing was moved for them)")
     for err in result.errors:
         typer.echo(f"  {err}")
     if result.batch_id:
         typer.echo(f"Batch: {result.batch_id}")
-    if result.failed_units:
+    if result.failed_units or result.skipped_units:
         raise typer.Exit(1)
 
 
@@ -293,7 +297,14 @@ def undo(
         except PendingMoves as e:
             typer.echo(str(e))
             raise typer.Exit(1)
-        result = undo_all(conn, root) if all_ else undo_batch(conn, root, batch)
+        try:
+            result = undo_all(conn, root) if all_ else undo_batch(conn, root, batch)
+        except UnknownBatch:
+            typer.echo(f"Unknown batch: {batch}")
+            raise typer.Exit(1)
+        except NotUndoable as e:
+            typer.echo(f"Cannot undo: {e}")
+            raise typer.Exit(1)
     finally:
         conn.close()
     typer.echo(f"Restored units: {result.moved_units}; failed units: {result.failed_units}")

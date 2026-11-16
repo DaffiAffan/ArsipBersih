@@ -188,11 +188,12 @@ def rapikan(root: Path) -> BatchResult:
         notes = [f"journal: {e}" for e in journal_errors]
         notes += [f"skipped {unit_id}: {reason}" for unit_id, reason in skipped]
         if not moves:
-            return BatchResult(batch_id="", moved_units=0, failed_units=0, errors=notes)
+            return BatchResult("", 0, 0, notes, skipped_units=len(skipped))
         check_space(root, moves)
         result = execute(conn, root, moves, "rapikan", label=f"rapikan {date.today().isoformat()}")
         remove_empty_dirs(root / SOURCE_DIR)
         result.errors.extend(notes)
+        result.skipped_units = len(skipped)
         return result
     finally:
         conn.close()
