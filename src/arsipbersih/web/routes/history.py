@@ -13,11 +13,17 @@ from ... import decisions, repair
 from ...db import open_db
 from ...mover import reconcile_or_refuse, undo_all, undo_batch
 from .. import queries
-from ..deps import get_conn, get_root, start_job
+from ..deps import get_conn, get_root, render, start_job
 from ..jobs import batch_result_dict
 from ..messages import UserError
 
 router = APIRouter(prefix="/api")
+pages = APIRouter()
+
+
+@pages.get("/riwayat")
+def riwayat_page(request: Request):
+    return render(request, "history.html", active="riwayat", title="Riwayat")
 
 PURGE_CONFIRM = "HAPUS"
 
