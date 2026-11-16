@@ -21,6 +21,7 @@ let applying = false;
 let busy = false;
 let loading = false;
 let exhausted = false;
+let loadFailed = false;
 let generation = 0;
 let viewerState = null; // { vitems, loaded:Set, handle }
 
@@ -71,38 +72,48 @@ function updateHead() {
 
 const seenQueue = new Set();
 let seenTimer = null;
-let seenSending = false;
+let seenChain = Promise.resolve();
+let seenPaused = false;
+
+function scheduleSeen() {
+  if (!seenTimer) seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, SEEN_DELAY_MS);
+}
 
 function queueSeen(item) {
   if (!item || item.seen || seenQueue.has(item.unit_id)) return;
   seenQueue.add(item.unit_id);
-  if (!seenTimer) seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, SEEN_DELAY_MS);
+  scheduleSeen();
 }
 
-async function flushSeen() {
-  if (seenTimer) { clearTimeout(seenTimer); seenTimer = null; }
-  if (seenSending) { // another flush is in flight; try again once it settles
-    seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, SEEN_DELAY_MS);
-    return;
-  }
-  if (!seenQueue.size) return;
-  seenSending = true;
-  const ids = [...seenQueue];
-  seenQueue.clear();
-  try {
+async function sendSeen() {
+  while (seenQueue.size) {
+    const ids = [...seenQueue];
+    seenQueue.clear();
     for (let i = 0; i < ids.length; i += SEEN_CHUNK) {
       const part = ids.slice(i, i + SEEN_CHUNK);
       try {
         await api("POST", "/api/review/seen", { unit_ids: part });
-        const set = new Set(part);
-        for (const it of items) if (set.has(it.unit_id)) it.seen = true;
       } catch (_) {
-        for (const id of part) seenQueue.add(id); // retry on the next flush
+        for (const id of ids.slice(i)) seenQueue.add(id); // retry later
+        return false;
       }
+      const set = new Set(part);
+      for (const it of items) if (set.has(it.unit_id)) it.seen = true;
     }
-  } finally { seenSending = false; }
-  if (seenQueue.size && !seenTimer) seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, SEEN_DELAY_MS);
-  refreshChrome();
+  }
+  return true;
+}
+
+// Resolves true only when every queued id reached the server.
+function flushSeen() {
+  if (seenTimer) { clearTimeout(seenTimer); seenTimer = null; }
+  const p = seenChain.then(sendSeen);
+  seenChain = p.catch(() => false);
+  return p.then((ok) => {
+    if (!ok) scheduleSeen();
+    refreshChrome();
+    return ok;
+  });
 }
 
 function flushSeenOnLeave() {
@@ -128,11 +139,23 @@ function observeSeen(cell, item) {
   cellObserver.observe(cell);
 }
 
+// Re-fire the initial callback for still-unseen cells (after a pause ended).
+function resyncObserver() {
+  if (!cellObserver) return;
+  for (const cell of cells.values()) {
+    if (cell.__item && !cell.__item.seen && !seenQueue.has(cell.__item.unit_id)) {
+      cellObserver.unobserve(cell);
+      cellObserver.observe(cell);
+    }
+  }
+}
+
 function makeCellObserver() {
   if (typeof IntersectionObserver === "undefined") return null;
   return new IntersectionObserver((entries) => {
     for (const e of entries) {
-      if (!e.isIntersecting) continue;
+      if (!e.isIntersecting || e.intersectionRatio < 0.5) continue;
+      if (seenPaused || viewerState) continue; // occluded by a dialog/viewer: stay observed
       queueSeen(e.target.__item);
       cellObserver.unobserve(e.target);
     }
@@ -228,12 +251,22 @@ function buildShell() {
   updateHead();
 }
 
+function showRetry(err) {
+  fail(err);
+  sentinel.replaceChildren(el("button", { type: "button", onclick: () => {
+    loadFailed = false;
+    setMessage("");
+    sentinel.textContent = "Memuat…";
+    loadMore();
+  } }, "Coba lagi"));
+}
+
 function renderEmpty() {
   sentinel.textContent = items.length ? "" : "Tidak ada item di kategori ini.";
 }
 
 async function loadMore() {
-  if (loading || exhausted) return;
+  if (loading || exhausted || loadFailed) return;
   loading = true;
   const gen = generation;
   try {
@@ -252,7 +285,9 @@ async function loadMore() {
     sentinel.textContent = exhausted ? "" : "Memuat…";
     renderEmpty();
     updateHead();
-  } catch (e) { if (gen === generation) { exhausted = true; fail(e); } } finally { loading = false; }
+  } catch (e) {
+    if (gen === generation) { loadFailed = true; showRetry(e); }
+  } finally { if (gen === generation) loading = false; }
   // keep filling if the sentinel is still on screen (observer will not re-fire by itself)
   if (gen === generation && !exhausted && sentinel && sentinel.getBoundingClientRect
       && sentinel.getBoundingClientRect().top < window.innerHeight + 600) loadMore();
@@ -264,6 +299,7 @@ async function reload() {
   total = 0;
   focus = 0;
   exhausted = false;
+  loadFailed = false;
   loading = false;
   seenQueue.clear(); // ids not yet sent stay unseen; they will be re-observed
   buildShell();
@@ -275,7 +311,7 @@ async function reload() {
 // --- decisions ------------------------------------------------------------------------
 
 async function decide(unitId, decision) {
-  if (busy) return false;
+  if (busy) { setMessage("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return false; }
   const item = items[indexOfUnit(unitId)];
   if (!item) return false;
   busy = true;
@@ -306,15 +342,17 @@ async function acceptFocused() {
   if (ok && focus < items.length - 1) setFocus(focus + 1);
 }
 
-const unbindGrid = bindKeys({
+const gridKeys = {
   ArrowLeft: () => setFocus(focus - 1),
   ArrowRight: () => setFocus(focus + 1),
   k: () => { const it = focusedItem(); if (it) { queueSeen(it); decide(it.unit_id, "keep"); } },
   d: () => { const it = focusedItem(); if (it) { queueSeen(it); decide(it.unit_id, "discard"); } },
   Enter: acceptFocused,
   " ": () => openFull(focus),
-});
-window.addEventListener("pagehide", unbindGrid);
+};
+let unbindGrid = bindKeys(gridKeys);
+window.addEventListener("pagehide", () => { unbindGrid(); unbindGrid = () => {}; });
+window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindGrid = bindKeys(gridKeys); });
 
 // --- fullscreen viewer ----------------------------------------------------------------
 
@@ -374,7 +412,7 @@ async function openFull(i) {
       }
     },
     onIndex: (n) => {
-      setFocus(n);
+      setFocus(n, false); // grid is behind the viewer: do not scroll it
       queueSeen(items[n]);
       flushSeen();
       ensureCard(n);
@@ -384,6 +422,7 @@ async function openFull(i) {
     },
     onClose: () => {
       viewerState = null;
+      resyncObserver();
       const it = items[focus];
       const cell = it && cells.get(it.unit_id);
       if (cell && cell.scrollIntoView) cell.scrollIntoView({ block: "nearest" });
@@ -406,15 +445,23 @@ function modal(title, ...body) {
 
 async function openApply() {
   if (applying) return;
-  await flushSeen(); // so "belum dilihat" reflects what is really on screen
+  seenPaused = true; // the modal covers the grid: scrolling behind it must not count as seen
+  if (!(await flushSeen())) {
+    seenPaused = false;
+    resyncObserver();
+    fail(new Error("Tidak bisa mengirim daftar item yang sudah dilihat. Coba lagi sebentar lagi."));
+    return;
+  }
   let preview;
-  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) { fail(e); return; }
+  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
+    seenPaused = false; resyncObserver(); fail(e); return;
+  }
   const unbind = bindKeys({ Escape: () => { if (!applying) close(); } });
   const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
   const box = modal(`Terapkan: ${label}`, el("p", {}, preview.text), actions);
-  function close() { unbind(); box.remove(); }
+  function close() { unbind(); box.remove(); seenPaused = false; resyncObserver(); }
   cancel.addEventListener("click", close);
   confirm.addEventListener("click", async () => {
     if (applying) return;
