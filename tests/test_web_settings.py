@@ -42,3 +42,21 @@ def test_calibrate_suggests_without_saving(web, conn_with):
 def test_settings_page_renders(web):
     r = web.get("/pengaturan")
     assert r.status_code == 200 and "Pengaturan" in r.text
+
+
+def test_put_settings_rejects_non_finite_and_wrong_types(web):
+    h = {"Content-Type": "application/json"}
+    assert web.put("/api/settings", content='{"workers": NaN}', headers=h).status_code == 400
+    assert web.put("/api/settings", content='{"burst_window_s": Infinity}', headers=h).status_code == 400
+    assert web.put("/api/settings", content='{"burst_window_s": 1e999}', headers=h).status_code == 400
+    assert web.put("/api/settings", json={"workers": True}).status_code == 400
+    assert web.put("/api/settings", json={"workers": "3"}).status_code == 400
+    assert web.get("/api/settings").status_code == 200
+
+
+def test_partial_put_keeps_other_fields(web):
+    before = web.get("/api/settings").json()
+    assert web.put("/api/settings", json={"workers": 2}).status_code == 200
+    after = web.get("/api/settings").json()
+    assert after["workers"] == 2
+    assert {k: v for k, v in after.items() if k != "workers"} == {k: v for k, v in before.items() if k != "workers"}

@@ -117,7 +117,7 @@ function fill(s) {
   workers.value = s.workers;
   blurValue = s.blur_threshold;
   slider.value = s.blur_effective;
-  sliderVal.textContent = s.blur_threshold == null ? `otomatis (${s.blur_effective})` : String(s.blur_threshold);
+  sliderVal.textContent = s.blur_threshold == null ? `otomatis (${Number(s.blur_effective).toFixed(1)})` : String(s.blur_threshold);
   loadExamples();
 }
 

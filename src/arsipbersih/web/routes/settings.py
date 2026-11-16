@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from dataclasses import asdict, fields, replace
 from zoneinfo import ZoneInfo
@@ -34,7 +35,7 @@ FLOAT_NONNEG = {
 
 
 def _is_num(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def _clean_folders(v) -> tuple[str, ...]:
@@ -141,10 +142,7 @@ def blur_examples(threshold: float, conn: sqlite3.Connection = Depends(get_conn)
 
 @router.post("/api/settings/calibrate")
 def calibrate(conn: sqlite3.Connection = Depends(get_conn)):
-    try:
-        suggested = suggest_blur_threshold(conn)
-    except Exception:
-        suggested = None
+    suggested = suggest_blur_threshold(conn)  # 0.0 means no analysed photos
     if not suggested:
         raise UserError("Belum ada foto yang dianalisis. Jalankan pindai dulu.", 400)
     return {"suggested": suggested}
