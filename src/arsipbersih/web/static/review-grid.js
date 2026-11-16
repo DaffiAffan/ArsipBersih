@@ -85,6 +85,13 @@ function queueSeen(item) {
   scheduleSeen();
 }
 
+// Grid-side actions (click, K/D/Enter) only count as "seen" when the owner actually saw the
+// real thumbnail. A cell still loading or showing the placeholder becomes seen only by being
+// opened in fullscreen (openFull/onIndex call queueSeen directly).
+function queueSeenIfShown(item) {
+  if (item && item.thumbState === "ok") queueSeen(item);
+}
+
 async function sendSeen() {
   while (seenQueue.size) {
     const ids = [...seenQueue];
@@ -133,6 +140,7 @@ function flushSeenOnLeave() {
 
 window.addEventListener("pagehide", flushSeenOnLeave);
 
+// Called only after the cell's real thumbnail fired "load" (see watchThumb).
 function observeSeen(cell, item) {
   if (item.seen || !cellObserver) return;
   cell.__item = item;
@@ -172,7 +180,7 @@ function fmtScore(v) {
 function indexOfUnit(id) { return items.findIndex((x) => x.unit_id === id); }
 
 function paintCell(cell, item, i) {
-  cell.className = "gcell" + (item.decision === "keep" ? " keep" : item.decision === "discard" ? " discard" : "")
+  cell.className = "gcell" + (item.thumbState === "none" ? " noprev" : "") + (item.decision === "keep" ? " keep" : item.decision === "discard" ? " discard" : "")
     + (i === focus ? " focused" : "");
   const mark = cell.querySelector(".gmark");
   if (mark) {
@@ -181,10 +189,33 @@ function paintCell(cell, item, i) {
   }
 }
 
+// Placeholder detection: /media/thumb serves its placeholder SVG with a 1x1 intrinsic size
+// (plus an X-Placeholder header), so a loaded image with naturalWidth/Height <= 1 is the
+// placeholder. A failed load counts as "no preview" too. Only a real, loaded thumbnail
+// makes the cell eligible for scroll-based "seen".
+function watchThumb(cell, img, item) {
+  item.thumbState = "loading";
+  const noPreview = () => {
+    item.thumbState = "none";
+    cell.classList.add("noprev");
+    const lbl = cell.querySelector(".gnoprev");
+    if (lbl) lbl.hidden = false;
+  };
+  img.addEventListener("load", () => {
+    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) { noPreview(); return; }
+    item.thumbState = "ok";
+    observeSeen(cell, item);
+  }, { once: true });
+  img.addEventListener("error", noPreview, { once: true });
+  if (!item.thumb) noPreview();
+}
+
 function makeCell(item, i) {
   const title = item.reason ? String(item.reason) : "";
+  const img = el("img", { src: item.thumb || "", alt: "", loading: "lazy", draggable: "false" });
   const cell = el("div", { class: "gcell", tabindex: "-1", "data-id": item.unit_id, title },
-    el("img", { src: item.thumb || "", alt: "", loading: "lazy", draggable: "false" }),
+    img,
+    el("span", { class: "gnoprev", hidden: true }, "Pratinjau tidak tersedia"),
     item.score != null ? el("span", { class: "score" }, fmtScore(item.score)) : null,
     el("span", { class: "gmark", hidden: true }));
   let clickTimer = null; // delay single-click so a double-click does not toggle first
@@ -199,9 +230,9 @@ function makeCell(item, i) {
     clearTimeout(clickTimer);
     openFull(indexOfUnit(item.unit_id));
   });
+  watchThumb(cell, img, item);
   paintCell(cell, item, i);
   cells.set(item.unit_id, cell);
-  observeSeen(cell, item);
   return cell;
 }
 
@@ -328,7 +359,7 @@ async function decide(unitId, decision) {
 function toggleKeep(unitId) {
   const item = items[indexOfUnit(unitId)];
   if (!item) return Promise.resolve(false);
-  queueSeen(item);
+  queueSeenIfShown(item);
   return decide(unitId, item.decision === "keep" ? null : "keep");
 }
 
@@ -337,7 +368,7 @@ function focusedItem() { return items[focus]; }
 async function acceptFocused() {
   const it = focusedItem();
   if (!it) return;
-  queueSeen(it);
+  queueSeenIfShown(it);
   const ok = await decide(it.unit_id, null);
   if (ok && focus < items.length - 1) setFocus(focus + 1);
 }
@@ -345,8 +376,8 @@ async function acceptFocused() {
 const gridKeys = {
   ArrowLeft: () => setFocus(focus - 1),
   ArrowRight: () => setFocus(focus + 1),
-  k: () => { const it = focusedItem(); if (it) { queueSeen(it); decide(it.unit_id, "keep"); } },
-  d: () => { const it = focusedItem(); if (it) { queueSeen(it); decide(it.unit_id, "discard"); } },
+  k: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "keep"); } },
+  d: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "discard"); } },
   Enter: acceptFocused,
   " ": () => openFull(focus),
 };
