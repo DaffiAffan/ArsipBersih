@@ -5,6 +5,7 @@ import shutil
 
 import pytest
 
+from arsipbersih import decisions
 from arsipbersih.db import new_id, open_db
 from arsipbersih.decisions import (
     ApplyPreview,
@@ -115,3 +116,29 @@ def test_purge_refuses_when_trash_folder_missing(root):
     with pytest.raises(PurgeMismatch):
         purge_trash(conn, root, files, size)
     assert conn.execute("select purged from files where unit_id=?", (uid,)).fetchone()[0] == 0
+
+
+def test_purge_reports_each_failed_file(root, monkeypatch, review_db):
+    conn, root, ids = review_db("burem")
+    mark_seen(conn, list(ids)); apply_category(conn, root, "burem")
+    real = decisions._delete
+    def flaky(p):
+        if p.name == "IMG_1.jpg":
+            raise PermissionError("locked")
+        real(p)
+    monkeypatch.setattr(decisions, "_delete", flaky)
+    errors: list[str] = []
+    n = purge_trash(conn, root, *trash_totals(conn), errors=errors)
+    assert n == 2
+    assert len(errors) == 1 and "IMG_1.jpg" in errors[0] and "PermissionError" in errors[0]
+
+
+def test_purge_skips_file_whose_size_changed(root, review_db):
+    conn, root, ids = review_db("burem")
+    mark_seen(conn, list(ids)); apply_category(conn, root, "burem")
+    totals = trash_totals(conn)
+    victim = next((root / "_sampah").rglob("IMG_0.jpg"))
+    victim.write_bytes(b"y" * 99)                   # bukan file yang dicatat lagi
+    errors: list[str] = []
+    assert purge_trash(conn, root, *totals, errors=errors) == 2
+    assert victim.exists() and "differs" in errors[0]
