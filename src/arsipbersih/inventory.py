@@ -86,16 +86,27 @@ def _label_for(rel_path: str) -> str:
     return ARCHIVE_DIR
 
 
+def _path_key(rel: str) -> str:
+    """NTFS ignores case: IMG.JPG renamed to img.jpg is the same file, not a new one."""
+    return rel.casefold() if os.name == "nt" else rel
+
+
+def _pick(cands: list, rel: str):
+    """The row a walked path belongs to: exact spelling first, then a live row."""
+    for c in cands:
+        if c["rel_path"] == rel:
+            return c
+    return next((c for c in cands if not c["purged"]), cands[0])
+
+
 def run_inventory(conn: sqlite3.Connection, root: Path) -> InventoryResult:
     root = Path(root)
     result = InventoryResult()
-    known = {
-        r["rel_path"]: r
-        for r in conn.execute(
-            "select id, rel_path, size, mtime_ns, missing, purged from files"
-        )
-    }
-    seen: set[str] = set()
+    known: dict[str, list] = {}
+    for r in conn.execute("select id, rel_path, size, mtime_ns, missing, purged from files"):
+        known.setdefault(_path_key(r["rel_path"]), []).append(r)
+    seen_ids: set[str] = set()
+    seen_keys: set[str] = set()
     inserts: list[tuple] = []
 
     def flush() -> None:
@@ -108,9 +119,18 @@ def run_inventory(conn: sqlite3.Connection, root: Path) -> InventoryResult:
         if not top_abs.is_dir():
             continue
         for abs_path, rel, size, mtime_ns in _walk(top_abs, top, result):
-            row = known.get(rel)
+            key = _path_key(rel)
+            cands = known.get(key)
+            row = _pick(cands, rel) if cands else None
             if row is not None:
-                seen.add(rel)
+                seen_ids.add(row["id"])
+                seen_keys.add(key)
+                if row["rel_path"] != rel:  # renamed in case only: follow the new spelling
+                    conn.execute(
+                        "update files set rel_path=?, orig_rel_path=case when orig_rel_path=?"
+                        " then ? else orig_rel_path end where id=?",
+                        (rel, row["rel_path"], rel, row["id"]),
+                    )
                 if row["size"] == size and row["mtime_ns"] == mtime_ns and not row["purged"]:
                     if row["missing"]:
                         conn.execute("update files set missing=0 where id=?", (row["id"],))
@@ -140,14 +160,18 @@ def run_inventory(conn: sqlite3.Connection, root: Path) -> InventoryResult:
 
     # Rows the walk did not see: Sumber/Arsip rows are gone, _review/_sampah rows were never
     # walked. A direct existence test covers both.
-    for rel, row in known.items():
-        if rel in seen or row["purged"]:
-            continue
-        exists = os.path.lexists(long_path(root.joinpath(*rel.split("/"))))
-        if exists and row["missing"]:
-            conn.execute("update files set missing=0 where id=?", (row["id"],))
-        elif not exists and not row["missing"]:
-            conn.execute("update files set missing=1 where id=?", (row["id"],))
-            result.missing += 1
+    for key, cands in known.items():
+        for row in cands:
+            if row["id"] in seen_ids or row["purged"]:
+                continue
+            if key in seen_keys:
+                exists = False  # a case-only twin of a walked file: that file is another row's
+            else:
+                exists = os.path.lexists(long_path(root.joinpath(*row["rel_path"].split("/"))))
+            if exists and row["missing"]:
+                conn.execute("update files set missing=0 where id=?", (row["id"],))
+            elif not exists and not row["missing"]:
+                conn.execute("update files set missing=1 where id=?", (row["id"],))
+                result.missing += 1
     conn.commit()
     return result
