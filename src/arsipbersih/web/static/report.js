@@ -1,12 +1,8 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
+import { CATEGORY_LABELS } from "./viewer.js";
 
 const LOCATIONS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
-const CATEGORIES = {
-  "duplikat-persis": "Duplikat persis", "duplikat-versi": "Duplikat versi", burem: "Burem",
-  gelap: "Gelap", screenshot: "Screenshot", rusak: "Rusak", "salinan-wa": "Salinan WhatsApp",
-  burst: "Burst", mirip: "Mirip",
-};
 
 function row(label, value) {
   return el("tr", {}, el("td", {}, label), el("td", {}, String(value)));
@@ -23,7 +19,7 @@ async function load() {
   box.replaceChildren(
     el("p", {}, "Total file media: ", el("strong", {}, r.total_media)),
     table("Per lokasi", Object.entries(r.by_location).map(([k, v]) => row(LOCATIONS[k] || k, v))),
-    table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORIES[k] || k, v))),
+    table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORY_LABELS[k] || k, v))),
     table("Lainnya", [
       row("Dihemat dari duplikat", fmtBytes(r.bytes_saved_duplicates)),
       row("Ukuran _sampah", fmtBytes(r.bytes_in_trash)),
