@@ -97,15 +97,22 @@ class JobRunner:
             result = fn(report, stop)
             if stop.is_set():
                 status = "stopped"
-        except Exception as exc:
-            log.exception("job %s failed", job_id)
-            status, error = "failed", explain(exc)
-        with self._lock:
-            if self._state.id == job_id:
-                self._state.status = status
-                self._state.result = result
-                self._state.error = error
-                self._state.finished_at = _now()
+        except BaseException as exc:
+            status, result = "failed", None
+            try:
+                log.exception("job %s failed", job_id)
+                error = explain(exc)
+            except Exception:
+                error = "Proses gagal karena kesalahan yang tidak terduga."
+            if not isinstance(exc, Exception):
+                raise
+        finally:
+            with self._lock:
+                if self._state.id == job_id:
+                    self._state.status = status
+                    self._state.result = result
+                    self._state.error = error
+                    self._state.finished_at = _now()
 
     def status(self) -> JobState:
         with self._lock:
@@ -121,7 +128,8 @@ class JobRunner:
             return self._state.status == "running"
 
     def wait(self, timeout: float = 30) -> JobState:
-        t = self._thread
+        with self._lock:
+            t = self._thread
         if t is not None:
             t.join(timeout)
         return self.status()

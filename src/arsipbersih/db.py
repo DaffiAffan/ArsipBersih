@@ -136,10 +136,12 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
-def open_db(root: Path) -> sqlite3.Connection:
+def open_db(root: Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
     state = Path(root) / STATE_DIR
     state.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(long_path(state / "arsip.db"), timeout=BUSY_TIMEOUT_MS / 1000)
+    conn = sqlite3.connect(long_path(state / "arsip.db"), timeout=BUSY_TIMEOUT_MS / 1000,
+        check_same_thread=check_same_thread,
+    )
     conn.row_factory = sqlite3.Row
     conn.execute(f"pragma busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("pragma journal_mode=wal")

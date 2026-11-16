@@ -38,7 +38,10 @@ def _reconcile_job(root: Path):
     def run(report, stop):
         conn = open_db(root)  # sqlite connections are thread-bound
         try:
-            return {"fixed": reconcile(conn, root, [])}
+            errs: list[str] = []
+            fixed = reconcile(conn, root, errs)
+            pending = conn.execute("select count(*) from moves where status='pending'").fetchone()[0]
+            return {"fixed": fixed, "errors": errs, "pending": pending}
         finally:
             conn.close()
 
@@ -57,6 +60,7 @@ def create_app(
     app.state.root = Path(root)
     app.state.templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
     app.state.jobs = JobRunner()
+    open_db(app.state.root).close()  # create/upgrade the schema once, before concurrent requests
     app.state.start_jobs = start_jobs
 
     @app.middleware("http")

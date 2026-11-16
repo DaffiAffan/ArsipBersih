@@ -19,7 +19,7 @@ def get_root(request: Request) -> Path:
 
 
 def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
-    conn = open_db(request.app.state.root)
+    conn = open_db(request.app.state.root, check_same_thread=False)
     try:
         yield conn
     finally:

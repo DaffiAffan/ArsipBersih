@@ -50,3 +50,34 @@ def test_stop_endpoint_sets_stop_event(web):
     jr.start("scan", "Pindai", lambda r, s: (s.wait(5), {})[1])
     assert web.post("/api/job/stop").status_code == 204
     assert jr.wait().status == "stopped"
+
+
+def test_base_exception_does_not_wedge_runner():
+    jr = JobRunner()
+
+    def die(r, s):
+        raise SystemExit(1)
+
+    jr.start("t", "uji", die)
+    st = jr.wait()
+    assert st.status == "failed" and st.error
+    jr.start("t2", "uji 2", lambda r, s: {"ok": 1})
+    assert jr.wait().status == "done"
+
+
+def test_get_conn_survives_parallel_requests(web):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from fastapi import Depends
+
+    from arsipbersih.web.deps import get_conn
+
+    @web.app_ref.router.get("/api/_conn_probe")
+    def probe(conn=Depends(get_conn)):
+        return {"n": conn.execute("select 1").fetchone()[0]}
+
+    with ThreadPoolExecutor(8) as ex:
+        rs = list(ex.map(lambda _: web.get("/api/_conn_probe"), range(20)))
+        codes = [r.status_code for r in rs]
+
+    assert codes == [200] * 20

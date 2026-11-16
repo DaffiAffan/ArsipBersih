@@ -28,9 +28,9 @@ export function mountJobBar(bar) {
     const p = st.progress;
     const parts = [el("strong", {}, st.label || "")];
     if (st.status === "running") {
-      if (p) parts.push(` · ${p.stage} · ${p.done}/${p.total}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
+      if (p) parts.push(` · ${p.stage} · ${p.done}${p.total != null ? "/" + p.total : ""}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
       if (st.kind === "scan") {
-        parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop") }, "Jeda"));
+        parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"));
       }
     } else if (st.status === "done") parts.push(" · selesai");
     else if (st.status === "stopped") parts.push(" · dijeda");
