@@ -797,9 +797,7 @@ def undo_all(conn: sqlite3.Connection, root: Path) -> BatchResult:
         for r in conn.execute(
             "select b.id from batches b where b.kind in ('rapikan','apply')"
             " and exists (select 1 from moves m where m.batch_id = b.id and m.status='done'"
-            "   and not exists (select 1 from moves m2 join files f2 on f2.id = m2.file_id"
-            "     where m2.batch_id = m.batch_id and m2.unit_id is m.unit_id"
-            "       and m2.status='done' and f2.purged = 1))"
+            "   and not exists (select 1 from files f where f.id = m.file_id and f.purged = 1))"
             " order by b.rowid desc"
         )
     ]

@@ -230,7 +230,7 @@ def test_undo_all_skips_purged_files(root):
     assert res.batch_id == "" and res.failed_units == 0 and res.errors == []
 
 
-def test_undo_partly_purged_unit_is_not_restored(root):
+def _partly_purged(root):
     conn, (uid,) = _review_units(root, "burem", n=1)
     mark_seen(conn, [uid])
     res = apply_category(conn, root, "burem")
@@ -248,10 +248,22 @@ def test_undo_partly_purged_unit_is_not_restored(root):
         (new_id(), res.batch_id, uid, f2, "_review/burem/HP/IMG_0.xmp", rel2))
     conn.execute("update files set purged=1 where id=?", (fid,))
     conn.commit()
+    return conn, uid, res, rel2
+
+
+def test_undo_partly_purged_unit_is_not_restored(root):
+    conn, uid, res, rel2 = _partly_purged(root)
     r = undo_batch(conn, root, res.batch_id)
     assert r.batch_id == "" and any("partly purged" in e for e in r.errors)
     assert (root / rel2).exists()
     assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "trash"
+
+
+def test_undo_all_reports_partly_purged_unit(root):
+    conn, uid, res, rel2 = _partly_purged(root)
+    r = undo_all(conn, root)
+    assert r.batch_id == "" and any("partly purged, not restored" in e for e in r.errors)
+    assert (root / rel2).exists()
 
 
 def test_undo_interrupted_still_resets_restored_units(root, monkeypatch):
