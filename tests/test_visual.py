@@ -79,3 +79,39 @@ def test_worker_crash_only_marks_the_culprit(root, make_image, monkeypatch):
     }
     assert status["crash.jpg"] == ("error", "worker crashed while decoding")
     assert status["a.jpg"][0] == "done" and status["c.jpg"][0] == "done"
+
+
+def test_pool_broken_during_submit_does_not_abort(root, make_image, monkeypatch):
+    from concurrent.futures import Future
+    from concurrent.futures.process import BrokenProcessPool
+
+    from arsipbersih import visual
+    from arsipbersih.db import open_db
+    from arsipbersih.inventory import run_inventory
+
+    class FakePool:
+        made = 0
+
+        def __init__(self, *a, **k):
+            FakePool.made += 1
+            self.breaks = FakePool.made == 1  # only the first pool breaks, on its 2nd submit
+            self.n = 0
+
+        def submit(self, fn, job):
+            self.n += 1
+            if self.breaks and self.n >= 2:
+                raise BrokenProcessPool("died while queueing")
+            f = Future()
+            f.set_result(fn(job))
+            return f
+
+        def shutdown(self, *a, **k):
+            pass
+
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        make_image(root / "Sumber" / name, size=(200, 150))
+    conn = open_db(root)
+    run_inventory(conn, root)
+    monkeypatch.setattr(visual, "_pool", FakePool)
+    assert visual.run_visual(conn, root, Settings(workers=2)) == 3
+    assert {r[0] for r in conn.execute("select visual_status from files")} == {"done"}

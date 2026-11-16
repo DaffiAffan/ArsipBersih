@@ -16,7 +16,7 @@ from .calibrate import suggest_blur_threshold
 from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
-from .layout import REVIEW_DIR, SOURCE_DIR
+from .layout import REVIEW_DIR, SOURCE_DIR, STATE_DIR
 from .lock import RootLocked, acquire_root_lock
 from .mover import (
     InsufficientSpace,
@@ -65,6 +65,22 @@ def _root_locked(root: Path) -> Iterator[None]:
         yield
     finally:
         lock.release()
+
+
+def _write_crash_log(root: Path, exc: BaseException) -> Optional[Path]:
+    """Append the traceback to .arsipbersih/logs/scan-crash.log; None if it cannot be written."""
+    import traceback
+    from datetime import datetime
+
+    path = root / STATE_DIR / "logs" / "scan-crash.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now().isoformat(timespec='seconds')}\n")
+            f.write("".join(traceback.format_exception(exc)))
+    except OSError:
+        return None
+    return path
 
 
 def _root_arg() -> Path:
@@ -177,9 +193,17 @@ def _scan(root: Path, workers: Optional[int]) -> None:
         pass  # not the main thread
     try:
         summary = pipeline.run_scan(root, show, stop)
-    except (KeyboardInterrupt, BrokenProcessPool):
+    except KeyboardInterrupt:
         stop.set()
         typer.echo(PAUSED)
+        raise typer.Exit(0)
+    except BrokenProcessPool as e:
+        stop.set()
+        log_path = _write_crash_log(root, e)
+        typer.echo(f"Paused: an analysis worker crashed ({e or type(e).__name__}).")
+        if log_path is not None:
+            typer.echo(f"Details: {log_path}")
+        typer.echo("Run the same command again to resume.")
         raise typer.Exit(0)
     finally:
         if previous is not None:

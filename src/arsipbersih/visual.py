@@ -411,10 +411,16 @@ def run_visual(
                 if stop is not None and stop.is_set():
                     return done
                 chunk = jobs[start : start + CHUNK_SIZE]
-                futures = [(job[0], pool.submit(_worker, job)) for job in chunk]
+                futures = []
+                for job in chunk:
+                    try:
+                        futures.append(pool.submit(_worker, job))
+                    except BrokenProcessPool:
+                        break  # a worker died while the chunk was queued: rest goes isolated
                 results: dict[str, VisualResult] = {}
-                unfinished: list[tuple] = []
-                for job, (fid, fut) in zip(chunk, futures):
+                unfinished: list[tuple] = list(chunk[len(futures):])
+                for job, fut in zip(chunk, futures):
+                    fid = job[0]
                     try:
                         _, results[fid] = fut.result()
                     except BrokenProcessPool:
