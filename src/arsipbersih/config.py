@@ -21,6 +21,9 @@ DEFAULT_GENERIC_FOLDERS: tuple[str, ...] = (
 @dataclass(frozen=True)
 class Settings:
     phash_version_max: int = 6
+    # [Claude] Max 32-px block difference (z-scored gray, 768 px) for a photo version;
+    # calibrated on D:\TESTING: true versions <= 0.095, same-layout screenshots >= 0.122.
+    version_detail_max: float = 0.11
     phash_burst_max: int = 12
     video_frame_phash_max: int = 8      # [Claude] per-frame distance for video version-dups
     burst_window_s: float = 10.0

@@ -7,21 +7,27 @@ import json
 import posixpath
 import re
 import sqlite3
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from .config import Settings
 from .dates import filename_has_time
+from .formats import Kind
 from .db import new_id
 from .pairing import gopro_clip_id
 from .pathrules import has_camera_name, is_chat, is_download, segments_of
-from .visual import hamming, phash_int
+from .visual import _load_rgb, hamming, phash_int
 
 BLOCK = 4096
 ASPECT_TOLERANCE = 0.02
 VIDEO_DURATION_TOLERANCE_S = 1.0
+DETAIL_PX = 768
+DETAIL_BLOCK = 32
+DETAIL_CACHE = 128  # decoded images kept at once (<= ~1 MB each)
 
 _PIXEL_BURST_ID = re.compile(r"_BURST(\d{8,})", re.IGNORECASE)
 _BURST_MARKER = re.compile(r"_BURST\d{1,7}|_COVER", re.IGNORECASE)
@@ -33,6 +39,7 @@ class UnitView:
     location: str
     orig_rel_path: str
     filename: str
+    rel_path: str
     source_label: str | None
     make: str | None
     model: str | None
@@ -75,7 +82,7 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
         frames = json.loads(r["frame_phashes"]) if r["frame_phashes"] else None
         views.append(UnitView(
             unit_id=r["unit_id"], location=r["location"],
-            orig_rel_path=r["orig_rel_path"] or r["rel_path"],
+            orig_rel_path=r["orig_rel_path"] or r["rel_path"], rel_path=r["rel_path"],
             filename=posixpath.basename(r["rel_path"]),
             source_label=r["source_label"], make=r["make"], model=r["model"],
             width=r["width"], height=r["height"], size=r["size"], sharpness=r["sharpness"],
@@ -212,6 +219,53 @@ def _edge(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a < b else (b, a)
 
 
+class _DetailCheck:
+    """Second look at pHash-close photos.
+
+    pHash only sees the overall layout, so screenshots of one app (quiz pages, transfer
+    receipts) with different text look like versions of each other. A real version
+    (resized, recompressed) stays close in every 32-px block; different text does not.
+    """
+
+    def __init__(self, root: Path, max_diff: float):
+        self.root = Path(root)
+        self.max_diff = max_diff
+        self._cache: OrderedDict[str, Image.Image | None] = OrderedDict()
+
+    def _gray(self, u: UnitView) -> Image.Image | None:
+        if u.unit_id in self._cache:
+            self._cache.move_to_end(u.unit_id)
+            return self._cache[u.unit_id]
+        try:
+            kind = Kind(u.kind) if u.kind else Kind.PHOTO
+            img = _load_rgb(self.root / u.rel_path, kind, DETAIL_PX).convert("L")
+            img.thumbnail((DETAIL_PX, DETAIL_PX), Image.Resampling.LANCZOS)
+        except Exception:  # noqa: BLE001 - unreadable now: cannot confirm a version
+            img = None
+        self._cache[u.unit_id] = img
+        if len(self._cache) > DETAIL_CACHE:
+            self._cache.popitem(last=False)
+        return img
+
+    def distance(self, a: UnitView, b: UnitView) -> float | None:
+        ia, ib = self._gray(a), self._gray(b)
+        if ia is None or ib is None:
+            return None
+        bl = DETAIL_BLOCK
+        w = max(bl, min(ia.width, ib.width) // bl * bl)
+        h = max(bl, min(ia.height, ib.height) // bl * bl)
+        arrs = []
+        for im in (ia, ib):
+            x = np.asarray(im.resize((w, h), Image.Resampling.LANCZOS), dtype=np.float32)
+            arrs.append((x - x.mean()) / (x.std() + 1e-6))
+        d = np.abs(arrs[0] - arrs[1]).reshape(h // bl, bl, w // bl, bl).mean(axis=(1, 3))
+        return float(d.max())
+
+    def close(self, a: UnitView, b: UnitView) -> bool:
+        d = self.distance(a, b)
+        return d is not None and d <= self.max_diff  # unverifiable: never suggest a discard
+
+
 def _aspect(u: UnitView) -> float | None:
     if not u.width or not u.height:
         return None
@@ -229,7 +283,9 @@ def _exact_groups(views: list[UnitView]) -> list[tuple[list[UnitView], str]]:
     return [(m, choose_keeper_exact(m)) for m in by_sha.values() if len(m) > 1]
 
 
-def _photo_version_groups(photos: list[UnitView], max_dist: int) -> list[list[UnitView]]:
+def _photo_version_groups(
+    photos: list[UnitView], max_dist: int, detail: _DetailCheck | None = None
+) -> list[list[UnitView]]:
     cand = [u for u in photos if u.phash and _aspect(u) is not None]
     if len(cand) < 2:
         return []
@@ -245,6 +301,8 @@ def _photo_version_groups(photos: list[UnitView], max_dist: int) -> list[list[Un
         if (a.source_label == b.source_label and (a.width, a.height) == (b.width, b.height)
                 and a.taken_at and b.taken_at and a.taken_at != b.taken_at):
             continue
+        if detail is not None and not detail.close(a, b):
+            continue  # same layout, different content (e.g. two transfer receipts)
         edges[_edge(a.unit_id, b.unit_id)] = hamming(int(hashes[i]), int(hashes[j]))
     return _complete_linkage(cand, edges)
 
@@ -336,7 +394,10 @@ def _group_signatures(conn: sqlite3.Connection) -> dict[str, set[tuple]]:
     return sigs
 
 
-def run_grouping(conn: sqlite3.Connection, settings: Settings) -> GroupingResult:
+def run_grouping(
+    conn: sqlite3.Connection, settings: Settings, root: Path | None = None
+) -> GroupingResult:
+    """Rebuild all groups. With `root`, pHash-close photos also pass a pixel-detail check."""
     views = load_unit_views(conn)
     planned: list[tuple[str, list[UnitView], str]] = []  # (kind, members, keeper id)
 
@@ -350,7 +411,8 @@ def run_grouping(conn: sqlite3.Connection, settings: Settings) -> GroupingResult
     photos = [u for u in pool if u.kind == "photo"]
     videos = [u for u in pool if u.kind == "video"]
 
-    version = _photo_version_groups(photos, settings.phash_version_max)
+    detail = _DetailCheck(root, settings.version_detail_max) if root is not None else None
+    version = _photo_version_groups(photos, settings.phash_version_max, detail)
     version += _video_version_groups(videos, settings.video_frame_phash_max)
     for members in version:
         keeper = choose_keeper_version(members)

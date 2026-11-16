@@ -163,7 +163,7 @@ def run_scan(
             return summary
 
         begin("grouping")
-        run_grouping(conn, settings)
+        run_grouping(conn, settings, root)
         if stopped():
             return summary
 

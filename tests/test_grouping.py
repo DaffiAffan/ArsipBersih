@@ -206,3 +206,45 @@ def test_version_groups_do_not_chain(conn_with):
         "select f.rel_path from groups g join units u on u.id = g.suggested_keep_unit_id "
         "join files f on f.id = u.primary_file_id where g.kind='duplikat-versi'")}
     assert keepers == {"IMG_A.jpg", "IMG_D.jpg"}
+
+
+def _screen(path, text, size=(1280, 720)):
+    """A same-layout 'app screenshot' whose only difference is the text in one panel."""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", size, "white")
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, size[0], 60), fill=(170, 20, 30))
+    d.rectangle((40, 100, 900, 600), outline="gray", width=3)
+    for i, line in enumerate(text):
+        d.rectangle((80, 150 + i * 60, 80 + 40 * len(line), 180 + i * 60), fill="black")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path, quality=90)
+    return img
+
+
+def test_detail_check_splits_same_layout_screens(root, conn_with):
+    base = root / "Sumber/HP/WhatsApp"
+    a = _screen(base / "IMG-20230114-WA0001.jpg", ["abcdefgh", "abc", "abcdef"])
+    _screen(base / "IMG-20230114-WA0002.jpg", ["ab", "abcdefghijk", "abcd"])
+    a.resize((640, 360)).save(base / "IMG-20230114-WA0003.jpg", quality=60)  # a real version
+    conn = conn_with([
+        dict(name=f"IMG-20230114-WA000{i}.jpg", path="Sumber/HP/WhatsApp", phash="05942bfeeaf4ea01",
+             w=w, h=h, sha=f"s{i}")
+        for i, (w, h) in ((1, (1280, 720)), (2, (1280, 720)), (3, (640, 360)))
+    ])
+    assert run_grouping(conn, Settings()).version == 1  # pHash alone: one group of 3
+    assert member_count(conn, "duplikat-versi") == 3
+    assert run_grouping(conn, Settings(), root).version == 1
+    names = {r[0].rsplit("/", 1)[-1] for r in conn.execute(
+        "select f.rel_path from group_members m join units u on u.id = m.unit_id "
+        "join files f on f.id = u.primary_file_id")}
+    assert names == {"IMG-20230114-WA0001.jpg", "IMG-20230114-WA0003.jpg"}
+
+
+def test_detail_check_refuses_unreadable_files(root, conn_with):
+    conn = conn_with([
+        dict(name="IMG_1.jpg", phash="f0f0f0f0f0f0f0f0", w=4000, h=3000, sha="u1"),
+        dict(name="IMG_2.jpg", phash="f0f0f0f0f0f0f0f0", w=4000, h=3000, sha="u2"),
+    ])
+    assert run_grouping(conn, Settings(), root).version == 0  # no files on disk to confirm
