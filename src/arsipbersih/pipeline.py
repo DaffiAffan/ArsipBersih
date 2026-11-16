@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -17,11 +18,12 @@ from .events import EventSummary, run_events
 from .grouping import run_grouping
 from .hashing import run_hashing
 from .inventory import InventoryResult, run_inventory
-from .layout import SOURCE_DIR
+from .layout import REVIEW_DIR, SOURCE_DIR, long_path, to_abs
 from .metadata import ExifToolUnavailable, run_metadata
 from .mover import (
     BatchResult,
     check_space,
+    InsufficientSpace,
     execute,
     reconcile,
     reconcile_or_refuse,
@@ -197,3 +199,53 @@ def rapikan(root: Path) -> BatchResult:
         return result
     finally:
         conn.close()
+
+
+@dataclass
+class RapikanSummary:
+    archive_units: int
+    archive_bytes: int
+    review: dict[str, tuple[int, int]]  # category -> (units, bytes)
+    skipped: list[tuple[str, str]]  # (unit_id, reason)
+    space_ok: bool
+    space_error: str | None
+    scan_done: bool
+
+
+def summarize_rapikan(conn, root: Path) -> RapikanSummary:
+    """Dry-run summary of what `rapikan` would do; moves nothing."""
+    skipped: list[tuple[str, str]] = []
+    moves = plan_rapikan(conn, root, skipped)
+    archive_units = archive_bytes = 0
+    review_units: dict[str, int] = {}
+    review_bytes: dict[str, int] = {}
+    for um in moves:
+        size = 0
+        for fm in um.files:
+            try:
+                size += os.stat(long_path(to_abs(root, fm.src_rel))).st_size
+            except OSError:
+                pass
+        if um.to_location == "archive":
+            archive_units += 1
+            archive_bytes += size
+        else:
+            parts = um.files[0].dst_rel.replace("\\", "/").split("/") if um.files else []
+            cat = parts[1] if len(parts) > 1 and parts[0] == REVIEW_DIR else "other"
+            review_units[cat] = review_units.get(cat, 0) + 1
+            review_bytes[cat] = review_bytes.get(cat, 0) + size
+    space_error = None
+    try:
+        check_space(root, moves)
+    except InsufficientSpace as e:
+        space_error = str(e)
+    scan_done = conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone() is not None
+    return RapikanSummary(
+        archive_units,
+        archive_bytes,
+        {c: (review_units[c], review_bytes[c]) for c in sorted(review_units)},
+        skipped,
+        space_error is None,
+        space_error,
+        scan_done,
+    )
