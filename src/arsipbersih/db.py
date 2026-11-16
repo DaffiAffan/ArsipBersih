@@ -144,9 +144,12 @@ def open_db(root: Path, *, check_same_thread: bool = True) -> sqlite3.Connection
     )
     conn.row_factory = sqlite3.Row
     conn.execute(f"pragma busy_timeout = {BUSY_TIMEOUT_MS}")
-    conn.execute("pragma journal_mode=wal")
     conn.execute("pragma foreign_keys=on")
-    conn.executescript(SCHEMA)
-    conn.execute(f"pragma user_version={SCHEMA_VERSION}")
-    conn.commit()
+    # Only touch the file (write lock) when the schema is missing or outdated, so opening
+    # a connection never stalls behind a long writer such as a scan batch.
+    if conn.execute("pragma user_version").fetchone()[0] != SCHEMA_VERSION:
+        conn.execute("pragma journal_mode=wal")
+        conn.executescript(SCHEMA)
+        conn.execute(f"pragma user_version={SCHEMA_VERSION}")
+        conn.commit()
     return conn

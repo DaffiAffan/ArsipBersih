@@ -104,8 +104,6 @@ class JobRunner:
                 error = explain(exc)
             except Exception:
                 error = "Proses gagal karena kesalahan yang tidak terduga."
-            if not isinstance(exc, Exception):
-                raise
         finally:
             with self._lock:
                 if self._state.id == job_id:
