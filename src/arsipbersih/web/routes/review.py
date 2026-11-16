@@ -204,7 +204,10 @@ def review_category(category: str, request: Request, conn: sqlite3.Connection = 
     elif category in GRID_CATEGORIES:
         mode = "grid"
     else:
-        resp = render(request, "placeholder.html", active="review", title="Kategori tidak dikenal")
+        resp = render(
+            request, "message.html", active="review", title="Kategori tidak dikenal",
+            message="Kategori ini tidak ada. Pilih kategori dari daftar di Review.",
+        )
         resp.status_code = 404
         return resp
     return render(
