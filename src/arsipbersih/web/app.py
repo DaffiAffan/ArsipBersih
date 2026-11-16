@@ -9,8 +9,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..db import open_db
+from ..mover import reconcile
 from .deps import render
+from .jobs import JobRunner
 from .messages import UserError, explain
+from .routes import jobs as jobs_routes
 
 DEFAULT_PORT = 8765
 WEB_DIR = Path(__file__).resolve().parent
@@ -27,6 +31,18 @@ def home(request: Request):
 
 
 ROUTERS.append(_pages)
+ROUTERS.append(jobs_routes.router)
+
+
+def _reconcile_job(root: Path):
+    def run(report, stop):
+        conn = open_db(root)  # sqlite connections are thread-bound
+        try:
+            return {"fixed": reconcile(conn, root, [])}
+        finally:
+            conn.close()
+
+    return run
 
 
 def create_app(
@@ -40,7 +56,7 @@ def create_app(
     app = FastAPI(title="ArsipBersih", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.root = Path(root)
     app.state.templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
-    app.state.jobs = None  # installed by the job runner task
+    app.state.jobs = JobRunner()
     app.state.start_jobs = start_jobs
 
     @app.middleware("http")
@@ -61,4 +77,6 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
     for router in ROUTERS:
         app.include_router(router)
+    if start_jobs:
+        app.state.jobs.start("reconcile", "Merapikan jurnal", _reconcile_job(app.state.root))
     return app

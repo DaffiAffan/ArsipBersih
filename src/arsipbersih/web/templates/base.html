@@ -31,6 +31,10 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script type="module">
+    import { mountJobBar } from "/static/job.js";
+    mountJobBar(document.getElementById("job-status"));
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
