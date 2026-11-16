@@ -1,12 +1,6 @@
-import { api, el } from "/static/api.js";
-import { watchJob } from "/static/job.js";
+import { api, el, LOCATION_LABELS as LOCATIONS } from "/static/api.js";
+import { STAGES, watchJob } from "/static/job.js";
 
-const STAGES = [
-  ["inventory", "Inventaris"], ["pairing", "Pasangan file"], ["hash", "Hash"],
-  ["metadata", "Metadata"], ["visual", "Analisis visual"], ["grouping", "Kelompok"],
-  ["classify", "Klasifikasi"], ["events", "Acara"], ["plan", "Rencana"],
-];
-const LOCATIONS = { source: "Sumber", archive: "Arsip", review: "Review", trash: "Sampah" };
 const $ = (id) => document.getElementById(id);
 let incomplete = false;
 let running = false;

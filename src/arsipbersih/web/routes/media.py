@@ -23,8 +23,11 @@ from ..messages import UserError
 
 router = APIRouter(prefix="/media")
 
+# The placeholder has a 1x1 intrinsic size (width/height attributes) so the grid can tell it
+# apart from a real thumbnail via img.naturalWidth without a second request; X-Placeholder
+# says the same for non-browser clients. It still scales to the cell through the viewBox.
 _PLACEHOLDER_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240">'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 320 240">'
     '<rect width="320" height="240" fill="#2b2f36"/>'
     '<path d="M110 150l30-40 24 30 16-20 30 30z" fill="#59616e"/>'
     '<circle cx="124" cy="96" r="12" fill="#59616e"/></svg>'
@@ -59,7 +62,9 @@ def thumb(file_id: str, root: Path = Depends(get_root)):
     except MediaUnavailable:
         path = None
     if path is None:
-        return Response(_PLACEHOLDER_SVG, media_type="image/svg+xml")
+        # 200 keeps the grid layout intact; no-store so a re-plugged drive gets real thumbs.
+        return Response(_PLACEHOLDER_SVG, media_type="image/svg+xml",
+                        headers={"X-Placeholder": "1", "Cache-Control": "no-store"})
     return FileResponse(path, media_type="image/webp")
 
 

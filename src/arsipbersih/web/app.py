@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..db import open_db
-from ..mover import reconcile
-from .jobs import JobRunner
+from ..lock import RootLock
+from .jobs import RECONCILE_LABEL, JobRunner, reconcile_job
 from .messages import UserError, explain
 from .routes import home as home_routes
 from .routes import jobs as jobs_routes
@@ -25,19 +25,6 @@ ROUTERS: list[APIRouter] = []  # later tasks append their routers here
 ROUTERS.append(home_routes.router)
 ROUTERS.append(jobs_routes.router)
 
-
-def _reconcile_job(root: Path):
-    def run(report, stop):
-        conn = open_db(root)  # sqlite connections are thread-bound
-        try:
-            errs: list[str] = []
-            fixed = reconcile(conn, root, errs)
-            pending = conn.execute("select count(*) from moves where status='pending'").fetchone()[0]
-            return {"fixed": fixed, "errors": errs, "pending": pending}
-        finally:
-            conn.close()
-
-    return run
 
 from .routes import media as _media_routes  # noqa: E402
 
@@ -72,7 +59,10 @@ def create_app(
     port: int = DEFAULT_PORT,
     allowed_hosts: set[str] | None = None,
     start_jobs: bool = True,
+    root_lock: RootLock | None = None,
 ) -> FastAPI:
+    """`root_lock` is the collection lock taken by `serve`; tests pass none (the lock is
+    only required where a process can move files: serve, the CLI, and the root switch)."""
     hosts = allowed_hosts if allowed_hosts is not None else {f"127.0.0.1:{port}", f"localhost:{port}"}
     app = FastAPI(title="ArsipBersih", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.root = Path(root)
@@ -80,6 +70,13 @@ def create_app(
     app.state.jobs = JobRunner()
     open_db(app.state.root).close()  # create/upgrade the schema once, before concurrent requests
     app.state.start_jobs = start_jobs
+    app.state.root_lock = root_lock
+
+    def _release_root_lock() -> None:
+        if app.state.root_lock is not None:
+            app.state.root_lock.release()
+
+    app.router.add_event_handler("shutdown", _release_root_lock)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -100,5 +97,5 @@ def create_app(
     for router in ROUTERS:
         app.include_router(router)
     if start_jobs:
-        app.state.jobs.start("reconcile", "Merapikan jurnal", _reconcile_job(app.state.root))
+        app.state.jobs.start("reconcile", RECONCILE_LABEL, reconcile_job(app.state.root))
     return app

@@ -57,7 +57,7 @@ def test_cache_clear_only_touches_cache(web, root):
     assert web.post("/api/cache/clear").status_code == 202
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
-    assert state.result == {"removed_bytes": 10}
+    assert state.result == {"removed_bytes": 10, "skipped": 0}
     assert not (thumb / "x.webp").exists()
     assert not list((root / ".arsipbersih/cache").iterdir())
     assert keep.exists()
@@ -68,7 +68,32 @@ def test_cache_clear_without_cache_dir(web, root):
     web.post("/api/cache/clear")
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
-    assert state.result == {"removed_bytes": 0}
+    assert state.result == {"removed_bytes": 0, "skipped": 0}
+
+
+def test_cache_clear_skips_locked_files(web, root, monkeypatch):
+    import os
+    import shutil
+
+    cache = root / ".arsipbersih/cache/thumb"
+    cache.mkdir(parents=True)
+    (cache / "a.webp").write_bytes(b"a" * 10)
+    locked = cache / "b.webp"
+    locked.write_bytes(b"b" * 7)
+    real_unlink = os.unlink
+
+    def unlink(path, *a, **kw):  # simulate a file Windows keeps open
+        if str(path).endswith("b.webp") or getattr(path, "name", "") == "b.webp":
+            raise PermissionError(13, "in use", str(path))
+        return real_unlink(path, *a, **kw)
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(shutil.os, "unlink", unlink)
+    web.post("/api/cache/clear")
+    state = web.app_ref.state.jobs.wait()
+    assert state.status == "done", state.error
+    assert state.result == {"removed_bytes": 10, "skipped": 1}
+    assert locked.exists() and not (cache / "a.webp").exists()
 
 
 def test_cache_clear_refuses_junction(web, root, monkeypatch):

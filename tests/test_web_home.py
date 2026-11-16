@@ -1,5 +1,7 @@
 import threading
 
+import pytest
+
 from arsipbersih.inventory import InventoryResult
 from arsipbersih.pipeline import Progress, ScanSummary
 from arsipbersih.tools import ToolStatus
@@ -74,3 +76,58 @@ def test_root_switch_db_failure_is_400(web, tmp_path, monkeypatch):
     r = web.post("/api/root", json={"path": str(new)})
     assert r.status_code == 400 and "Folder ini tidak bisa dipakai" in r.json()["detail"]
     assert web.app_ref.state.root == before
+
+
+def test_root_switch_refused_when_new_root_is_locked(web, tmp_path):
+    from arsipbersih.lock import acquire_root_lock
+
+    new = tmp_path / "dipakai"
+    (new / "Sumber").mkdir(parents=True)
+    before = web.app_ref.state.root
+    with acquire_root_lock(new):
+        r = web.post("/api/root", json={"path": str(new)})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Koleksi ini sedang dipakai proses ArsipBersih lain."
+    assert web.app_ref.state.root == before
+
+
+def test_root_switch_moves_lock_and_reconciles(root, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from arsipbersih.lock import RootLocked, acquire_root_lock
+    from arsipbersih.web.app import create_app
+
+    old_lock = acquire_root_lock(root)
+    app = create_app(root, allowed_hosts={"testserver"}, start_jobs=True, root_lock=old_lock)
+    new = tmp_path / "baru"
+    (new / "Sumber").mkdir(parents=True)
+    with TestClient(app, headers={"X-ArsipBersih": "1"}) as c:
+        app.state.jobs.wait()  # startup reconcile
+        r = c.post("/api/root", json={"path": str(new)})
+        assert r.status_code == 200
+        st = app.state.jobs.wait()
+        assert st.kind == "reconcile" and st.status == "done"
+        assert not old_lock.held
+        acquire_root_lock(root).release()  # old collection is free again
+        with pytest.raises(RootLocked):
+            acquire_root_lock(new)  # the app holds the new one
+        # switching to the collection it already holds is fine
+        assert c.post("/api/root", json={"path": str(new)}).status_code == 200
+        app.state.jobs.wait()
+    acquire_root_lock(new).release()  # released on shutdown
+
+
+def test_job_refused_when_root_switched_mid_request(web, tmp_path):
+    from arsipbersih.web.deps import ROOT_CHANGED_TEXT, start_job
+
+    class Req:
+        pass
+
+    req = Req()
+    req.app = web.app_ref
+    req.state = Req()
+    req.state.root = tmp_path / "lama"  # the collection this request started on
+    with pytest.raises(Exception) as ei:
+        start_job(req, "x", "X", lambda report, stop: None)
+    assert str(ei.value) == ROOT_CHANGED_TEXT
+    assert not web.app_ref.state.jobs.busy()

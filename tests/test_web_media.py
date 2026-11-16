@@ -46,8 +46,11 @@ def test_thumb_created_and_placeholder_when_missing(web, root, make_image, conn_
     conn = conn_with([{"name": "a.jpg"}, {"name": "gone.jpg"}])
     r = web.get(f"/media/thumb/{_fid(conn, 'a.jpg')}")
     assert r.headers["content-type"] == "image/webp"
+    assert "x-placeholder" not in r.headers
     r = web.get(f"/media/thumb/{_fid(conn, 'gone.jpg')}")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg")
+    assert r.headers["x-placeholder"] == "1"
+    assert 'width="1" height="1"' in r.text  # the grid detects the placeholder by naturalWidth
 
 
 def test_missing_file_is_404_not_500(web, conn_with):

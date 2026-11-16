@@ -1,8 +1,6 @@
-import { api, el, fmtBytes } from "/static/api.js";
+import { api, el, fmtBytes, LOCATION_LABELS as LOCATIONS } from "/static/api.js";
 import { watchJob } from "/static/job.js";
 import { CATEGORY_LABELS } from "./viewer.js";
-
-const LOCATIONS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
 
 function row(label, value) {
   return el("tr", {}, el("td", {}, label), el("td", {}, String(value)));
@@ -62,7 +60,9 @@ watchJob((st) => {
   } else if (st.status === "done" && st.result) {
     if (st.kind === "verify") showVerify(st.result);
     else {
-      document.getElementById("cache-result").replaceChildren(el("p", {}, `Cache dihapus: ${fmtBytes(st.result.removed_bytes)}`));
+      const skipped = st.result.skipped || 0;
+      const note = skipped ? ` · ${skipped} file sedang dipakai dan dilewati` : "";
+      document.getElementById("cache-result").replaceChildren(el("p", {}, `Cache dihapus: ${fmtBytes(st.result.removed_bytes)}${note}`));
       load().catch(() => {});
     }
   }

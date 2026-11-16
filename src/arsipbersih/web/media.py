@@ -23,6 +23,9 @@ _UNAVAILABLE = "File tidak ditemukan (harddisk terlepas?)"
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 _transcode_slot = threading.Semaphore(1)
+# Video thumbnails need ffmpeg frame grabs; cap them so a scrolling grid on 8 GB RAM does
+# not start dozens of ffmpeg processes at once.
+_video_thumb_slots = threading.Semaphore(2)
 
 
 class MediaUnavailable(Exception):
@@ -87,13 +90,32 @@ def ensure_thumb(root, file_row, settings) -> Path | None:
     if dst.exists():
         return dst
     if _kind(file_row) == Kind.VIDEO:
-        src = source_path(root, file_row)
-        ffmpeg = find_tool("ffmpeg")
-        if ffmpeg is None:
-            return None
-        analyze_video(src, file_row["duration_s"], settings, ffmpeg, dst)  # result ignored
-        return dst if dst.exists() else None
+        return _make_video_thumb(root, file_row, settings, dst)
     return _make_image_cache(root, file_row, dst, settings.thumb_px)
+
+
+def _make_video_thumb(root, file_row, settings, dst: Path) -> Path | None:
+    src = source_path(root, file_row)
+    ffmpeg = find_tool("ffmpeg")
+    if ffmpeg is None:
+        return None
+    with _lock_for(file_row["id"]):  # one regeneration per file, others wait and reuse it
+        if dst.exists():
+            return dst
+        tmp = dst.with_name(f"{dst.stem}.{uuid.uuid4().hex}.tmp.webp")
+        try:
+            with _video_thumb_slots:
+                analyze_video(src, file_row["duration_s"], settings, ffmpeg, tmp)  # result ignored
+            if tmp.exists():
+                os.replace(tmp, dst)  # dst.exists() must mean "complete"
+        except Exception:
+            return None
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return dst if dst.exists() else None
 
 
 def ensure_preview(root, file_row, settings) -> Path | None:

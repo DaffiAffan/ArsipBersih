@@ -5,18 +5,25 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
-from ..mover import BatchResult
+from ..db import open_db
+from ..mover import BatchResult, reconcile
 from ..pipeline import Progress
 from .messages import explain
 
 log = logging.getLogger(__name__)
 
 JobFn = Callable[[Callable[[Progress], None], threading.Event], "dict | None"]
+
+
+class JobPrecheckFailed(Exception):
+    """A start() precheck refused the job (e.g. the collection changed under the request)."""
 
 
 class JobBusy(Exception):
@@ -55,9 +62,29 @@ def batch_result_dict(r: BatchResult) -> dict:
     }
 
 
+RECONCILE_LABEL = "Merapikan jurnal"
+
+
+def reconcile_job(root: Path) -> JobFn:
+    """Settle interrupted moves of the move journal (app start, root switch)."""
+
+    def run(report, stop):
+        conn = open_db(root)  # sqlite connections are thread-bound
+        try:
+            errs: list[str] = []
+            fixed = reconcile(conn, root, errs)
+            pending = conn.execute("select count(*) from moves where status='pending'").fetchone()[0]
+            return {"fixed": fixed, "errors": errs, "pending": pending}
+        finally:
+            conn.close()
+
+    return run
+
+
 class JobRunner:
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        # Re-entrant so exclusive() can start a job (e.g. reconcile after a root switch).
+        self._lock = threading.RLock()
         self._state = JobState()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -65,10 +92,14 @@ class JobRunner:
     def _snapshot(self) -> JobState:
         return JobState(**asdict(self._state))
 
-    def start(self, kind: str, label: str, fn: JobFn) -> JobState:
+    def start(
+        self, kind: str, label: str, fn: JobFn, precheck: Callable[[], bool] | None = None
+    ) -> JobState:
         with self._lock:
             if self._state.status == "running":
                 raise JobBusy(self._state.label or "")
+            if precheck is not None and not precheck():
+                raise JobPrecheckFailed(kind)
             self._stop = threading.Event()
             self._state = JobState(
                 id=uuid.uuid4().hex, kind=kind, label=label, status="running", started_at=_now()
@@ -120,6 +151,14 @@ class JobRunner:
         with self._lock:
             if self._state.status == "running":
                 self._stop.set()
+
+    @contextmanager
+    def exclusive(self) -> Iterator[None]:
+        """Run a block while no job runs and none can start; raise JobBusy if one runs."""
+        with self._lock:
+            if self._state.status == "running":
+                raise JobBusy(self._state.label or "")
+            yield
 
     def busy(self) -> bool:
         with self._lock:

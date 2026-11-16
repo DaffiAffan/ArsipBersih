@@ -29,3 +29,12 @@ def test_tidy_refused_before_scan_done(web, conn_with):
 
 def test_plan_page_renders(web):
     assert web.get("/rencana").status_code == 200
+
+
+def test_get_plan_does_not_write(web, conn_with):
+    conn = _users_unit(conn_with)
+    conn.execute("update units set event_key=null, event_name=null, event_subpath=null")
+    conn.commit()
+    assert web.get("/api/plan").status_code == 200
+    row = conn.execute("select event_key, event_name from units").fetchone()
+    assert tuple(row) == (None, None)  # nothing persisted by the GET

@@ -3,7 +3,9 @@
 import signal
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -15,6 +17,7 @@ from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
 from .layout import REVIEW_DIR
+from .lock import RootLocked, acquire_root_lock
 from .mover import (
     InsufficientSpace,
     NotUndoable,
@@ -42,6 +45,26 @@ WINGET_HINTS = {
     "ffmpeg": "winget install Gyan.FFmpeg",
     "ffprobe": "winget install Gyan.FFmpeg",
 }
+
+
+LOCKED = (
+    "Another ArsipBersih process is using this collection (scan/tidy/undo or serve). "
+    "Close it first."
+)
+
+
+@contextmanager
+def _root_locked(root: Path) -> Iterator[None]:
+    """Hold the collection lock for a command that can move files or reconcile the journal."""
+    try:
+        lock = acquire_root_lock(root)
+    except RootLocked:
+        typer.echo(LOCKED, err=True)
+        raise typer.Exit(1)
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _root_arg() -> Path:
@@ -117,6 +140,11 @@ def scan(
     workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Parallel workers."),
 ) -> None:
     """Scan the collection. Safe to interrupt and run again."""
+    with _root_locked(root):
+        _scan(root, workers)
+
+
+def _scan(root: Path, workers: Optional[int]) -> None:
     if workers is not None:
         conn = open_db(root)
         try:
@@ -222,6 +250,11 @@ def tidy(
     yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation."),
 ) -> None:
     """Move everything from Sumber/ into Arsip/ and _review/."""
+    with _root_locked(root):
+        _tidy(root, yes)
+
+
+def _tidy(root: Path, yes: bool) -> None:
     conn = open_db(root)
     try:
         if not _scan_done(conn):
@@ -266,6 +299,11 @@ def undo(
     if bool(batch) == all_:
         typer.echo("Error: give exactly one of --batch ID or --all.", err=True)
         raise typer.Exit(2)
+    with _root_locked(root):
+        _undo(root, batch, all_)
+
+
+def _undo(root: Path, batch: Optional[str], all_: bool) -> None:
     conn = open_db(root)
     journal_errors: list[str] = []
     try:
@@ -356,9 +394,22 @@ def serve(
 
     from .web.app import create_app
 
-    if not no_browser:
-        threading.Timer(1.0, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
-    uvicorn.run(create_app(root, port=port), host="127.0.0.1", port=port)
+    # Lock before create_app so its startup reconcile never races another process.
+    try:
+        lock = acquire_root_lock(root)
+    except RootLocked:
+        typer.echo(LOCKED, err=True)
+        raise typer.Exit(1)
+    web_app = None
+    try:
+        web_app = create_app(root, port=port, root_lock=lock)
+        if not no_browser:
+            threading.Timer(1.0, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
+        uvicorn.run(web_app, host="127.0.0.1", port=port)
+    finally:
+        lock.release()  # no-op if a root switch already released it
+        if web_app is not None and web_app.state.root_lock is not None:
+            web_app.state.root_lock.release()  # the lock of the root switched to
 
 
 if __name__ == "__main__":

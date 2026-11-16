@@ -1,5 +1,15 @@
 import { api, el } from "/static/api.js";
 
+// Scan stages in pipeline order (pipeline.STAGES) with their Indonesian names.
+export const STAGES = [
+  ["inventory", "Inventaris"], ["pairing", "Pasangan file"], ["hash", "Hash"],
+  ["metadata", "Metadata"], ["visual", "Analisis visual"], ["grouping", "Kelompok"],
+  ["classify", "Klasifikasi"], ["events", "Acara"], ["plan", "Rencana"],
+];
+const STAGE_LABELS = Object.fromEntries(STAGES);
+
+export function stageLabel(stage) { return STAGE_LABELS[stage] || stage; }
+
 export function watchJob(onChange) {
   let timer = null;
   async function tick() {
@@ -28,7 +38,7 @@ export function mountJobBar(bar) {
     const p = st.progress;
     const parts = [el("strong", {}, st.label || "")];
     if (st.status === "running") {
-      if (p) parts.push(` · ${p.stage} · ${p.done}${p.total != null ? "/" + p.total : ""}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
+      if (p) parts.push(` · ${stageLabel(p.stage)} · ${p.done}${p.total != null ? "/" + p.total : ""}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
       if (st.kind === "scan") {
         parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"));
       }

@@ -53,16 +53,28 @@ def clear_cache(root: Path) -> dict:
     state = Path(root) / STATE_DIR
     target = state / "cache"
     if not target.exists() and not target.is_symlink() and not target.is_junction():
-        return {"removed_bytes": 0}
+        return {"removed_bytes": 0, "skipped": 0}
     for p in (state, target):
         if p.is_symlink() or p.is_junction():
             raise RuntimeError("Folder cache atau folder status adalah tautan, tidak ada yang dihapus")
     if not target.is_dir() or target.resolve() != state.resolve() / "cache":
         raise RuntimeError("Folder cache tidak valid, tidak ada yang dihapus")
     size = _dir_bytes(target)
-    shutil.rmtree(target)
-    target.mkdir()
-    return {"removed_bytes": size}
+
+    def skip(function, path, exc) -> None:
+        pass  # e.g. a thumbnail Windows still has open: leave it, the rest is removed
+
+    shutil.rmtree(target, onexc=skip)
+    left = [p for p in target.rglob("*") if p.is_file()] if target.exists() else []
+    target.mkdir(exist_ok=True)
+    return {"removed_bytes": max(0, size - sum(_size(p) for p in left)), "skipped": len(left)}
+
+
+def _size(p: Path) -> int:
+    try:
+        return p.stat().st_size
+    except OSError:
+        return 0
 
 
 def _cache_job(root: Path):

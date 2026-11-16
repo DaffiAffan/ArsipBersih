@@ -71,7 +71,9 @@ def mark_seen(conn: sqlite3.Connection, unit_ids: list[str]) -> None:
 
 
 def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
-    """Keeper -> keep, every other member -> discard. Returns decisions recorded."""
+    """Keeper -> keep, every other member -> discard, but only for units without an
+    unapplied decision: an explicit choice the owner made and has not applied yet always
+    wins over the suggestion. Returns the number of decisions actually recorded."""
     n = 0
     for gid in group_ids:
         g = conn.execute(
@@ -84,12 +86,18 @@ def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
             r[0]
             for r in conn.execute("select unit_id from group_members where group_id=?", (gid,))
         ]
-        record(conn, keeper, "keep")
-        n += 1
+        wanted = {keeper: "keep"}
         for uid in members:
             if uid != keeper:
-                record(conn, uid, "discard")
-                n += 1
+                wanted[uid] = "discard"
+        for uid, decision in wanted.items():
+            pending = conn.execute(
+                "select 1 from decisions where unit_id=? and applied=0", (uid,)
+            ).fetchone()
+            if pending is not None:
+                continue
+            record(conn, uid, decision)
+            n += 1
     return n
 
 

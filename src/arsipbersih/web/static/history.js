@@ -6,7 +6,15 @@ const $ = (id) => document.getElementById(id);
 let data = null;
 let lastJobKey = null;
 
-function say(text) { $("hist-msg").textContent = text || ""; }
+// errors (optional): engine messages, listed under a collapsible "Detail" like plan.js does.
+function say(text, errors) {
+  const box = $("hist-msg");
+  const parts = text ? [el("p", {}, text)] : [];
+  if (errors && errors.length) {
+    parts.push(el("details", {}, el("summary", {}, `Detail (${errors.length})`), el("pre", {}, errors.join("\n"))));
+  }
+  box.replaceChildren(...parts);
+}
 
 // Resolves true when the owner confirms. `extra` is an optional input placed in the body.
 function confirmDialog({ title, body, okLabel, danger, validate, extra }) {
@@ -159,9 +167,10 @@ async function reload() {
 function showResult(st) {
   if (st.status === "failed") { say(`Gagal: ${st.error || ""}`); return; }
   const r = st.result || {};
-  const errs = (r.errors || []).length;
-  if (st.kind === "undo") say(`Dikembalikan: ${r.moved_units ?? 0} unit, gagal: ${r.failed_units ?? 0}${errs ? ` (${errs} catatan)` : ""}.`);
-  else if (st.kind === "purge") say(`Dihapus permanen: ${r.deleted ?? 0} file${errs ? `, ${errs} masalah` : ""}.`);
+  const errors = (r.errors || []).map(String);
+  const errs = errors.length;
+  if (st.kind === "undo") say(`Dikembalikan: ${r.moved_units ?? 0} unit, gagal: ${r.failed_units ?? 0}${errs ? ` (${errs} catatan)` : ""}.`, errors);
+  else if (st.kind === "purge") say(`Dihapus permanen: ${r.deleted ?? 0} file${errs ? `, ${errs} masalah` : ""}.`, errors);
   else say("Selesai.");
 }
 
