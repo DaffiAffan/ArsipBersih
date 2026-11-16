@@ -174,7 +174,8 @@ def apply(
         raise UserError(APPLY_MISMATCH_TEXT, 409)
     if p.keep + p.discard == 0:
         raise UserError("Belum ada keputusan untuk diterapkan", 400)
-    return start_job(request, "apply", f"Terapkan {category}", _apply_job(root, category, body.keep, body.discard))
+    job = _apply_job(root, category, body.keep, body.discard)
+    return start_job(request, "apply", f"Terapkan {category}", job)
 
 # --- pages ---------------------------------------------------------------------------------
 

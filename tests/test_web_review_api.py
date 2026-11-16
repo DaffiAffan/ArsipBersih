@@ -117,7 +117,7 @@ def test_apply_refuses_changed_counts(web, root, review_units):
     r = web.post("/api/review/apply/burem", json={"keep": 0, "discard": 2})
     assert r.status_code == 409
     assert r.json()["detail"] == "Jumlah berubah sejak kamu konfirmasi. Muat ulang, lalu periksa lagi."
-    assert web.app_ref.state.jobs.wait().status != "running"
+    assert web.get("/api/job").json()["status"] == "idle"
     assert _db_row(root, a) == "review"
     assert _db_row(root, b) == "review"
     assert (root / "_review/burem/HP/IMG_0.jpg").exists()
@@ -158,3 +158,19 @@ def test_accept_page_records_suggestions(web, root):
     assert web.post("/api/review/accept", json={"group_ids": [gid]}).json() == {"recorded": 2}
     assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 simpan, 1 buang"
     assert web.get(f"/api/review/group/{gid}").status_code == 200
+
+
+def test_apply_job_rechecks_counts_inside_job(web, root, review_units):
+    from arsipbersih.web.routes.review import _apply_job
+
+    a, b = review_units(2, seen={0, 1})
+    # Route check would pass with (0, 2); state then changes before the job runs.
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+    web.app_ref.state.jobs.start("apply", "Terapkan burem", _apply_job(root, "burem", 0, 2))
+    state = web.app_ref.state.jobs.wait()
+    assert state.status == "failed"
+    assert "Jumlah berubah sejak kamu konfirmasi. Muat ulang, lalu periksa lagi." in state.error
+    assert _db_row(root, a) == "review"
+    assert _db_row(root, b) == "review"
+    assert (root / "_review/burem/HP/IMG_0.jpg").exists()
+    assert (root / "_review/burem/HP/IMG_1.jpg").exists()
