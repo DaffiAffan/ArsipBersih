@@ -2,9 +2,20 @@ import { el, fmtBytes } from "./api.js";
 import { bindKeys } from "./keys.js";
 import { createZoom } from "./zoom.js";
 
-const CATEGORY_LABELS = {
-  duplicate: "Duplikat", near_duplicate: "Mirip", burst: "Burst", blur: "Buram",
-  screenshot: "Tangkapan layar", meme: "Meme", document: "Dokumen", junk: "Sampah",
+export const CATEGORY_LABELS = {
+  "rusak": "Rusak",
+  "duplikat-persis": "Duplikat persis",
+  "duplikat-versi": "Duplikat beda versi",
+  "mirip-beruntun": "Mirip beruntun",
+  "screenshot": "Screenshot",
+  "kiriman-chat": "Kiriman chat",
+  "download-meme": "Download/meme",
+  "pendamping-gopro": "Pendamping GoPro",
+  "sampah-hp": "Sampah HP",
+  "video-pendek-gelap": "Video pendek/gelap",
+  "kepencet": "Kepencet",
+  "burem": "Burem",
+  "gelap-terang": "Gelap/terang",
 };
 
 function catLabel(c) { return CATEGORY_LABELS[c] || c; }
