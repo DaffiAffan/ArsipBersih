@@ -87,6 +87,31 @@ def test_group_accept_and_override_archive_keeper(group_db):
     assert (loc[keeper], loc[other]) == ("trash", "archive")
 
 
+def _decision_map(conn):
+    return dict(conn.execute("select unit_id, decision from decisions").fetchall())
+
+
+def test_accept_suggestions_keeps_explicit_unapplied_decision(group_db):
+    conn, root, gid, keeper, other = group_db("mirip-beruntun")
+    record(conn, other, "keep")  # explicit keep on a non-keeper
+    assert accept_suggestions(conn, [gid]) == 1  # only the keeper was undecided
+    assert _decision_map(conn) == {keeper: "keep", other: "keep"}
+
+
+def test_accept_suggestions_fills_undecided_members(group_db):
+    conn, root, gid, keeper, other = group_db("mirip-beruntun")
+    assert accept_suggestions(conn, [gid]) == 2
+    assert _decision_map(conn) == {keeper: "keep", other: "discard"}
+    assert accept_suggestions(conn, [gid]) == 0  # second accept changes nothing
+
+
+def test_accept_suggestions_keeps_explicit_discard_on_keeper(group_db):
+    conn, root, gid, keeper, other = group_db("mirip-beruntun")
+    record(conn, keeper, "discard")
+    assert accept_suggestions(conn, [gid]) == 1
+    assert _decision_map(conn) == {keeper: "discard", other: "discard"}
+
+
 def test_purge_requires_matching_totals(review_db):
     conn, root, (a, b, c) = review_db("burem")
     mark_seen(conn, [a, b, c]); apply_category(conn, root, "burem")

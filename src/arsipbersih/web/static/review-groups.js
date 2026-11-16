@@ -120,21 +120,17 @@ async function acceptAll() {
   } catch (e) { fail(e); }
 }
 
-function applySuggestionLocal(g) {
-  for (const m of g.members) m.decision = m.is_keeper ? "keep" : "discard";
-}
-
 async function acceptFocused() {
   const g = data.groups[focus];
   if (!g || busy) return;
   busy = true;
   try {
+    // The server keeps explicit unapplied decisions, so re-read the page instead of
+    // painting the suggestion locally.
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
-    applySuggestionLocal(g);
     message = "";
     if (focus < data.groups.length - 1) focus += 1;
-    renderList();
-    refreshChrome().then(renderList);
+    await loadList();
   } catch (e) { fail(e); } finally { busy = false; }
 }
 
@@ -247,9 +243,8 @@ async function acceptCompare() {
   const next = compare.index + 1;
   try {
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
-    applySuggestionLocal(g);
     message = "";
-    refreshChrome();
+    refreshChrome(); // the next group / the list are re-fetched from the server below
     busy = false;
     if (next < data.groups.length) await openCompare(next);
     else await closeCompare();
