@@ -40,10 +40,10 @@ export function mountJobBar(bar) {
     if (st.status === "running") {
       if (p) parts.push(` · ${stageLabel(p.stage)} · ${p.done}${p.total != null ? "/" + p.total : ""}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
       if (st.kind === "scan") {
-        parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"));
+        parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"));
       }
     } else if (st.status === "done") parts.push(" · selesai");
-    else if (st.status === "stopped") parts.push(" · dijeda");
+    else if (st.status === "stopped") parts.push(" · di-pause");
     else if (st.status === "failed") parts.push(` · gagal: ${st.error || ""}`);
     bar.replaceChildren(...parts.filter((x) => x !== ""));
   });

@@ -62,7 +62,7 @@ async function refreshChrome() {
 
 function updateHead() {
   if (applyBtn) {
-    applyBtn.textContent = `Terapkan (${pendingApply})`;
+    applyBtn.textContent = `Apply (${pendingApply})`;
     applyBtn.disabled = pendingApply === 0 || applying;
   }
   if (countEl) countEl.textContent = `${items.length} dari ${total} item`;
@@ -85,7 +85,7 @@ function queueSeen(item) {
   scheduleSeen();
 }
 
-// Grid-side actions (click, K/D/Enter) only count as "seen" when the owner actually saw the
+// Grid-side actions (click, S/D/Enter) only count as "seen" when the owner actually saw the
 // real thumbnail. A cell still loading or showing the placeholder becomes seen only by being
 // opened in fullscreen (openFull/onIndex call queueSeen directly).
 function queueSeenIfShown(item) {
@@ -184,7 +184,7 @@ function paintCell(cell, item, i) {
     + (i === focus ? " focused" : "");
   const mark = cell.querySelector(".gmark");
   if (mark) {
-    mark.textContent = item.decision === "keep" ? "✓ Diselamatkan" : item.decision === "discard" ? "Buang" : "";
+    mark.textContent = item.decision === "keep" ? "✓ Keep" : item.decision === "discard" ? "Delete" : "";
     mark.hidden = !item.decision;
   }
 }
@@ -258,7 +258,7 @@ function buildShell() {
   if (moreObserver) moreObserver.disconnect();
   cells.clear();
   cellObserver = makeCellObserver();
-  applyBtn = el("button", { type: "button", class: "primary", disabled: true, onclick: openApply }, "Terapkan (0)");
+  applyBtn = el("button", { type: "button", class: "primary", disabled: true, onclick: openApply }, "Apply (0)");
   const sortSel = el("select", { "aria-label": "Urutan", onchange: (e) => { sort = e.target.value; reload(); } },
     el("option", { value: "score" }, "Skor (terburuk dulu)"),
     el("option", { value: "date" }, "Tanggal"));
@@ -270,7 +270,7 @@ function buildShell() {
   root.replaceChildren(
     el("div", { class: "rv-head" }, el("h1", {}, label), countEl, sortSel, applyBtn),
     el("div", { class: "rv-hint" },
-      "Semua dianggap dibuang. Klik thumbnail untuk menyelamatkan · ← → pindah · K selamatkan · D buang · Enter terima saran · Spasi atau klik ganda layar penuh"),
+      "Semua otomatis Delete, kecuali yang kamu Keep. Klik foto untuk Keep · ← → pindah · S keep · D delete · Enter ikuti saran · Spasi/klik ganda: layar penuh"),
     msgEl, gridEl, sentinel);
   if (typeof IntersectionObserver !== "undefined") {
     moreObserver = new IntersectionObserver((entries) => {
@@ -376,7 +376,7 @@ async function acceptFocused() {
 const gridKeys = {
   ArrowLeft: () => setFocus(focus - 1),
   ArrowRight: () => setFocus(focus + 1),
-  k: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "keep"); } },
+  s: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "keep"); } },
   d: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "discard"); } },
   Enter: acceptFocused,
   " ": () => openFull(focus),
@@ -479,7 +479,7 @@ let applyOpen = false;
 async function openApply() {
   if (applying || applyOpen) return;
   applyOpen = true;
-  // Key layer first: while the dialog loads or is open, grid keys (k/d/Enter/arrows) stay inert.
+  // Key layer first: while the dialog loads or is open, grid keys (s/d/Enter/arrows) stay inert.
   let closeDialog = null;
   const unbind = bindKeys({ Escape: () => { if (!applying && closeDialog) closeDialog(); } });
   seenPaused = true; // the modal covers the grid: scrolling behind it must not count as seen
@@ -495,10 +495,10 @@ async function openApply() {
   try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
     unbind(); applyOpen = false; seenPaused = false; resyncObserver(); fail(e); return;
   }
-  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
+  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Apply");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
-  const box = modal(`Terapkan: ${label}`, el("p", {}, preview.text), actions);
+  const box = modal(`Apply: ${label}`, el("p", {}, preview.text), el("p", { class: "muted" }, "File yang di-delete masuk _sampah dan masih bisa di-undo di Riwayat."), actions);
   function close() { unbind(); box.remove(); applyOpen = false; seenPaused = false; resyncObserver(); }
   closeDialog = close;
   cancel.addEventListener("click", close);

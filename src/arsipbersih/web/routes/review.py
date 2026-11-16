@@ -138,11 +138,11 @@ def apply_preview(category: str, conn: sqlite3.Connection = Depends(get_conn)):
     p = decisions.preview_apply(conn, category)
     if category in GRID_CATEGORIES:
         text = (
-            f"{p.keep + p.discard} dilihat: {p.discard} buang, {p.keep} selamatkan"
+            f"{p.keep + p.discard} sudah dilihat: {p.discard} delete, {p.keep} keep"
             f" · {p.unseen} belum dilihat (tetap di review)"
         )
     else:
-        text = f"{p.keep} simpan, {p.discard} buang"
+        text = f"{p.keep} keep, {p.discard} delete"
     return {"keep": p.keep, "discard": p.discard, "unseen": p.unseen, "text": text}
 
 
@@ -173,28 +173,28 @@ def apply(
     if (p.keep, p.discard) != (body.keep, body.discard):
         raise UserError(APPLY_MISMATCH_TEXT, 409)
     if p.keep + p.discard == 0:
-        raise UserError("Belum ada keputusan untuk diterapkan", 400)
+        raise UserError("Belum ada keputusan untuk di-apply", 400)
     job = _apply_job(root, category, body.keep, body.discard)
-    return start_job(request, "apply", f"Terapkan {category}", job)
+    return start_job(request, "apply", f"Apply {CATEGORY_LABELS.get(category, category)}", job)
 
 # --- pages ---------------------------------------------------------------------------------
 
 pages = APIRouter()
 
 CATEGORY_LABELS = {
-    "rusak": "Rusak",
-    "duplikat-persis": "Duplikat persis",
+    "rusak": "Rusak (corrupt)",
+    "duplikat-persis": "Duplikat identik",
     "duplikat-versi": "Duplikat beda versi",
-    "mirip-beruntun": "Mirip beruntun",
+    "mirip-beruntun": "Burst / mirip",
     "screenshot": "Screenshot",
-    "kiriman-chat": "Kiriman chat",
-    "download-meme": "Download/meme",
-    "pendamping-gopro": "Pendamping GoPro",
-    "sampah-hp": "Sampah HP",
-    "video-pendek-gelap": "Video pendek/gelap",
-    "kepencet": "Kepencet",
-    "burem": "Burem",
-    "gelap-terang": "Gelap/terang",
+    "kiriman-chat": "Chat (WA/Telegram)",
+    "download-meme": "Download / meme",
+    "pendamping-gopro": "File GoPro (LRV/THM)",
+    "sampah-hp": "Trash HP",
+    "video-pendek-gelap": "Video pendek / gelap",
+    "kepencet": "Kepencet (tidak sengaja)",
+    "burem": "Blur",
+    "gelap-terang": "Terlalu gelap / terang",
 }
 
 

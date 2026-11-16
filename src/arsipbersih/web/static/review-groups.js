@@ -17,7 +17,7 @@ let message = "";
 let applying = false;
 let busy = false;
 
-const DECISION_LABEL = { keep: "Simpan", discard: "Buang" };
+const DECISION_LABEL = { keep: "Keep", discard: "Delete" };
 
 function fail(err) {
   message = err && err.message ? err.message : String(err);
@@ -83,7 +83,7 @@ function groupRow(g, i) {
 function renderList() {
   if (compare) return;
   const applyBtn = el("button", { type: "button", class: "primary", disabled: pendingApply === 0 || applying,
-    onclick: openApply }, `Terapkan (${pendingApply})`);
+    onclick: openApply }, `Apply (${pendingApply})`);
   const head = el("div", { class: "rv-head" }, el("h1", {}, label), applyBtn);
   const children = [head];
   if (message) children.push(el("div", { class: "vw-error" }, message));
@@ -91,9 +91,9 @@ function renderList() {
     children.push(el("p", { class: "muted" }, "Tidak ada grup yang perlu direview di kategori ini."));
   } else {
     children.push(el("div", { class: "rv-hint" },
-      "← → pindah grup · Enter terima saran · Spasi atau klik bandingkan"));
+      "← → pindah grup · Enter ikuti saran · Spasi/klik: bandingkan"));
     children.push(el("button", { type: "button", onclick: acceptAll },
-      `Terima semua di halaman ini (${data.groups.length} grup)`));
+      `Ikuti saran semua di halaman ini (${data.groups.length} grup)`));
     children.push(el("div", { style: "margin-top:10px" }, data.groups.map(groupRow)));
     children.push(el("div", { class: "rv-pager" },
       el("button", { type: "button", disabled: page <= 1, onclick: () => goPage(page - 1) }, "Sebelumnya"),
@@ -154,7 +154,7 @@ async function openCompare(index) {
       compare = { unbind: bindKeys({
         ArrowLeft: () => moveCompareFocus(-1),
         ArrowRight: () => moveCompareFocus(1),
-        k: () => decideFocused("keep"),
+        s: () => decideFocused("keep"),
         d: () => decideFocused("discard"),
         Enter: acceptCompare,
         Escape: closeCompare,
@@ -194,18 +194,18 @@ function renderCompare() {
     return el("div", { class: "cmp-card" + (i === compare.focus ? " focused" : "") + (m.is_keeper ? "" : " dim") },
       el("img", { class: "big", src: src || "", alt: "", draggable: "false",
         onclick: () => { compare.focus = i; openCompareViewer(i); } }),
-      el("div", { style: "margin:6px 0" }, m.is_keeper ? "✓ Disarankan disimpan" : "Disarankan dibuang", mark),
+      el("div", { style: "margin:6px 0" }, m.is_keeper ? "✓ Saran: Keep" : "Saran: Delete", mark),
       infoRows(m),
       el("div", { class: "cmp-actions" },
-        el("button", { type: "button", class: m.decision === "keep" ? "on" : "", onclick: () => decide(i, "keep") }, "Simpan"),
-        el("button", { type: "button", class: m.decision === "discard" ? "on" : "", onclick: () => decide(i, "discard") }, "Buang")));
+        el("button", { type: "button", class: m.decision === "keep" ? "on" : "", onclick: () => decide(i, "keep") }, "Keep"),
+        el("button", { type: "button", class: m.decision === "discard" ? "on" : "", onclick: () => decide(i, "discard") }, "Delete")));
   });
   const head = el("div", { class: "rv-head" },
     el("h1", {}, `${label}: grup ${compare.index + 1} dari ${data.groups.length}`),
     el("button", { type: "button", onclick: closeCompare }, "Kembali ke daftar"),
-    el("button", { type: "button", class: "primary", onclick: acceptCompare }, "Terima saran"));
+    el("button", { type: "button", class: "primary", onclick: acceptCompare }, "Ikuti saran"));
   const children = [head,
-    el("div", { class: "rv-hint" }, `${g.summary} · ← → pindah · K simpan · D buang · Enter terima saran · Esc kembali · klik foto untuk layar penuh`),
+    el("div", { class: "rv-hint" }, `${g.summary} · ← → pindah · S keep · D delete · Enter ikuti saran · Esc kembali · klik foto untuk layar penuh`),
     el("div", { class: "cmp-grid" }, cards)];
   if (message) children.splice(1, 0, el("div", { class: "vw-error" }, message));
   root.replaceChildren(...children);
@@ -309,10 +309,10 @@ async function openApply() {
   try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
     unbind(); applyOpen = false; fail(e); return;
   }
-  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Terapkan");
+  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Apply");
   const cancel = el("button", { type: "button" }, "Batal");
   const actions = el("div", { class: "actions" }, cancel, confirm);
-  const box = modal(`Terapkan: ${label}`, el("p", {}, preview.text), actions);
+  const box = modal(`Apply: ${label}`, el("p", {}, preview.text), el("p", { class: "muted" }, "File yang di-delete masuk _sampah dan masih bisa di-undo di Riwayat."), actions);
   function close() { unbind(); box.remove(); applyOpen = false; }
   closeDialog = close;
   cancel.addEventListener("click", close);

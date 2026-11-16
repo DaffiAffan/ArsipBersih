@@ -71,7 +71,7 @@ function render() {
   const ok = s.scan_done && s.space_ok;
   $("tidy-btn").disabled = !ok;
   $("tidy-hint").textContent = !s.scan_done
-    ? "Pindai terakhir belum selesai. Jalankan pindai lagi dulu."
+    ? "Scan terakhir belum selesai. Jalankan scan lagi dulu."
     : !s.space_ok ? "Ruang disk belum cukup." : "";
 }
 

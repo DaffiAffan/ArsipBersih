@@ -79,7 +79,7 @@ def _undo_job(root: Path, batch_id: str | None):
 def undo(body: UndoBody, request: Request, root: Path = Depends(get_root)):
     if bool(body.batch_id) == bool(body.all):
         raise UserError("Pilih tepat satu: satu batch atau semua", 400)
-    label = "Kembalikan semua" if body.all else "Kembalikan batch"
+    label = "Undo semua" if body.all else "Undo batch"
     return start_job(request, "undo", label, _undo_job(root, None if body.all else body.batch_id))
 
 

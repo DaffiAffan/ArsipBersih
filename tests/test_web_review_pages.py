@@ -39,7 +39,7 @@ def test_review_page_lists_nonempty_categories(web, root):
     assert r.status_code == 200
     assert "duplikat-persis" in r.text
     assert 'data-mode="group"' in r.text
-    assert "Duplikat persis" in r.text
+    assert "Duplikat identik" in r.text
     idx = web.get("/review", follow_redirects=False)
     assert idx.status_code == 307
     assert idx.headers["location"] == "/review/duplikat-persis"

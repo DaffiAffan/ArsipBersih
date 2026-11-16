@@ -56,7 +56,7 @@ def test_grid_apply_never_discards_unseen(web, root, review_units):
     assert web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"}).status_code == 200
     r = web.get("/api/review/apply/burem").json()
     assert (r["keep"], r["discard"], r["unseen"]) == (1, 1, 1)
-    assert r["text"] == "2 dilihat: 1 buang, 1 selamatkan · 1 belum dilihat (tetap di review)"
+    assert r["text"] == "2 sudah dilihat: 1 delete, 1 keep · 1 belum dilihat (tetap di review)"
     assert web.post("/api/review/apply/burem", json={"keep": 1, "discard": 1}).status_code == 202
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
@@ -92,7 +92,7 @@ def test_apply_conflicts_while_job_running(web, review_units):
     (u,) = review_units(1)
     web.post("/api/review/decision", json={"unit_id": u, "decision": "keep"})
     gate = threading.Event()
-    web.app_ref.state.jobs.start("scan", "Pindai", lambda report, stop: gate.wait(10))
+    web.app_ref.state.jobs.start("scan", "Scan", lambda report, stop: gate.wait(10))
     try:
         r = web.post("/api/review/apply/burem", json={"keep": 1, "discard": 0})
         assert r.status_code == 409
@@ -108,7 +108,7 @@ def test_apply_validation(web, review_units):
     assert web.get("/api/review/apply/nope").status_code == 400
     r = web.post("/api/review/apply/burem", json=body)
     assert r.status_code == 400
-    assert r.json()["detail"] == "Belum ada keputusan untuk diterapkan"
+    assert r.json()["detail"] == "Belum ada keputusan untuk di-apply"
 
 
 def test_apply_refuses_changed_counts(web, root, review_units):
@@ -156,7 +156,7 @@ def test_accept_page_records_suggestions(web, root):
     conn.commit()
     conn.close()
     assert web.post("/api/review/accept", json={"group_ids": [gid]}).json() == {"recorded": 2}
-    assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 simpan, 1 buang"
+    assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 keep, 1 delete"
     assert web.get(f"/api/review/group/{gid}").status_code == 200
 
 
@@ -166,7 +166,7 @@ def test_apply_job_rechecks_counts_inside_job(web, root, review_units):
     a, b = review_units(2, seen={0, 1})
     # Route check would pass with (0, 2); state then changes before the job runs.
     web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
-    web.app_ref.state.jobs.start("apply", "Terapkan burem", _apply_job(root, "burem", 0, 2))
+    web.app_ref.state.jobs.start("apply", "Apply Blur", _apply_job(root, "burem", 0, 2))
     state = web.app_ref.state.jobs.wait()
     assert state.status == "failed"
     assert "Jumlah berubah sejak kamu konfirmasi. Muat ulang, lalu periksa lagi." in state.error

@@ -7,7 +7,7 @@ let running = false;
 
 function setScanButton() {
   const b = $("scan-btn");
-  b.textContent = incomplete ? "Lanjutkan pindai" : "Mulai pindai";
+  b.textContent = incomplete ? "Lanjutkan scan" : "Mulai scan";
   b.disabled = running;
   $("pause-btn").hidden = !running;
 }
@@ -15,8 +15,8 @@ function setScanButton() {
 async function load() {
   const d = await api("GET", "/api/home");
   incomplete = d.scan_incomplete;
-  $("scan-info").textContent = d.last_scan_at ? `Pindai terakhir selesai: ${d.last_scan_at}`
-    : (incomplete ? "Pindai terakhir belum selesai." : "Belum pernah dipindai.");
+  $("scan-info").textContent = d.last_scan_at ? `Scan terakhir selesai: ${d.last_scan_at}`
+    : (incomplete ? "Scan terakhir belum selesai." : "Belum pernah di-scan.");
   if (!d.has_source) $("scan-info").textContent = "Folder Sumber/ tidak ditemukan.";
   $("tools").replaceChildren(...Object.entries(d.tools).map(([k, v]) =>
     el("li", {}, v ? `${k}: ${v}` : [`${k}: belum terpasang. Pasang dengan `, el("code", {}, d.hints[k])])));

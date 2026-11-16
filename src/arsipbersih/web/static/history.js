@@ -1,7 +1,7 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
 
-const KIND = { rapikan: "Rapikan", apply: "Terapkan", undo: "Kembalikan", purge: "Kosongkan sampah" };
+const KIND = { rapikan: "Rapikan", apply: "Apply", undo: "Undo", purge: "Kosongkan sampah" };
 const $ = (id) => document.getElementById(id);
 let data = null;
 let lastJobKey = null;
@@ -60,7 +60,7 @@ function renderBatches() {
     el("td", {}, b.done),
     el("td", {}, b.undone),
     el("td", {}, b.failed),
-    el("td", {}, b.undoable ? el("button", { type: "button", onclick: () => undoBatch(b) }, "Kembalikan batch ini") : ""),
+    el("td", {}, b.undoable ? el("button", { type: "button", onclick: () => undoBatch(b) }, "Undo batch ini") : ""),
   ));
   $("batch-rows").replaceChildren(...rows);
   $("batch-empty").hidden = rows.length > 0;
@@ -69,18 +69,18 @@ function renderBatches() {
 
 async function undoBatch(b) {
   const ok = await confirmDialog({
-    title: "Kembalikan batch ini?",
-    body: `File dari batch "${b.label || KIND[b.kind] || b.kind}" dikembalikan ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
-    okLabel: "Kembalikan",
+    title: "Undo batch ini?",
+    body: `File dari batch "${b.label || KIND[b.kind] || b.kind}" kembali ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
+    okLabel: "Undo",
   });
   if (ok) await post("/api/undo", { batch_id: b.id });
 }
 
 async function undoAll() {
   const ok = await confirmDialog({
-    title: "Kembalikan semua ke posisi asal?",
-    body: "Semua batch rapikan dan terapkan yang masih bisa dibatalkan dikembalikan, dari yang terbaru.",
-    okLabel: "Kembalikan semua",
+    title: "Undo semua? Semua file kembali ke posisi asal di Sumber.",
+    body: "Semua batch rapikan dan apply yang masih bisa dibatalkan di-undo, dari yang terbaru.",
+    okLabel: "Undo semua",
   });
   if (ok) await post("/api/undo", { all: true });
 }
@@ -134,7 +134,7 @@ async function purge() {
   const { files, bytes } = data.trash; // the numbers shown in the dialog are the ones sent
   const first = await confirmDialog({
     title: "Kosongkan _sampah?",
-    body: `${files} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dikembalikan.`,
+    body: `${files} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dipulihkan.`,
     okLabel: "Lanjut",
     danger: true,
   });
@@ -169,7 +169,7 @@ function showResult(st) {
   const r = st.result || {};
   const errors = (r.errors || []).map(String);
   const errs = errors.length;
-  if (st.kind === "undo") say(`Dikembalikan: ${r.moved_units ?? 0} unit, gagal: ${r.failed_units ?? 0}${errs ? ` (${errs} catatan)` : ""}.`, errors);
+  if (st.kind === "undo") say(`Undo selesai: ${r.moved_units ?? 0} unit kembali, ${r.failed_units ?? 0} gagal${errs ? ` (${errs} catatan)` : ""}.`, errors);
   else if (st.kind === "purge") say(`Dihapus permanen: ${r.deleted ?? 0} file${errs ? `, ${errs} masalah` : ""}.`, errors);
   else say("Selesai.");
 }
