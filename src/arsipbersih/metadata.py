@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import subprocess
 import threading
@@ -11,7 +12,9 @@ from pathlib import Path
 from arsipbersih.config import Settings
 from arsipbersih.dates import pick_taken_at
 from arsipbersih.layout import long_path
-from arsipbersih.tools import find_tool
+from arsipbersih.tools import NO_CONSOLE_FLAGS, find_tool
+
+log = logging.getLogger(__name__)
 
 BATCH = 200
 _KINDS = "('photo','raw','video')"
@@ -23,6 +26,22 @@ _EXIF_ARGS = [
 ]
 
 
+class ExifToolDied(RuntimeError):
+    """The ExifTool process itself failed (EOF, broken pipe, exited), not a file it read."""
+
+
+class ExifToolUnavailable(RuntimeError):
+    """ExifTool died and could not be restarted; the unread files stay NULL (retryable)."""
+
+
+class TransientProbeError(RuntimeError):
+    """ffprobe timed out, was interrupted, or could not start: retry on the next scan."""
+
+
+# Windows STATUS_CONTROL_C_EXIT: the child was ended by a console Ctrl+C.
+_CTRL_C_EXIT = 0xC000013A
+
+
 class ExifTool:
     """One long-lived `exiftool -stay_open True -@ -` process."""
 
@@ -31,13 +50,29 @@ class ExifTool:
         self._proc: subprocess.Popen | None = None
 
     def __enter__(self) -> "ExifTool":
-        self._proc = subprocess.Popen(
-            [self.exe, "-stay_open", "True", "-@", "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
+        self.start()
         return self
 
     def __exit__(self, *exc) -> None:
+        self.close()
+
+    def start(self) -> None:
+        """Start the process and wait for it to answer. Raises ExifToolDied when it does not."""
+        try:
+            self._proc = subprocess.Popen(
+                [self.exe, "-stay_open", "True", "-@", "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                creationflags=NO_CONSOLE_FLAGS,
+            )
+        except OSError as e:
+            raise ExifToolDied(f"ExifTool could not be started: {e}") from e
+        try:
+            self._command(["-ver"])
+        except ExifToolDied:
+            self.close()
+            raise
+
+    def close(self) -> None:
         proc, self._proc = self._proc, None
         if proc is None:
             return
@@ -46,27 +81,46 @@ class ExifTool:
             proc.stdin.flush()
             proc.stdin.close()
             proc.wait(timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            proc.kill()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            try:
+                proc.kill()
+                proc.wait(timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                pass
         finally:
-            if proc.stdout:
-                proc.stdout.close()
+            for stream in (proc.stdin, proc.stdout):
+                try:
+                    if stream:
+                        stream.close()
+                except OSError:
+                    pass
 
-    def _execute(self, paths: list[Path]) -> list[dict]:
+    def restart(self) -> None:
+        """Replace a dead process. Raises ExifToolDied when the new one does not answer."""
+        self.close()
+        self.start()
+
+    def _command(self, args: list[str]) -> bytes:
+        """Send one -execute command; return its output up to {ready}."""
         proc = self._proc
         if proc is None:
-            raise RuntimeError("ExifTool is not running")
-        lines = [*_EXIF_ARGS, *(str(p) for p in paths), "-execute"]
-        proc.stdin.write(("\n".join(lines) + "\n").encode("utf-8"))
-        proc.stdin.flush()
-        out = bytearray()
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                raise RuntimeError("ExifTool exited unexpectedly")
-            if line.strip() == _READY:
-                break
-            out += line
+            raise ExifToolDied("ExifTool is not running")
+        try:
+            proc.stdin.write(("\n".join([*args, "-execute"]) + "\n").encode("utf-8"))
+            proc.stdin.flush()
+            out = bytearray()
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    raise ExifToolDied("ExifTool exited unexpectedly")
+                if line.strip() == _READY:
+                    return bytes(out)
+                out += line
+        except (OSError, ValueError) as e:  # broken pipe, or a stream closed under us
+            raise ExifToolDied(f"ExifTool pipe failed: {type(e).__name__}: {e}") from e
+
+    def _execute(self, paths: list[Path]) -> list[dict]:
+        out = self._command([*_EXIF_ARGS, *(str(p) for p in paths)])
         text = out.decode("utf-8", errors="replace").strip()
         return json.loads(text) if text else []
 
@@ -93,11 +147,19 @@ def _num(v) -> float | None:
 def probe_video(path: Path, ffprobe: str) -> dict:
     info = {"duration_s": None, "width": None, "height": None,
             "video_codec": None, "has_audio": False, "creation_time": None}
-    proc = subprocess.run(
-        [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
-         long_path(Path(path))],
-        capture_output=True, timeout=120, check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
+             long_path(Path(path))],
+            capture_output=True, timeout=120, check=False,
+            stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE_FLAGS,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise TransientProbeError(f"timed out after {e.timeout:.0f} s") from e
+    except OSError as e:
+        raise TransientProbeError(f"could not run: {e}") from e
+    if proc.returncode < 0 or proc.returncode == _CTRL_C_EXIT:
+        raise TransientProbeError(f"interrupted (exit code {proc.returncode})")
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", errors="replace").strip() or "ffprobe failed")
     data = json.loads(proc.stdout.decode("utf-8", errors="replace") or "{}")
@@ -175,9 +237,10 @@ def extract_exif_fields(d: dict) -> dict:
 
 
 def _set_unit_dates(conn: sqlite3.Connection, settings: Settings, include_unread: bool) -> None:
-    cond = "f.meta_status is not null"
+    # A row left retryable (NULL after an ffprobe timeout) still has its ExifTool fields.
+    cond = "(f.meta_status is not null or mi.file_id is not null)"
     if include_unread:
-        cond = f"(f.meta_status is not null or f.kind in {_KINDS})"
+        cond = f"(f.meta_status is not null or mi.file_id is not null or f.kind in {_KINDS})"
     rows = conn.execute(
         "select u.id, f.rel_path, mi.exif_datetime, mi.qt_datetime"
         " from units u join files f on f.id=u.primary_file_id"
@@ -213,16 +276,51 @@ def _store(conn, fid, fields, status, error=None) -> None:
         conn.execute("update files set meta_status=?, error=? where id=?", (status, error, fid))
 
 
+def _restart(et: ExifTool) -> None:
+    try:
+        et.restart()
+    except ExifToolDied as e:
+        raise ExifToolUnavailable(str(e)) from e
+
+
+def _read_exif(et: ExifTool, paths: list[Path]) -> tuple[list[dict | None], dict[int, str]]:
+    """ExifTool entries for paths, plus {index: error} for files that crashed ExifTool.
+
+    When the process dies mid-batch the files are not to blame yet: ExifTool is restarted
+    once and the batch is read again one file at a time. A file that kills it again is
+    marked, and ExifTool is restarted for the next file. Raises ExifToolUnavailable when a
+    restart fails; the caller then stores nothing, so the whole batch stays NULL.
+    """
+    try:
+        return et.read(paths), {}
+    except ExifToolDied as e:
+        log.warning("ExifTool died mid-batch (%s); retrying one file at a time", e)
+    _restart(et)
+    entries: list[dict | None] = []
+    crashed: dict[int, str] = {}
+    for i, p in enumerate(paths):
+        try:
+            entries.extend(et.read([p]))
+        except ExifToolDied as e:
+            _restart(et)  # a failed restart leaves this file unmarked too
+            entries.append(None)
+            crashed[i] = f"exiftool: crashed on this file ({e})"
+    return entries, crashed
+
+
 def _process(conn, root: Path, et, ffprobe, batch) -> None:
     paths = [root / r["rel_path"] for r in batch]
     entries: list[dict | None] = [None] * len(batch)
+    crashed: dict[int, str] = {}
     batch_err = None
     if et is not None:
         try:
-            entries = et.read(paths)
-        except Exception as e:  # noqa: BLE001
+            entries, crashed = _read_exif(et, paths)
+        except ExifToolUnavailable:
+            raise
+        except Exception as e:  # noqa: BLE001 - a bad reply, not a dead process
             batch_err = f"{type(e).__name__}: {e}"
-    for row, path, entry in zip(batch, paths, entries):
+    for i, (row, path, entry) in enumerate(zip(batch, paths, entries)):
         fid = row["id"]
         try:
             if batch_err is not None:
@@ -233,7 +331,8 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
                 if entry:
                     status = "done"
                 else:
-                    status, err = "error", "exiftool: no metadata returned"
+                    status = "error"
+                    err = crashed.get(i, "exiftool: no metadata returned")
             if row["kind"] == "video" and ffprobe:
                 try:
                     v = probe_video(path, ffprobe)
@@ -243,6 +342,10 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
                     fields["height"] = fields.get("height") or v["height"]
                     if not fields.get("qt_datetime") and v["creation_time"]:
                         fields["qt_datetime"] = v["creation_time"]
+                except TransientProbeError as e:
+                    status = None  # not the file's fault: read it again on the next scan
+                    msg = f"ffprobe: {e}"
+                    err = f"{err}; {msg}"[:500] if err else msg
                 except Exception as e:  # noqa: BLE001
                     if et is not None:
                         status = "error"
@@ -261,6 +364,11 @@ def run_metadata(
     progress=None,
     stop: threading.Event | None = None,
 ) -> int:
+    """Read metadata for every unread file. Returns files processed.
+
+    Raises ExifToolUnavailable (after setting dates for what was read) when ExifTool dies
+    and cannot be restarted; the batch in progress and the rest stay NULL for the next scan.
+    """
     root = Path(root)
     pending = conn.execute(
         "select id, rel_path, kind from files where meta_status is null and missing=0"
@@ -283,11 +391,22 @@ def run_metadata(
             if progress:
                 progress(done, total)
 
+    unavailable: ExifToolUnavailable | None = None
     if exe:
-        with ExifTool(exe) as et:
+        et = ExifTool(exe)
+        try:
+            et.start()
             run(et)
+        except ExifToolDied as e:  # did not start
+            unavailable = ExifToolUnavailable(str(e))
+        except ExifToolUnavailable as e:
+            unavailable = e
+        finally:
+            et.close()
     else:
         run(None)
 
     _set_unit_dates(conn, settings, include_unread=exe is None)
+    if unavailable is not None:
+        raise unavailable
     return done

@@ -5,10 +5,20 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Child tools (ExifTool, ffprobe, ffmpeg) run without a console and in their own process
+# group, so a console Ctrl+C reaches only the scan, which pauses through its stop event,
+# instead of killing a tool mid-batch.
+NO_CONSOLE_FLAGS = (
+    subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    if sys.platform == "win32"
+    else 0
+)
 
 
 def find_tool(name: str) -> str | None:

@@ -3,7 +3,7 @@ from conftest import requires_exiftool, requires_ffmpeg
 from arsipbersih.config import Settings
 from arsipbersih.db import open_db
 from arsipbersih.inventory import run_inventory
-from arsipbersih.metadata import ExifTool, probe_video, run_metadata
+from arsipbersih.metadata import ExifTool, ExifToolDied, probe_video, run_metadata
 from arsipbersih.pairing import build_units
 from arsipbersih.tools import find_tool
 
@@ -63,3 +63,23 @@ def test_ffprobe_failure_without_exiftool_stays_retryable(root, make_video, monk
     run_metadata(conn, root, Settings())
     status, error = conn.execute("select meta_status, error from files where kind='video'").fetchone()
     assert status is None and error.startswith("ffprobe:")
+
+
+@requires_exiftool
+def test_exiftool_dying_mid_batch_is_retried_not_error(root, make_image, monkeypatch):
+    make_image(root / "Sumber/HP/DCIM/DSC_1.JPG", exif_datetime="2023:08:12 14:30:22")
+    make_image(root / "Sumber/HP/DCIM/DSC_2.JPG", seed=1, exif_datetime="2023:08:13 09:00:00")
+    real_read, calls = ExifTool.read, []
+
+    def dies_once(self, paths):
+        calls.append(len(paths))
+        if len(calls) == 1:
+            raise ExifToolDied("ExifTool exited unexpectedly")
+        return real_read(self, paths)
+
+    monkeypatch.setattr(ExifTool, "read", dies_once)
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    assert calls == [2, 1, 1]  # the batch, then each file alone after a restart
+    rows = conn.execute("select meta_status, error from files").fetchall()
+    assert [tuple(r) for r in rows] == [("done", None), ("done", None)]

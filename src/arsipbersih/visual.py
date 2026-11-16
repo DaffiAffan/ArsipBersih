@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import signal
 import sqlite3
 import subprocess
 import threading
@@ -22,7 +23,7 @@ from PIL import Image, ImageOps
 from .config import Settings
 from .formats import Kind
 from .layout import long_path
-from .tools import find_tool
+from .tools import NO_CONSOLE_FLAGS, find_tool
 
 pillow_heif.register_heif_opener()
 
@@ -33,7 +34,6 @@ FALLBACK_FRAME_TIMES = (0.5, 1.0, 1.5)
 FFMPEG_TIMEOUT_S = 60
 _PREVIEW_EXTS = {"heic", "heif", "tif", "tiff"}
 _SECOND_PASS_EXTS = {"heic", "heif"}
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 @dataclass
@@ -174,7 +174,7 @@ def analyze_photo(
 def _run_quiet(cmd: list[str], timeout: float) -> bytes:
     proc = subprocess.run(
         cmd, capture_output=True, timeout=timeout, check=False,
-        stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+        stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE_FLAGS,
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip()[:300] or "ffmpeg failed")
@@ -263,10 +263,19 @@ def preview_path(root: Path, file_id: str) -> Path:
 # --- batch runner --------------------------------------------------------------------------
 
 
+def _ignore_sigint() -> None:
+    """Pool initializer: Ctrl+C pauses the scan through its stop event, not by killing workers."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def _pool(workers: int) -> ProcessPoolExecutor:
+    return ProcessPoolExecutor(max_workers=workers, initializer=_ignore_sigint)
+
+
 def _rerun_isolated(jobs: list[tuple]) -> dict[str, VisualResult]:
     """Run jobs one at a time in a single-worker pool; a job that breaks it is the culprit."""
     out: dict[str, VisualResult] = {}
-    pool = ProcessPoolExecutor(max_workers=1)
+    pool = _pool(1)
     try:
         for job in jobs:
             try:
@@ -274,7 +283,7 @@ def _rerun_isolated(jobs: list[tuple]) -> dict[str, VisualResult]:
             except BrokenProcessPool:
                 out[job[0]] = VisualResult(decode_ok=False, error="worker crashed while decoding")
                 pool.shutdown(wait=False, cancel_futures=True)
-                pool = ProcessPoolExecutor(max_workers=1)
+                pool = _pool(1)
             except Exception as e:
                 out[job[0]] = VisualResult(decode_ok=False, error=_error_text(e))
     finally:
@@ -367,7 +376,7 @@ def run_visual(
     ):
         if not jobs:
             continue
-        pool = ProcessPoolExecutor(max_workers=workers)
+        pool = _pool(workers)
         try:
             for start in range(0, len(jobs), CHUNK_SIZE):
                 if stop is not None and stop.is_set():
@@ -388,7 +397,7 @@ def run_visual(
                     # not return one by one, so only the real culprit is marked as an error.
                     pool.shutdown(wait=False, cancel_futures=True)
                     results.update(_rerun_isolated(unfinished))
-                    pool = ProcessPoolExecutor(max_workers=workers)
+                    pool = _pool(workers)
                 for job in chunk:
                     _store(conn, job[0], results[job[0]])
                     done += 1

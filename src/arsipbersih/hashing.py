@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import signal
 import sqlite3
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -20,6 +21,11 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
         while block := f.read(chunk):
             h.update(block)
     return h.hexdigest()
+
+
+def _ignore_sigint() -> None:
+    """Pool initializer: Ctrl+C pauses the scan through its stop event, not by killing workers."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def _hash_worker(abs_path: str) -> tuple[str | None, str | None]:
@@ -54,7 +60,7 @@ def run_hashing(
     if not total:
         return 0
     root = Path(root)
-    with ProcessPoolExecutor(max_workers=settings.workers) as pool:
+    with ProcessPoolExecutor(max_workers=settings.workers, initializer=_ignore_sigint) as pool:
         for i in range(0, total, CHUNK_FILES):
             if stop is not None and stop.is_set():
                 break

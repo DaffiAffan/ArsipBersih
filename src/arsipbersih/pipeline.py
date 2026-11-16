@@ -18,7 +18,7 @@ from .grouping import run_grouping
 from .hashing import run_hashing
 from .inventory import InventoryResult, run_inventory
 from .layout import SOURCE_DIR
-from .metadata import run_metadata
+from .metadata import ExifToolUnavailable, run_metadata
 from .mover import (
     BatchResult,
     check_space,
@@ -131,7 +131,13 @@ def run_scan(
         if stopped():
             return summary
 
-        run_metadata(conn, root, settings, begin("metadata"), stop)
+        try:
+            run_metadata(conn, root, settings, begin("metadata"), stop)
+        except ExifToolUnavailable as e:
+            # Unread files stay NULL; pausing keeps tidy from running on missing dates.
+            summary.warnings.append(f"ExifTool stopped working ({e}); run scan again")
+            summary.stopped = True
+            return summary
         if stopped():
             return summary
         confirm_live_photos(conn, settings)
