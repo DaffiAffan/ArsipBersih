@@ -257,3 +257,15 @@ def mini_collection(root, make_image):
     save_settings(conn, replace(load_settings(conn), blur_threshold=5.0))
     conn.close()
     return root
+
+
+@pytest.fixture
+def web(root):
+    from fastapi.testclient import TestClient
+
+    from arsipbersih.web.app import create_app
+
+    app = create_app(root, allowed_hosts={"testserver"}, start_jobs=False)
+    with TestClient(app, headers={"X-ArsipBersih": "1"}) as c:
+        c.app_ref = app
+        yield c

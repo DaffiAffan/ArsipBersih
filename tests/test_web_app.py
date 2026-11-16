@@ -1,0 +1,32 @@
+from fastapi.testclient import TestClient
+
+from arsipbersih.mover import PendingMoves
+from arsipbersih.web.app import create_app
+from arsipbersih.web.messages import explain
+
+
+def test_home_renders_in_indonesian(web):
+    r = web.get("/")
+    assert r.status_code == 200 and "Beranda" in r.text and "Riwayat" in r.text
+
+
+def test_foreign_host_is_rejected(root):
+    app = create_app(root, start_jobs=False)
+    with TestClient(app) as c:
+        assert c.get("/", headers={"host": "evil.example"}).status_code == 400
+        assert c.get("/", headers={"host": "127.0.0.1:8765"}).status_code == 200
+
+
+def test_post_without_header_is_rejected(web):
+    r = web.post("/api/anything", headers={"X-ArsipBersih": ""})
+    assert r.status_code == 403
+
+
+def test_static_files_are_local(web):
+    assert web.get("/static/api.js").status_code == 200
+    assert "http" not in web.get("/").text.split("<body", 1)[0].replace("http-equiv", "")
+
+
+def test_explain_maps_known_and_unknown_errors():
+    assert explain(PendingMoves("x")).startswith("Ada perpindahan yang terputus")
+    assert explain(ValueError("boom")) == "Terjadi kesalahan: ValueError: boom"
