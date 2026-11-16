@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Rencana Rapikan - ArsipBersih{% endblock %}
+{% block content %}
+<h1>Rencana Rapikan</h1>
+<p class="muted">Periksa nama acara di bawah. Tidak ada file yang dipindah sebelum Anda menekan "Rapikan sekarang" dan mengonfirmasi.</p>
+<div id="plan-error" class="plan-error" role="alert" hidden></div>
+<section>
+  <h2>Acara</h2>
+  <table class="plan-table">
+    <thead><tr><th>Nama</th><th>Bulan</th><th>File</th><th>Sumber</th><th>Contoh path</th><th>Aksi</th></tr></thead>
+    <tbody id="events-body"></tbody>
+  </table>
+  <p id="events-empty" class="muted" hidden>Belum ada acara terdeteksi.</p>
+</section>
+<section>
+  <h2>Ringkasan</h2>
+  <div id="summary"></div>
+  <p><button id="tidy-btn" class="primary" type="button" disabled>Rapikan sekarang</button></p>
+  <p id="tidy-hint" class="muted"></p>
+</section>
+<section id="result" hidden>
+  <h2>Hasil</h2>
+  <div id="result-body"></div>
+</section>
+<dialog id="confirm-dialog">
+  <h2>Rapikan sekarang?</h2>
+  <div id="confirm-body"></div>
+  <p class="muted">Semua perpindahan dicatat dan bisa dibatalkan lewat Riwayat.</p>
+  <div class="dialog-actions">
+    <button id="confirm-no" type="button">Batal</button>
+    <button id="confirm-yes" class="primary" type="button">Ya, rapikan</button>
+  </div>
+</dialog>
+<dialog id="merge-dialog">
+  <h2>Gabungkan ke…</h2>
+  <p id="merge-from" class="muted"></p>
+  <select id="merge-target"></select>
+  <div class="dialog-actions">
+    <button id="merge-no" type="button">Batal</button>
+    <button id="merge-yes" class="primary" type="button">Gabungkan</button>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/plan.js"></script>
+{% endblock %}

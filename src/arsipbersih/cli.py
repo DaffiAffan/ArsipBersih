@@ -1,11 +1,9 @@
 """Command-line interface: scan, review the plan, tidy, undo, report."""
 
-import os
 import signal
 import threading
 import time
 from concurrent.futures.process import BrokenProcessPool
-from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -16,20 +14,19 @@ from .calibrate import suggest_blur_threshold
 from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
-from .layout import REVIEW_DIR, long_path, to_abs
+from .layout import REVIEW_DIR
 from .mover import (
     InsufficientSpace,
     NotUndoable,
     PendingMoves,
     UnknownBatch,
-    check_space,
     reconcile_or_refuse,
     undo_all,
     undo_batch,
 )
 from . import pipeline
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
-from .planner import compute_plans, plan_rapikan
+from .planner import compute_plans
 from .report import build_report, verify
 from .tools import check_tools
 
@@ -87,37 +84,17 @@ def _scan_done(conn) -> bool:
 
 
 def _plan_summary(conn, root: Path) -> None:
-    skipped: list[tuple[str, str]] = []
-    moves = plan_rapikan(conn, root, skipped)
-    archive_units = archive_bytes = 0
-    review: Counter = Counter()
-    review_bytes: Counter = Counter()
-    for um in moves:
-        size = 0
-        for fm in um.files:
-            try:
-                size += os.stat(long_path(to_abs(root, fm.src_rel))).st_size
-            except OSError:
-                pass
-        if um.to_location == "archive":
-            archive_units += 1
-            archive_bytes += size
-        else:
-            parts = um.files[0].dst_rel.replace("\\", "/").split("/") if um.files else []
-            cat = parts[1] if len(parts) > 1 and parts[0] == REVIEW_DIR else "other"
-            review[cat] += 1
-            review_bytes[cat] += size
-    typer.echo(f"To Arsip: {archive_units} units, {human_bytes(archive_bytes)}")
-    for cat in sorted(review):
-        typer.echo(f"To {REVIEW_DIR}/{cat}: {review[cat]} units, {human_bytes(review_bytes[cat])}")
-    typer.echo(f"Skipped units: {len(skipped)}")
-    for unit_id, reason in skipped:
+    summary = pipeline.summarize_rapikan(conn, root)
+    typer.echo(f"To Arsip: {summary.archive_units} units, {human_bytes(summary.archive_bytes)}")
+    for cat, (units, size) in summary.review.items():
+        typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
+    typer.echo(f"Skipped units: {len(summary.skipped)}")
+    for unit_id, reason in summary.skipped:
         typer.echo(f"  skipped {unit_id}: {reason}")
-    try:
-        check_space(root, moves)
+    if summary.space_ok:
         typer.echo("Free space: OK")
-    except InsufficientSpace as e:
-        typer.echo(f"Free space: NOT ENOUGH ({e})")
+    else:
+        typer.echo(f"Free space: NOT ENOUGH ({summary.space_error})")
 
 
 @app.command("check-tools")
