@@ -51,6 +51,10 @@ from .routes import plan as _plan_routes  # noqa: E402
 
 ROUTERS.append(_plan_routes.router)
 
+from .routes import report as _report_routes  # noqa: E402
+
+ROUTERS.append(_report_routes.router)
+
 
 def create_app(
     root: Path,
