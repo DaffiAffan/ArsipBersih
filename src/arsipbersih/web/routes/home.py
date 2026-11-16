@@ -12,13 +12,17 @@ from pydantic import BaseModel
 from ...cli import WINGET_HINTS
 from ...db import open_db
 from ...layout import SOURCE_DIR
+from ...lock import RootLocked, acquire_root_lock
 from ...pipeline import SCAN_DONE_KEY, run_scan
 from ...tools import check_tools
 from ..deps import get_conn, get_root, render, start_job
+from ..jobs import RECONCILE_LABEL, JobBusy, reconcile_job
 from ..messages import UserError
 from ..queries import category_counts
 
 router = APIRouter()
+
+ROOT_LOCKED_TEXT = "Koleksi ini sedang dipakai proses ArsipBersih lain."
 
 TOOL_HINTS = {
     "exiftool": WINGET_HINTS["ExifTool"],
@@ -59,12 +63,15 @@ def home_data(request: Request, conn=Depends(get_conn)):
     }
 
 
+def _busy_error(label: str) -> UserError:
+    return UserError(f"Masih ada proses yang berjalan: {label}. Tunggu sampai selesai.", status=409)
+
+
 @router.post("/api/root")
 def switch_root(request: Request, body: RootBody):
     jobs = request.app.state.jobs
     if jobs.busy():
-        label = jobs.status().label or ""
-        raise UserError(f"Masih ada proses yang berjalan: {label}. Tunggu sampai selesai.", status=409)
+        raise _busy_error(jobs.status().label or "")
     raw = body.path.strip()
     new = Path(raw).expanduser() if raw else None
     if new is None or not new.is_absolute():
@@ -72,11 +79,36 @@ def switch_root(request: Request, body: RootBody):
     new = new.resolve()
     if not (new.is_dir() and (new / SOURCE_DIR).is_dir()):
         raise UserError("Folder ini tidak berisi Sumber/", status=400)
+    state = request.app.state
     try:
-        open_db(new).close()
-    except (OSError, sqlite3.Error) as exc:
-        raise UserError(f"Folder ini tidak bisa dipakai: {exc}", status=400) from exc
-    request.app.state.root = new
+        # Under the job lock: no job can start between the busy check and the switch.
+        with jobs.exclusive():
+            old_lock = state.root_lock
+            same = old_lock is not None and old_lock.held and Path(state.root).resolve() == new
+            new_lock = None
+            if not same:
+                try:
+                    new_lock = acquire_root_lock(new)
+                except RootLocked as exc:
+                    raise UserError(ROOT_LOCKED_TEXT, status=400) from exc
+                except OSError as exc:
+                    raise UserError(f"Folder ini tidak bisa dipakai: {exc}", status=400) from exc
+            try:
+                open_db(new).close()
+            except (OSError, sqlite3.Error) as exc:
+                if new_lock is not None:
+                    new_lock.release()
+                raise UserError(f"Folder ini tidak bisa dipakai: {exc}", status=400) from exc
+            state.root = new
+            if new_lock is not None:
+                state.root_lock = new_lock
+                if old_lock is not None:
+                    old_lock.release()
+            if state.start_jobs:
+                # spec §10: settle any interrupted move journal of the new collection
+                jobs.start("reconcile", RECONCILE_LABEL, reconcile_job(new))
+    except JobBusy as exc:
+        raise _busy_error(exc.label) from exc
     return {"root": str(new)}
 
 
