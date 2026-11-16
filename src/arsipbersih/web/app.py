@@ -28,6 +28,10 @@ def home(request: Request):
 
 ROUTERS.append(_pages)
 
+from .routes import media as _media_routes  # noqa: E402
+
+ROUTERS.append(_media_routes.router)
+
 
 def create_app(
     root: Path,
