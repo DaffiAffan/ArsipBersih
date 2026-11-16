@@ -1,7 +1,8 @@
 """Owner-confirmed repairs for a stuck move journal.
 
-Only database rows change here. No media file is ever deleted or moved: a row is released
-(or a file forgotten) only after confirming that the file is absent from disk.
+This module itself never touches files; all disk changes go through mover.reconcile. A row is
+released (or a file forgotten) only after confirming that the file is absent from disk and
+that both endpoints are reachable (an unplugged drive also makes a file look absent).
 """
 
 from __future__ import annotations
@@ -10,11 +11,19 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from arsipbersih.mover import PARTIAL_SUFFIX, _abs, _exists, _norm, _partial, reconcile
+from arsipbersih.mover import _abs, _exists, _norm, _partial, _reachable, reconcile
 
 
 class StillOnDisk(Exception):
     """A file is still present on disk, so its row must not be released or forgotten."""
+
+
+class EndpointOffline(Exception):
+    """A folder of the file is unreachable (drive disconnected?), so absence proves nothing."""
+
+
+class HasPendingMove(Exception):
+    """The file still has a pending journal row; settle it with release_pending first."""
 
 
 @dataclass
@@ -47,9 +56,19 @@ def list_pending(conn: sqlite3.Connection) -> list[PendingRow]:
     return [PendingRow(*r) for r in rows]
 
 
-def _present(root: Path, rel: str) -> bool:
+def _found(root: Path, rel: str) -> Path | None:
+    """The path (or its .partial) that exists on disk for rel, if any."""
     p = _abs(root, rel)
-    return _exists(p) or _exists(_partial(p))
+    for c in (p, _partial(p)):
+        if _exists(c):
+            return c
+    return None
+
+
+def _require_reachable(root: Path, *rels: str) -> None:
+    for rel in rels:
+        if not _reachable(_abs(root, rel)):
+            raise EndpointOffline(f"folder not reachable (drive disconnected?): {rel}")
 
 
 def release_pending(
@@ -64,8 +83,11 @@ def release_pending(
     if row is None or row[0] != "pending":
         return
     _, file_id, src_rel, dst_rel = row
-    if _present(root, src_rel) or _present(root, dst_rel):
-        raise StillOnDisk(f"file still on disk ({src_rel} / {dst_rel}{PARTIAL_SUFFIX} included)")
+    for rel in (src_rel, dst_rel):
+        found = _found(root, rel)
+        if found is not None:
+            raise StillOnDisk(f"file still on disk: {found}")
+    _require_reachable(root, src_rel, dst_rel)
     flag = "purged" if deleted_on_purpose else "missing"
     with conn:
         conn.execute("update moves set status='failed' where id=? and status='pending'", (row_id,))
@@ -87,7 +109,14 @@ def forget_file(conn: sqlite3.Connection, root: Path, file_id: str) -> None:
     row = conn.execute("select rel_path from files where id=?", (file_id,)).fetchone()
     if row is None:
         raise KeyError(file_id)
-    if _present(root, row[0]):
-        raise StillOnDisk(f"file still on disk: {row[0]}")
+    reconcile(conn, root)
+    if conn.execute(
+        "select 1 from moves where file_id=? and status='pending'", (file_id,)
+    ).fetchone():
+        raise HasPendingMove(f"file has a pending move; use release_pending first: {row[0]}")
+    found = _found(root, row[0])
+    if found is not None:
+        raise StillOnDisk(f"file still on disk: {found}")
+    _require_reachable(root, row[0])
     with conn:
         conn.execute("update files set purged=1 where id=?", (file_id,))
