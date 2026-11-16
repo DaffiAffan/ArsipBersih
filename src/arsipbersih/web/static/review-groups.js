@@ -51,11 +51,18 @@ async function loadList() {
   renderList();
 }
 
+// Owner decision (strong colour) replaces the suggestion badge. Photos are never dimmed.
+function stateBadge(m) {
+  if (m.decision) return el("span", { class: "badge decided " + m.decision }, DECISION_LABEL[m.decision] || m.decision);
+  return m.is_keeper
+    ? el("span", { class: "badge suggest keep" }, "✓ Saran: Keep")
+    : el("span", { class: "badge suggest discard" }, "Saran: Delete");
+}
+
 function memThumb(m) {
-  const box = el("div", { class: "mem" + (m.is_keeper ? "" : " dim") },
+  const box = el("div", { class: "mem" },
     el("img", { src: m.thumb || "", alt: "", loading: "lazy", draggable: "false" }));
-  if (m.is_keeper) box.append(el("span", { class: "tick", title: "Disarankan disimpan" }, "✓"));
-  if (m.decision) box.append(el("span", { class: "mark " + m.decision }, DECISION_LABEL[m.decision] || m.decision));
+  box.append(stateBadge(m));
   return box;
 }
 
@@ -190,11 +197,11 @@ function renderCompare() {
   const cards = g.members.map((m, i) => {
     const media = m.media || {};
     const src = media.kind === "video" ? media.thumb : (media.view || media.thumb);
-    const mark = m.decision ? el("strong", {}, ` · ${DECISION_LABEL[m.decision] || m.decision}`) : "";
-    return el("div", { class: "cmp-card" + (i === compare.focus ? " focused" : "") + (m.is_keeper ? "" : " dim") },
-      el("img", { class: "big", src: src || "", alt: "", draggable: "false",
-        onclick: () => { compare.focus = i; openCompareViewer(i); } }),
-      el("div", { style: "margin:6px 0" }, m.is_keeper ? "✓ Saran: Keep" : "Saran: Delete", mark),
+    return el("div", { class: "cmp-card" + (i === compare.focus ? " focused" : "") },
+      el("div", { class: "cmp-img" },
+        el("img", { class: "big", src: src || "", alt: "", draggable: "false",
+          onclick: () => { compare.focus = i; openCompareViewer(i); } }),
+        stateBadge(m)),
       infoRows(m),
       el("div", { class: "cmp-actions" },
         el("button", { type: "button", class: m.decision === "keep" ? "on" : "", onclick: () => decide(i, "keep") }, "Keep"),
