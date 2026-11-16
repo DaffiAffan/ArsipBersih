@@ -50,17 +50,18 @@ def _verify_job(root: Path):
 
 
 def clear_cache(root: Path) -> dict:
-    expected = (root / STATE_DIR / "cache").resolve()
-    target = root / STATE_DIR / "cache"
-    if not target.exists():
+    state = Path(root) / STATE_DIR
+    target = state / "cache"
+    if not target.exists() and not target.is_symlink() and not target.is_junction():
         return {"removed_bytes": 0}
-    if target.resolve() != expected or not target.is_dir() or target.is_symlink():
+    for p in (state, target):
+        if p.is_symlink() or p.is_junction():
+            raise RuntimeError("Folder cache atau folder status adalah tautan, tidak ada yang dihapus")
+    if not target.is_dir() or target.resolve() != state.resolve() / "cache":
         raise RuntimeError("Folder cache tidak valid, tidak ada yang dihapus")
-    if expected.parent != (root / STATE_DIR).resolve():
-        raise RuntimeError("Folder cache di luar folder status, tidak ada yang dihapus")
-    size = _dir_bytes(expected)
-    shutil.rmtree(expected)
-    expected.mkdir()
+    size = _dir_bytes(target)
+    shutil.rmtree(target)
+    target.mkdir()
     return {"removed_bytes": size}
 
 

@@ -69,3 +69,18 @@ def test_cache_clear_without_cache_dir(web, root):
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
     assert state.result == {"removed_bytes": 0}
+
+
+def test_cache_clear_refuses_junction(web, root, monkeypatch):
+    from pathlib import Path
+
+    cache = root / ".arsipbersih/cache"
+    cache.mkdir(parents=True)
+    f = cache / "x.webp"
+    f.write_bytes(b"x")
+    real = Path.is_junction
+    monkeypatch.setattr(Path, "is_junction", lambda self: self.name == "cache" or real(self))
+    web.post("/api/cache/clear")
+    state = web.app_ref.state.jobs.wait()
+    assert state.status == "failed"
+    assert f.exists()
