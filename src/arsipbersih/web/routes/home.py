@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -64,10 +65,17 @@ def switch_root(request: Request, body: RootBody):
     if jobs.busy():
         label = jobs.status().label or ""
         raise UserError(f"Masih ada proses yang berjalan: {label}. Tunggu sampai selesai.", status=409)
-    new = Path(body.path.strip()).expanduser()
+    raw = body.path.strip()
+    new = Path(raw).expanduser() if raw else None
+    if new is None or not new.is_absolute():
+        raise UserError("Masukkan path folder lengkap, misalnya D:\Foto.", status=400)
+    new = new.resolve()
     if not (new.is_dir() and (new / SOURCE_DIR).is_dir()):
         raise UserError("Folder ini tidak berisi Sumber/", status=400)
-    open_db(new).close()
+    try:
+        open_db(new).close()
+    except (OSError, sqlite3.Error) as exc:
+        raise UserError(f"Folder ini tidak bisa dipakai: {exc}", status=400) from exc
     request.app.state.root = new
     return {"root": str(new)}
 

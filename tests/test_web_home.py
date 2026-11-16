@@ -48,3 +48,13 @@ def test_home_data_and_page(web):
     assert d["has_source"] and d["last_scan_at"] is None and d["warnings"] == []
     assert set(d["tools"]) == {"exiftool", "ffmpeg", "ffprobe"}
     assert web.get("/").status_code == 200
+
+
+def test_root_switch_rejects_bad_paths(web, tmp_path):
+    f = tmp_path / "berkas.txt"
+    f.write_text("x")
+    before = web.app_ref.state.root
+    for p in (str(f), "foo", "", "   "):
+        r = web.post("/api/root", json={"path": p})
+        assert r.status_code == 400, p
+    assert web.app_ref.state.root == before
