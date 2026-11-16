@@ -55,6 +55,15 @@ from .routes import review as _review_routes  # noqa: E402
 
 ROUTERS.append(_review_routes.router)
 
+from .routes import history as _history_routes  # noqa: E402
+
+ROUTERS.append(_history_routes.router)
+
+
+@_pages.get("/riwayat")
+def riwayat_page(request: Request):
+    return render(request, "history.html", active="riwayat", title="Riwayat")
+
 
 def create_app(
     root: Path,
