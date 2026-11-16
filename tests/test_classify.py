@@ -35,3 +35,20 @@ def test_calibrated_threshold_overrides_fallback(conn_with):
     conn = conn_with([dict(name="IMG_2.jpg", make="samsung", sharp=30, luma=120, std=50)])
     run_classify(conn, Settings(blur_threshold=35.0))
     assert conn.execute("select primary_category from units").fetchone()[0] == "burem"
+
+
+def test_bad_companion_file_does_not_make_unit_rusak(conn_with):
+    from arsipbersih.db import new_id
+
+    conn = conn_with([dict(name="IMG_1.HEIC", make="apple", sharp=80, luma=120, std=50)])
+    uid = conn.execute("select id from units").fetchone()[0]
+    fid = new_id()
+    conn.execute(
+        "insert into files(id, unit_id, rel_path, orig_rel_path, size, mtime_ns, kind, ext, source_label)"
+        " values(?,?,?,?,?,?,?,?,?)",
+        (fid, uid, "Sumber/HP/DCIM/IMG_1.MOV", "Sumber/HP/DCIM/IMG_1.MOV", 2_000_000, 0, "video", "mov", "HP"),
+    )
+    conn.execute("insert into media_info(file_id, decode_ok) values(?, 0)", (fid,))
+    run_classify(conn, Settings())
+    assert conn.execute("select primary_category from units").fetchone()[0] is None
+    assert conn.execute("select count(*) from flags where category='rusak'").fetchone()[0] == 0

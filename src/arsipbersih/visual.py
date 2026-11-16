@@ -38,7 +38,7 @@ _SECOND_PASS_EXTS = {"heic", "heif"}
 
 @dataclass
 class VisualResult:
-    decode_ok: bool
+    decode_ok: bool | None  # None: unknown (RAW without a preview, or a retryable failure)
     phash: str | None = None
     sharpness: float | None = None
     luma_mean: float | None = None
@@ -47,6 +47,11 @@ class VisualResult:
     frame_phashes: list[str] | None = None
     frame_lumas: list[float] | None = None
     error: str | None = None
+    retry: bool = False  # a timeout or I/O error, not the file: visual_status stays NULL
+
+
+class NoRawThumbnail(ValueError):
+    """The RAW has no usable embedded preview; that says nothing about the RAW data."""
 
 
 # --- hashing and scoring -------------------------------------------------------------------
@@ -93,14 +98,14 @@ def _open_raw_thumb(path: Path) -> Image.Image:
             try:
                 thumb = raw.extract_thumb()
             except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError) as e:
-                raise ValueError(f"RAW has no usable embedded thumbnail: {e}") from e
+                raise NoRawThumbnail(f"RAW has no usable embedded thumbnail: {e}") from e
     if thumb.format == rawpy.ThumbFormat.JPEG:
         img = Image.open(io.BytesIO(thumb.data))
         img.load()
         return img
     if thumb.format == rawpy.ThumbFormat.BITMAP:
         return Image.fromarray(thumb.data)
-    raise ValueError("RAW embedded thumbnail has an unsupported format")
+    raise NoRawThumbnail("RAW embedded thumbnail has an unsupported format")
 
 
 def _load_rgb(path: Path, kind: Kind, max_px: int) -> Image.Image:
@@ -142,6 +147,23 @@ def _error_text(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"[:500]
 
 
+def _is_transient(e: BaseException) -> bool:
+    """A timeout or an OS-level I/O error (it carries an errno): the file may be fine.
+
+    Pillow reports undecodable data as a plain OSError without errno (UnidentifiedImageError,
+    "image file is truncated"); those stay decode failures.
+    """
+    return isinstance(e, subprocess.TimeoutExpired) or (
+        isinstance(e, OSError) and e.errno is not None
+    )
+
+
+def _failure(e: BaseException) -> VisualResult:
+    if _is_transient(e):
+        return VisualResult(decode_ok=None, error=_error_text(e), retry=True)
+    return VisualResult(decode_ok=False, error=_error_text(e))
+
+
 def analyze_photo(
     path: Path, kind: Kind, settings: Settings, thumb_dst: Path, preview_dst: Path | None
 ) -> VisualResult:
@@ -164,8 +186,11 @@ def analyze_photo(
         if preview_dst is not None:
             _save_webp(img, preview_dst, settings.preview_px)
         return result
+    except NoRawThumbnail as e:
+        # Unknown, not corrupt: no thumbnail, and no rusak flag.
+        return VisualResult(decode_ok=None, error=_error_text(e))
     except Exception as e:  # a bad file must never abort the run
-        return VisualResult(decode_ok=False, error=_error_text(e))
+        return _failure(e)
 
 
 # --- videos --------------------------------------------------------------------------------
@@ -246,7 +271,7 @@ def analyze_video(
             frame_lumas=[float(g.mean()) for g in grays],
         )
     except Exception as e:
-        return VisualResult(decode_ok=False, error=_error_text(e))
+        return _failure(e)
 
 
 # --- cache paths ---------------------------------------------------------------------------
@@ -323,12 +348,16 @@ def _store(conn: sqlite3.Connection, file_id: str, r: VisualResult) -> None:
             json.dumps(r.frame_phashes) if r.frame_phashes is not None else None,
             r.sharpness, r.luma_mean, r.luma_std, r.clipping,
             json.dumps(r.frame_lumas) if r.frame_lumas is not None else None,
-            1 if r.decode_ok else 0,
+            None if r.decode_ok is None else int(r.decode_ok),
         ),
     )
+    if r.retry:
+        status = None  # read it again on the next scan
+    else:
+        status = "error" if r.decode_ok is False else "done"
     conn.execute(
         "update files set visual_status=?, error=? where id=?",
-        ("done" if r.decode_ok else "error", None if r.decode_ok else r.error, file_id),
+        (status, None if r.decode_ok else r.error, file_id),
     )
 
 

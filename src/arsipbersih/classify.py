@@ -50,15 +50,32 @@ def _is_screen_aspect(w: int | None, h: int | None) -> bool:
     return any(abs(ratio - r) <= SCREEN_RATIO_TOLERANCE for r in SCREEN_RATIOS)
 
 
-def _broken_units(conn: sqlite3.Connection) -> set[str]:
-    """Units where any file failed to decode or is an empty photo/raw/video file."""
+BROKEN_REASON = "file rusak / tidak bisa dibuka"
+EMPTY_REASON = "file kosong (0 byte)"
+ERROR_IN_REASON_MAX = 80
+
+
+def _broken_units(conn: sqlite3.Connection) -> dict[str, str]:
+    """{unit_id: reason} for units whose PRIMARY file failed to decode, or that hold an
+    empty photo/raw/video file. A bad companion file never flags the whole unit, and
+    decode_ok NULL (unknown, e.g. a RAW without an embedded preview) is not broken."""
+    out: dict[str, str] = {}
     rows = conn.execute(
-        "select distinct f.unit_id from files f "
-        "left join media_info m on m.file_id = f.id "
-        "where f.unit_id is not null and f.missing = 0 and f.purged = 0 "
-        "and (m.decode_ok = 0 or (f.size = 0 and f.kind in ('photo','raw','video')))"
+        "select u.id, f.error from units u join files f on f.id = u.primary_file_id "
+        "join media_info m on m.file_id = f.id "
+        "where f.missing = 0 and f.purged = 0 and m.decode_ok = 0"
     ).fetchall()
-    return {r[0] for r in rows}
+    for unit_id, error in rows:
+        out[unit_id] = f"{BROKEN_REASON}: {error[:ERROR_IN_REASON_MAX]}" if error else BROKEN_REASON
+    rows = conn.execute(
+        "select f.unit_id, f.rel_path from files f "
+        "where f.unit_id is not null and f.missing = 0 and f.purged = 0 "
+        "and f.size = 0 and f.kind in ('photo','raw','video')"
+    ).fetchall()
+    for unit_id, rel_path in rows:
+        name = rel_path.rsplit("/", 1)[-1]
+        out.setdefault(unit_id, f"{EMPTY_REASON}: {name[:ERROR_IN_REASON_MAX]}")
+    return out
 
 
 def _extras(conn: sqlite3.Connection) -> dict[str, dict]:
@@ -88,13 +105,13 @@ def _group_flags(conn: sqlite3.Connection) -> dict[str, list[Flag]]:
     return out
 
 
-def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: bool) -> list[Flag]:
+def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: str | None) -> list[Flag]:
     flags: list[Flag] = []
     segs = segments_of(u.orig_rel_path)
     is_photo = u.kind == "photo"
     no_cam = not (u.make or u.model)
     if broken:
-        flags.append(("rusak", None, "file rusak / tidak bisa dibuka"))
+        flags.append(("rusak", None, broken))
     if is_screenshot_name(segs, u.filename):
         flags.append(("screenshot", None, "nama file screenshot"))
     elif no_cam and ex["ext"] == "png" and _is_screen_aspect(u.width, u.height):
@@ -159,7 +176,7 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
         for u in views:
             flags = list(group_flags.get(u.unit_id, []))
             if u.location != "archive":
-                flags += _classify_unit(u, extras[u.unit_id], settings, u.unit_id in broken)
+                flags += _classify_unit(u, extras[u.unit_id], settings, broken.get(u.unit_id))
             by_cat = {f[0]: f for f in flags}
             conn.execute("delete from flags where unit_id = ?", (u.unit_id,))
             for cat, score, reason in by_cat.values():
