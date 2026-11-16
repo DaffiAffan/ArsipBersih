@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Riwayat - ArsipBersih{% endblock %}
+{% block content %}
+<h1>Riwayat</h1>
+<p id="hist-msg" class="muted" role="status"></p>
+
+<section id="pending-section" hidden>
+  <h2>Perpindahan terputus</h2>
+  <p class="muted">Baris ini memblokir semua perpindahan baru sampai dilepas.</p>
+  <div id="pending-list"></div>
+</section>
+
+<section>
+  <h2>Batch</h2>
+  <p><button type="button" id="undo-all">Kembalikan semua ke posisi asal</button></p>
+  <table class="hist-table">
+    <thead><tr><th>Waktu</th><th>Jenis</th><th>Label</th><th>Dipindah</th><th>Dikembalikan</th><th>Gagal</th><th></th></tr></thead>
+    <tbody id="batch-rows"></tbody>
+  </table>
+  <p id="batch-empty" class="muted" hidden>Belum ada riwayat.</p>
+</section>
+
+<section id="missing-section" hidden>
+  <h2>File hilang dari disk</h2>
+  <div id="missing-list"></div>
+</section>
+
+<section>
+  <h2>Kosongkan _sampah</h2>
+  <p id="trash-info" class="muted"></p>
+  <button type="button" id="purge-btn" class="danger">Kosongkan _sampah</button>
+</section>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/history.js"></script>
+{% endblock %}

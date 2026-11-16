@@ -93,3 +93,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .blur-row figure { margin: 0; text-align: center; font-size: 12px; }
 .blur-row img { display: block; border-radius: 4px; background: var(--panel-2); }
 .settings-actions { margin-bottom: 24px; }
+
+/* Riwayat (history.js) */
+.hist-table { border-collapse: collapse; width: 100%; }
+.hist-table th, .hist-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.hist-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.hist-row .path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+dialog.hist-dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; max-width: 520px; }
+dialog.hist-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+dialog.hist-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+dialog.hist-dialog input { width: 100%; padding: 6px 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
