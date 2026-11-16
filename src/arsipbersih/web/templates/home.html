@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Beranda - ArsipBersih{% endblock %}
+{% block content %}
+<h1>Beranda</h1>
+<section class="card">
+  <h2>Folder kerja</h2>
+  <form id="root-form" class="row">
+    <input id="root-input" type="text" value="{{ root }}" size="60" aria-label="Path folder kerja">
+    <button type="submit">Ganti</button>
+  </form>
+  <p id="root-msg" class="muted"></p>
+</section>
+<section class="card">
+  <h2>Alat</h2>
+  <ul id="tools"></ul>
+</section>
+<section class="card">
+  <h2>Pindai</h2>
+  <p id="scan-info" class="muted"></p>
+  <button id="scan-btn" class="primary" type="button">Mulai pindai</button>
+  <button id="pause-btn" type="button" hidden>Jeda</button>
+  <ol id="stages" class="stages"></ol>
+  <ul id="warnings"></ul>
+</section>
+<section class="card">
+  <h2>Ringkasan</h2>
+  <div id="by-location"></div>
+  <ul id="categories"></ul>
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/home.js"></script>{% endblock %}
