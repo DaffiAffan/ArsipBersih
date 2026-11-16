@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import json
+
+from arsipbersih import decisions
+from arsipbersih.db import new_id
+from arsipbersih.web import queries
+
+
+def _unit(conn, name):
+    return conn.execute(
+        "select u.id uid, u.primary_file_id fid from units u join files f on f.id=u.primary_file_id"
+        " where f.rel_path like ?",
+        (f"%/{name}",),
+    ).fetchone()
+
+
+def _group(conn, kind, keeper, members):
+    gid = new_id()
+    conn.execute(
+        "insert into groups(id, kind, suggested_keep_unit_id) values(?,?,?)", (gid, kind, keeper)
+    )
+    for m in members:
+        conn.execute("insert into group_members(group_id, unit_id) values(?,?)", (gid, m))
+    conn.commit()
+    return gid
+
+
+def test_counts_hide_empty_and_follow_priority(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "review", "category": "burem"},
+        {"name": "b.jpg", "loc": "review", "category": "burem"},
+        {"name": "c.jpg", "loc": "review", "category": "rusak"},
+    ])
+    got = queries.category_counts(conn)
+    assert [(c["category"], c["count"]) for c in got] == [("rusak", 1), ("burem", 2)]
+    assert got[0]["mode"] == "grid"
+    json.dumps(got)
+
+
+def test_group_with_archived_old_member_stays_open(conn_with):
+    conn = conn_with([
+        {"name": "new.jpg", "loc": "review", "taken": "2024-01-01T10:00:00"},
+        {"name": "old.jpg", "loc": "archive", "taken": "2024-01-01T10:00:00"},
+    ])
+    new, old = _unit(conn, "new.jpg"), _unit(conn, "old.jpg")
+    _group(conn, "duplikat-versi", new["uid"], [new["uid"], old["uid"]])
+    assert queries.list_groups(conn, "duplikat-versi", 1)["total"] == 1
+    # keeper gets archived too, old member's keep decision is applied -> group closes
+    decisions.record(conn, old["uid"], "keep")
+    conn.execute("update decisions set applied=1 where unit_id=?", (old["uid"],))
+    conn.execute("update units set location='archive' where id=?", (new["uid"],))
+    conn.commit()
+    assert queries.list_groups(conn, "duplikat-versi", 1)["total"] == 0
+
+
+def test_group_summary_counts_seconds(conn_with):
+    times = ["2024-01-01T10:00:00", "2024-01-01T10:00:03", "2024-01-01T10:00:06"]
+    conn = conn_with([
+        {"name": f"{i}.jpg", "loc": "review", "taken": t} for i, t in enumerate(times)
+    ])
+    ids = [_unit(conn, f"{i}.jpg")["uid"] for i in range(3)]
+    _group(conn, "mirip-beruntun", ids[0], ids)
+    res = queries.list_groups(conn, "mirip-beruntun", 1)
+    g = res["groups"][0]
+    assert g["summary"] == "3 foto dalam 6 detik"
+    assert g["span_s"] == 6 and g["members"][0]["is_keeper"]
+    assert queries.group_detail(conn, g["id"])["members"][0]["unit_id"] == ids[0]
+    json.dumps(res)
+
+
+def test_grid_sort_by_score_puts_lowest_first(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "review", "category": "burem"},
+        {"name": "b.jpg", "loc": "review", "category": "burem"},
+        {"name": "c.jpg", "loc": "review", "category": "burem"},
+    ])
+    for name, score in (("a.jpg", 40.0), ("b.jpg", 10.0), ("c.jpg", None)):
+        uid = _unit(conn, name)["uid"]
+        conn.execute("update flags set score=? where unit_id=?", (score, uid))
+    conn.commit()
+    res = queries.grid_items(conn, "burem", "score", 0)
+    assert [i["score"] for i in res["items"]] == [10.0, 40.0, None]
+    assert res["total"] == 3
+
+
+def test_unit_detail_has_reason_and_badges(conn_with):
+    conn = conn_with([{"name": "a.jpg", "loc": "review", "category": "burem"}])
+    u = _unit(conn, "a.jpg")
+    conn.execute(
+        "insert into flags(id, unit_id, category, score, reason) values(?,?,?,?,?)",
+        (new_id(), u["uid"], "gelap-terang", 1.0, "gelap"),
+    )
+    conn.commit()
+    d = queries.unit_detail(conn, u["uid"])
+    assert d["flags"][0]["category"] == "burem" and len(d["flags"]) == 2
+    assert d["media"]["kind"] == "photo" and d["media"]["video"] is None
+    assert d["primary"]["size_total"] == 1_000_000
+    assert queries.unit_detail(conn, "nope") is None
+    json.dumps(d)
+
+
+def test_batches_mark_undoable(conn_with):
+    conn = conn_with([{"name": "a.jpg", "loc": "archive"}, {"name": "b.jpg", "loc": "archive"}])
+    a, b = _unit(conn, "a.jpg"), _unit(conn, "b.jpg")
+    for kind, fid, status in (
+        ("rapikan", a["fid"], "done"),
+        ("undo", b["fid"], "done"),
+        ("apply", b["fid"], "undone"),
+    ):
+        bid = new_id()
+        conn.execute(
+            "insert into batches(id, kind, label, created_at) values(?,?,?,?)",
+            (bid, kind, kind, "2024-01-01"),
+        )
+        conn.execute(
+            "insert into moves(id, batch_id, file_id, status) values(?,?,?,?)",
+            (new_id(), bid, fid, status),
+        )
+    conn.commit()
+    got = {x["kind"]: x for x in queries.list_batches(conn)}
+    assert got["rapikan"]["undoable"] and got["rapikan"]["done"] == 1
+    assert not got["undo"]["undoable"]
+    assert not got["apply"]["undoable"] and got["apply"]["undone"] == 1
+    conn.execute("update files set purged=1 where id=?", (a["fid"],))
+    conn.commit()
+    assert not {x["kind"]: x for x in queries.list_batches(conn)}["rapikan"]["undoable"]
