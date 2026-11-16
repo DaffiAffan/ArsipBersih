@@ -12,6 +12,13 @@ from .pathrules import segments_of
 
 CAMERA_DIR_RE = re.compile(r"^\d{3}[A-Z_]{5}$", re.I)
 DATE_DIR_RE = re.compile(r"^\d{4}[-_]?\d{2}([-_]?\d{2})?$")
+YEAR_DIR_RE = re.compile(r"^\d{4}$")
+# Android app folders (Android/media/com.whatsapp/...): three or more lowercase parts, or two
+# parts behind a common reverse-domain prefix, so a dotted event name like "bali.2023" stays.
+PACKAGE_DIR_RE = re.compile(
+    r"^(?:[a-z][a-z0-9_]*(?:\.[a-z0-9_]+){2,}|(?:com|org|net|io|me|app)\.[a-z0-9_]+)$"
+)
+ANDROID_DIRS = frozenset({"android", "media", "data", "obb"})
 
 
 def normalize_event_key(name: str) -> str:
@@ -21,9 +28,14 @@ def normalize_event_key(name: str) -> str:
 def is_generic(segment: str, generic: set[str], not_event: set[str]) -> bool:
     seg = segment.strip()
     key = normalize_event_key(seg)
-    if key in generic or key in not_event:
+    if key in generic or key in not_event or key in ANDROID_DIRS:
         return True
-    return bool(CAMERA_DIR_RE.match(seg) or DATE_DIR_RE.match(seg))
+    return bool(
+        CAMERA_DIR_RE.match(seg)
+        or DATE_DIR_RE.match(seg)
+        or YEAR_DIR_RE.match(seg)
+        or PACKAGE_DIR_RE.match(seg)
+    )
 
 
 def resolve_event(

@@ -13,6 +13,8 @@ G = set(map(str.casefold, DEFAULT_GENERIC_FOLDERS))
     (["Pictures", "Rinjani", "Hari-1", "DCIM"], ("Rinjani", "Hari-1")),
     (["2023-08-12", "Argo"], ("Argo", None)),
     (["WhatsApp", "Media", "WhatsApp Images", "Sent"], (None, None)),
+    (["2023", "Bali"], ("Bali", None)),
+    (["Android", "media", "com.whatsapp", "WhatsApp", "Media", "WhatsApp Images"], (None, None)),
 ])
 def test_resolve_event(segs, expected):
     assert resolve_event(segs, G, set()) == expected
