@@ -55,6 +55,10 @@ from .routes import review as _review_routes  # noqa: E402
 
 ROUTERS.append(_review_routes.router)
 
+from .routes import report as _report_routes  # noqa: E402
+
+ROUTERS.append(_report_routes.router)
+
 
 def create_app(
     root: Path,
