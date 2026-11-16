@@ -45,6 +45,14 @@ class ScanIncomplete(Exception):
     """Raised when tidy is attempted after a scan that did not finish."""
 
 
+class SourceMissing(Exception):
+    """Raised when the collection root has no Sumber/ folder to scan."""
+
+
+def source_missing(root: Path) -> bool:
+    return not (Path(root) / SOURCE_DIR).is_dir()
+
+
 @dataclass
 class Progress:
     stage: str
@@ -96,6 +104,9 @@ def run_scan(
     stop: threading.Event | None = None,
 ) -> ScanSummary:
     root = Path(root)
+    if source_missing(root):
+        # Scanning an empty walk would report "complete" with 0 files.
+        raise SourceMissing(str(root / SOURCE_DIR))
     conn = open_db(root)
     try:
         settings = load_settings(conn)

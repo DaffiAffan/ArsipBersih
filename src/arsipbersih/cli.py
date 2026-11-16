@@ -16,7 +16,7 @@ from .calibrate import suggest_blur_threshold
 from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
-from .layout import REVIEW_DIR
+from .layout import REVIEW_DIR, SOURCE_DIR
 from .lock import RootLocked, acquire_root_lock
 from .mover import (
     InsufficientSpace,
@@ -140,6 +140,13 @@ def scan(
     workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Parallel workers."),
 ) -> None:
     """Scan the collection. Safe to interrupt and run again."""
+    if pipeline.source_missing(root):
+        typer.echo(
+            f"No {SOURCE_DIR}/ folder in {root}. Copy each device into "
+            f"{root / SOURCE_DIR}/<Device>/ and run scan again.",
+            err=True,
+        )
+        raise typer.Exit(1)
     with _root_locked(root):
         _scan(root, workers)
 
