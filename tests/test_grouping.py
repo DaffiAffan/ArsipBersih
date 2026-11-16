@@ -183,3 +183,26 @@ def test_date_only_filename_times_do_not_form_bursts(conn_with):
         "join units u on u.id = m.unit_id join files f on f.id = u.primary_file_id "
         "where g.kind='mirip-beruntun'")}
     assert names == {"IMG_20230812_143022.jpg", "IMG_20230812_143024.jpg"}
+
+
+def test_version_groups_do_not_chain(conn_with):
+    # A~B and B~C are within 6 bits, but A and C are 12 bits apart.
+    conn = conn_with([
+        dict(name="IMG_A.jpg", phash="0000000000000000", w=4000, h=3000, sha="c1"),
+        dict(name="IMG-20230114-WA0001.jpg", phash="000000000000003f", w=1600, h=1200, sha="c2"),
+        dict(name="IMG-20230114-WA0002.jpg", phash="0000000000000fff", w=1600, h=1200, sha="c3"),
+        # Three mutually close copies stay one group.
+        dict(name="IMG_D.jpg", phash="ffffffffffff0000", w=4000, h=3000, sha="d1"),
+        dict(name="IMG-20230114-WA0003.jpg", phash="ffffffffffff0003", w=1600, h=1200, sha="d2"),
+        dict(name="IMG-20230114-WA0004.jpg", phash="ffffffffffff000c", w=1600, h=1200, sha="d3"),
+    ])
+    assert run_grouping(conn, Settings()).version == 2
+    sizes = conn.execute(
+        "select count(*) from group_members m join groups g on g.id = m.group_id "
+        "where g.kind='duplikat-versi' group by g.id order by 1"
+    ).fetchall()
+    assert [r[0] for r in sizes] == [2, 3]
+    keepers = {r[0].rsplit("/", 1)[-1] for r in conn.execute(
+        "select f.rel_path from groups g join units u on u.id = g.suggested_keep_unit_id "
+        "join files f on f.id = u.primary_file_id where g.kind='duplikat-versi'")}
+    assert keepers == {"IMG_A.jpg", "IMG_D.jpg"}
