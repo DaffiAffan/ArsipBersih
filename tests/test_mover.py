@@ -14,7 +14,15 @@ from arsipbersih.mover import (
     execute,
     reconcile,
     remove_empty_dirs,
+    undo_all,
     undo_batch,
+)
+from arsipbersih.decisions import (
+    apply_category,
+    mark_seen,
+    preview_apply,
+    purge_trash,
+    trash_totals,
 )
 from arsipbersih.pairing import build_units
 from arsipbersih.planner import FileMove, UnitMove
@@ -181,3 +189,42 @@ def test_check_space_raises(root, monkeypatch):
     conn = open_db(root); uid, fid = _one_unit(conn, root)
     with pytest.raises(InsufficientSpace):
         check_space(root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", "Arsip/IMG_1.jpg")])])
+
+
+def _review_units(root, category, n):
+    ids = []
+    conn = open_db(root)
+    for i in range(n):
+        uid, fid = new_id(), new_id()
+        rel = f"_review/{category}/HP/IMG_{i}.jpg"
+        p = root / rel
+        os.makedirs(p.parent, exist_ok=True)
+        p.write_bytes(b"x" * 10)
+        conn.execute(
+            "insert into units(id, primary_file_id, location, primary_category, planned_archive_dir)"
+            " values(?,?,?,?,?)", (uid, fid, "review", category, "Arsip/2024/2024-01"))
+        conn.execute(
+            "insert into files(id, unit_id, rel_path, orig_rel_path, size, kind, ext, source_label)"
+            " values(?,?,?,?,?,?,?,?)", (fid, uid, rel, rel, 10, "photo", "jpg", "HP"))
+        ids.append(uid)
+    conn.commit()
+    return conn, tuple(ids)
+
+
+def test_undo_apply_returns_grid_units_unseen_and_undecided(root):
+    conn, ids = _review_units(root, "burem", n=3)
+    mark_seen(conn, list(ids))
+    res = apply_category(conn, root, "burem")
+    undo_batch(conn, root, res.batch_id)
+    p = preview_apply(conn, "burem")
+    assert (p.keep, p.discard, p.unseen) == (0, 0, 3)
+    assert conn.execute("select count(*) from decisions").fetchone()[0] == 0
+
+
+def test_undo_all_skips_purged_files(root):
+    conn, ids = _review_units(root, "burem", n=2)
+    mark_seen(conn, list(ids))
+    apply_category(conn, root, "burem")
+    purge_trash(conn, root, *trash_totals(conn))
+    res = undo_all(conn, root)
+    assert res.batch_id == "" and res.failed_units == 0 and res.errors == []

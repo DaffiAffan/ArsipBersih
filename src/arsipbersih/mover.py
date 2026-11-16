@@ -724,7 +724,8 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
         rows = conn.execute(
             "select m.id, m.file_id, m.src_rel, m.dst_rel, coalesce(f.unit_id, m.unit_id)"
             " from moves m left join files f on f.id = m.file_id"
-            " where m.batch_id=? and m.status='done' order by m.rowid desc",
+            " where m.batch_id=? and m.status='done' and (f.id is null or f.purged = 0)"
+            " order by m.rowid desc",
             (batch_id,),
         ).fetchall()
         by_unit: dict[str | None, list[tuple[str, FileMove]]] = {}
@@ -734,7 +735,31 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
             back_to = _location_of(items[0][1].dst_rel) or ""
             unit_move = UnitMove(unit_id, back_to, [fm for _, fm in items])
             plan.append((unit_move, [row_id for row_id, _ in items]))
-    return _run_batch(conn, _norm(root), "undo", label, plan)
+    result = _run_batch(conn, _norm(root), "undo", label, plan)
+    if result.batch_id:
+        _reset_review_state(conn, result.batch_id)
+    return result
+
+
+def _reset_review_state(conn: sqlite3.Connection, undo_batch_id: str) -> None:
+    """Make units that fully came back to review/source unseen and undecided again.
+
+    Otherwise a restored grid unit keeps seen=1 plus an applied discard decision, and the
+    next apply would trash it again without it ever being shown.
+    """
+    with conn:
+        ids = [
+            r[0]
+            for r in conn.execute(
+                "select m.unit_id from moves m join units u on u.id = m.unit_id"
+                " where m.batch_id=? and u.location in ('review','source')"
+                " group by m.unit_id having sum(m.status != 'done') = 0",
+                (undo_batch_id,),
+            )
+        ]
+        for uid in ids:
+            conn.execute("delete from decisions where unit_id=?", (uid,))
+            conn.execute("update units set seen=0 where id=?", (uid,))
 
 
 def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResult:
@@ -758,7 +783,8 @@ def undo_all(conn: sqlite3.Connection, root: Path) -> BatchResult:
         r[0]
         for r in conn.execute(
             "select b.id from batches b where b.kind in ('rapikan','apply')"
-            " and exists (select 1 from moves m where m.batch_id = b.id and m.status='done')"
+            " and exists (select 1 from moves m where m.batch_id = b.id and m.status='done'"
+            "   and not exists (select 1 from files f where f.id = m.file_id and f.purged = 1))"
             " order by b.rowid desc"
         )
     ]
