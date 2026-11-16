@@ -81,13 +81,13 @@ export function createZoom(panes) {
       };
       const up = () => {
         pane.classList.remove("dragging");
-        pane.removeEventListener("pointermove", move);
-        pane.removeEventListener("pointerup", up);
-        pane.removeEventListener("pointercancel", up);
+        dragAc.abort();
       };
-      pane.addEventListener("pointermove", move);
-      pane.addEventListener("pointerup", up);
-      pane.addEventListener("pointercancel", up);
+      const dragAc = new AbortController();
+      const dopts = { signal: AbortSignal.any([ac.signal, dragAc.signal]) };
+      pane.addEventListener("pointermove", move, dopts);
+      pane.addEventListener("pointerup", up, dopts);
+      pane.addEventListener("pointercancel", up, dopts);
     }, opts);
 
     pane.addEventListener("dblclick", reset, opts);
