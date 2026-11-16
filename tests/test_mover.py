@@ -228,3 +228,65 @@ def test_undo_all_skips_purged_files(root):
     purge_trash(conn, root, *trash_totals(conn))
     res = undo_all(conn, root)
     assert res.batch_id == "" and res.failed_units == 0 and res.errors == []
+
+
+def test_undo_partly_purged_unit_is_not_restored(root):
+    conn, (uid,) = _review_units(root, "burem", n=1)
+    mark_seen(conn, [uid])
+    res = apply_category(conn, root, "burem")
+    fid = conn.execute("select id from files where unit_id=?", (uid,)).fetchone()[0]
+    cur = conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0]
+    rel2 = cur.rsplit("/", 1)[0] + "/IMG_0.xmp"
+    (root / rel2).write_bytes(b"y")
+    f2 = new_id()
+    conn.execute(
+        "insert into files(id, unit_id, rel_path, orig_rel_path, size, kind, ext, source_label)"
+        " values(?,?,?,?,?,?,?,?)", (f2, uid, rel2, rel2, 1, "sidecar", "xmp", "HP"))
+    conn.execute(
+        "insert into moves(id, batch_id, unit_id, file_id, src_rel, dst_rel, status, created_at)"
+        " values(?,?,?,?,?,?,'done','2026-11-15T10:00:00')",
+        (new_id(), res.batch_id, uid, f2, "_review/burem/HP/IMG_0.xmp", rel2))
+    conn.execute("update files set purged=1 where id=?", (fid,))
+    conn.commit()
+    r = undo_batch(conn, root, res.batch_id)
+    assert r.batch_id == "" and any("partly purged" in e for e in r.errors)
+    assert (root / rel2).exists()
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "trash"
+
+
+def test_undo_interrupted_still_resets_restored_units(root, monkeypatch):
+    from arsipbersih import mover
+    conn, ids = _review_units(root, "burem", n=2)
+    mark_seen(conn, list(ids))
+    res = apply_category(conn, root, "burem")
+    real, calls = mover._move_file, []
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return real(src, dst)
+
+    monkeypatch.setattr(mover, "_move_file", flaky)
+    with pytest.raises(KeyboardInterrupt):
+        undo_batch(conn, root, res.batch_id)
+    restored = conn.execute(
+        "select id, seen from units where location='review'").fetchall()
+    assert len(restored) == 1 and restored[0][1] == 0
+    assert conn.execute("select count(*) from decisions where unit_id=?", (restored[0][0],)).fetchone()[0] == 0
+
+
+def test_undo_to_archive_keeps_decision(root):
+    conn, (uid,) = _review_units(root, "burem", n=1)
+    rel = "Arsip/2024/2024-01/IMG_0.jpg"
+    fid = conn.execute("select id from files where unit_id=?", (uid,)).fetchone()[0]
+    os.makedirs(root / "Arsip/2024/2024-01"); os.makedirs(root / "_sampah")
+    shutil.move(root / "_review/burem/HP/IMG_0.jpg", root / rel)
+    conn.execute("update files set rel_path=? where id=?", (rel, fid))
+    conn.execute("update units set location='archive' where id=?", (uid,))
+    conn.execute("insert into decisions(unit_id, decision, applied) values(?, 'discard', 1)", (uid,))
+    conn.commit()
+    r = execute(conn, root, [UnitMove(uid, "trash", [FileMove(fid, rel, "_sampah/IMG_0.jpg")])], "apply", "t")
+    undo_batch(conn, root, r.batch_id)
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
+    assert conn.execute("select count(*) from decisions where unit_id=?", (uid,)).fetchone()[0] == 1

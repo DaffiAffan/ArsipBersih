@@ -369,6 +369,7 @@ def _run_batch(
     kind: str,
     label: str,
     plan: list[tuple[UnitMove, list[str] | None]],
+    after_batch=None,
 ) -> BatchResult:
     plan = [(um, originals) for um, originals in plan if um.files]
     if not plan:
@@ -381,13 +382,17 @@ def _run_batch(
             (batch_id, kind, label, _now()),
         )
     result = BatchResult(batch_id, 0, 0, [])
-    for um, originals in plan:
-        errors = _run_unit(conn, root, batch_id, um, originals)
-        if errors:
-            result.failed_units += 1
-            result.errors.extend(errors)
-        else:
-            result.moved_units += 1
+    try:
+        for um, originals in plan:
+            errors = _run_unit(conn, root, batch_id, um, originals)
+            if errors:
+                result.failed_units += 1
+                result.errors.extend(errors)
+            else:
+                result.moved_units += 1
+    finally:
+        if after_batch is not None:
+            after_batch(batch_id)  # also on Ctrl+C: restored units must not keep stale state
     return result
 
 
@@ -720,24 +725,32 @@ def reconcile_or_refuse(conn: sqlite3.Connection, root: Path, errors: list[str])
 
 def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str) -> BatchResult:
     plan: list[tuple[UnitMove, list[str] | None]] = []
+    notes: list[str] = []
     for batch_id in batch_ids:
         rows = conn.execute(
-            "select m.id, m.file_id, m.src_rel, m.dst_rel, coalesce(f.unit_id, m.unit_id)"
+            "select m.id, m.file_id, m.src_rel, m.dst_rel, coalesce(f.unit_id, m.unit_id),"
+            " coalesce(f.purged, 0)"
             " from moves m left join files f on f.id = m.file_id"
-            " where m.batch_id=? and m.status='done' and (f.id is null or f.purged = 0)"
-            " order by m.rowid desc",
+            " where m.batch_id=? and m.status='done' order by m.rowid desc",
             (batch_id,),
         ).fetchall()
-        by_unit: dict[str | None, list[tuple[str, FileMove]]] = {}
-        for row_id, file_id, src_rel, dst_rel, unit_id in rows:
-            by_unit.setdefault(unit_id, []).append((row_id, FileMove(file_id, dst_rel, src_rel)))
+        by_unit: dict[str | None, list[tuple[str, FileMove, int]]] = {}
+        for row_id, file_id, src_rel, dst_rel, unit_id, purged in rows:
+            by_unit.setdefault(unit_id, []).append((row_id, FileMove(file_id, dst_rel, src_rel), purged))
         for unit_id, items in by_unit.items():
+            purged_n = sum(p for _, _, p in items)
+            if purged_n:
+                if purged_n < len(items):  # a unit never comes back split
+                    notes.append(f"unit {unit_id} partly purged, not restored")
+                continue
             back_to = _location_of(items[0][1].dst_rel) or ""
-            unit_move = UnitMove(unit_id, back_to, [fm for _, fm in items])
-            plan.append((unit_move, [row_id for row_id, _ in items]))
-    result = _run_batch(conn, _norm(root), "undo", label, plan)
-    if result.batch_id:
-        _reset_review_state(conn, result.batch_id)
+            unit_move = UnitMove(unit_id, back_to, [fm for _, fm, _ in items])
+            plan.append((unit_move, [row_id for row_id, _, _ in items]))
+    result = _run_batch(
+        conn, _norm(root), "undo", label, plan,
+        after_batch=lambda bid: _reset_review_state(conn, bid),
+    )
+    result.errors.extend(notes)
     return result
 
 
@@ -784,7 +797,9 @@ def undo_all(conn: sqlite3.Connection, root: Path) -> BatchResult:
         for r in conn.execute(
             "select b.id from batches b where b.kind in ('rapikan','apply')"
             " and exists (select 1 from moves m where m.batch_id = b.id and m.status='done'"
-            "   and not exists (select 1 from files f where f.id = m.file_id and f.purged = 1))"
+            "   and not exists (select 1 from moves m2 join files f2 on f2.id = m2.file_id"
+            "     where m2.batch_id = m.batch_id and m2.unit_id is m.unit_id"
+            "       and m2.status='done' and f2.purged = 1))"
             " order by b.rowid desc"
         )
     ]
