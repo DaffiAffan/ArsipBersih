@@ -11,9 +11,9 @@ from fastapi.templating import Jinja2Templates
 
 from ..db import open_db
 from ..mover import reconcile
-from .deps import render
 from .jobs import JobRunner
 from .messages import UserError, explain
+from .routes import home as home_routes
 from .routes import jobs as jobs_routes
 
 DEFAULT_PORT = 8765
@@ -22,15 +22,7 @@ CSRF_HEADER = "x-arsipbersih"
 
 ROUTERS: list[APIRouter] = []  # later tasks append their routers here
 
-_pages = APIRouter()
-
-
-@_pages.get("/")
-def home(request: Request):
-    return render(request, "placeholder.html", active="beranda", title="Beranda")
-
-
-ROUTERS.append(_pages)
+ROUTERS.append(home_routes.router)
 ROUTERS.append(jobs_routes.router)
 
 
