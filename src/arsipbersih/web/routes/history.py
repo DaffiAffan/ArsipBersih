@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 
 from ... import decisions, repair
 from ...db import open_db
@@ -37,8 +37,8 @@ class ForgetBody(BaseModel):
 
 
 class PurgeBody(BaseModel):
-    expected_files: int
-    expected_bytes: int
+    expected_files: StrictInt = Field(ge=0)
+    expected_bytes: StrictInt = Field(ge=0)
     confirm: str = ""
 
 
@@ -110,7 +110,14 @@ def _forget_job(root: Path, file_id: str):
 
 
 @router.post("/files/forget")
-def forget(body: ForgetBody, request: Request, root: Path = Depends(get_root)):
+def forget(
+    body: ForgetBody,
+    request: Request,
+    root: Path = Depends(get_root),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if conn.execute("select 1 from files where id=?", (body.file_id,)).fetchone() is None:
+        raise UserError("File tidak ditemukan", 404)
     return start_job(request, "forget", "Tandai sengaja dihapus", _forget_job(root, body.file_id))
 
 

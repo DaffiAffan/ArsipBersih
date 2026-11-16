@@ -200,3 +200,17 @@ def test_forget_missing_file(web, root, conn_with):
     st = _finish(web)
     assert st.status == "done" and st.result == {"ok": True}
     assert web.get("/api/history").json()["missing"] == []
+
+
+@pytest.mark.parametrize("bad", [-1, "3", 3.5, None])
+def test_purge_rejects_bad_totals(web, trashed_units, bad):
+    r = web.post("/api/trash/purge", json={"expected_files": bad, "expected_bytes": 30, "confirm": "HAPUS"})
+    assert 400 <= r.status_code < 500
+    r = web.post("/api/trash/purge", json={"expected_files": 3, "expected_bytes": bad, "confirm": "HAPUS"})
+    assert 400 <= r.status_code < 500
+    assert web.get("/api/job").json()["status"] == "idle"
+
+
+def test_forget_unknown_file_is_404(web):
+    r = web.post("/api/files/forget", json={"file_id": "nope"})
+    assert r.status_code == 404 and r.json()["detail"] == "File tidak ditemukan"

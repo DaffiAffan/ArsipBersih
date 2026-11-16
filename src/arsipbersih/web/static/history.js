@@ -38,8 +38,8 @@ async function post(url, body) {
     await api("POST", url, body);
   } catch (e) {
     say(e.message);
+    await reload();
   }
-  await reload();
 }
 
 function fmtTime(s) { return (s || "").replace("T", " ").slice(0, 19); }
@@ -169,12 +169,14 @@ $("undo-all").addEventListener("click", undoAll);
 $("purge-btn").addEventListener("click", purge);
 reload();
 
+let firstPoll = true;
 watchJob((st) => {
+  const initial = firstPoll;
+  firstPoll = false; // idle and running polls count too, so a later finished job is shown
   if (st.status === "running" || st.status === "idle") return;
   const key = `${st.id}:${st.status}`;
   if (key === lastJobKey) return;
-  const first = lastJobKey === null;
   lastJobKey = key;
-  if (!first) showResult(st);
+  if (!initial) showResult(st); // a job already finished before page load has no context here
   reload();
 });
