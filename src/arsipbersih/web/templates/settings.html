@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Pengaturan - ArsipBersih{% endblock %}
+{% block content %}
+<h1>Pengaturan</h1>
+<p class="muted">Perubahan disimpan di folder kerja ini. Sebagian pengaturan baru berlaku setelah pindai ulang.</p>
+<div id="settings-msg" class="muted" role="status"></div>
+<form id="settings-form" class="settings-form" autocomplete="off"></form>
+<div class="settings-actions"><button id="settings-save" class="primary" type="button">Simpan</button></div>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/settings.js"></script>{% endblock %}
