@@ -45,6 +45,14 @@ class ScanIncomplete(Exception):
     """Raised when tidy is attempted after a scan that did not finish."""
 
 
+class SourceMissing(Exception):
+    """Raised when the collection root has no Sumber/ folder to scan."""
+
+
+def source_missing(root: Path) -> bool:
+    return not (Path(root) / SOURCE_DIR).is_dir()
+
+
 @dataclass
 class Progress:
     stage: str
@@ -68,6 +76,9 @@ def _inventory_warnings(inv: InventoryResult) -> list[str]:
     if inv.errors:
         out.append(f"{inv.errors} paths could not be read")
         out.extend(f"unreadable: {p}" for p in inv.error_paths[:MAX_WARNED_PATHS])
+    if inv.missing:
+        out.append(f"{inv.missing} files are gone since the last scan")
+        out.extend(f"gone: {p}" for p in inv.missing_paths[:MAX_WARNED_PATHS])
     if inv.skipped_dirs:
         out.append(f"{inv.skipped_dirs} cache folders skipped")
     if inv.non_media:
@@ -96,6 +107,9 @@ def run_scan(
     stop: threading.Event | None = None,
 ) -> ScanSummary:
     root = Path(root)
+    if source_missing(root):
+        # Scanning an empty walk would report "complete" with 0 files.
+        raise SourceMissing(str(root / SOURCE_DIR))
     conn = open_db(root)
     try:
         settings = load_settings(conn)

@@ -302,3 +302,14 @@ def test_undo_to_archive_keeps_decision(root):
     undo_batch(conn, root, r.batch_id)
     assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
     assert conn.execute("select count(*) from decisions where unit_id=?", (uid,)).fetchone()[0] == 1
+
+
+def test_undo_removes_folders_it_left_empty(root):
+    conn = open_db(root); uid, fid = _one_unit(conn, root)
+    dst = "Arsip/2023/2023-08 Bali/IMG_1.jpg"
+    r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, "Sumber/HP/DCIM/IMG_1.jpg", dst)])], "rapikan", "t")
+    (root / "_review/burem").mkdir(parents=True)
+    undo_batch(conn, root, r.batch_id)
+    assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists()
+    assert (root / "Arsip").is_dir() and not any((root / "Arsip").iterdir())
+    assert (root / "_review").is_dir() and not any((root / "_review").iterdir())

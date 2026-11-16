@@ -4,11 +4,12 @@ import { STAGES, watchJob } from "/static/job.js";
 const $ = (id) => document.getElementById(id);
 let incomplete = false;
 let running = false;
+let hasSource = true;
 
 function setScanButton() {
   const b = $("scan-btn");
   b.textContent = incomplete ? "Lanjutkan scan" : "Mulai scan";
-  b.disabled = running;
+  b.disabled = running || !hasSource;
   $("pause-btn").hidden = !running;
 }
 
@@ -17,7 +18,8 @@ async function load() {
   incomplete = d.scan_incomplete;
   $("scan-info").textContent = d.last_scan_at ? `Scan terakhir selesai: ${d.last_scan_at}`
     : (incomplete ? "Scan terakhir belum selesai." : "Belum pernah di-scan.");
-  if (!d.has_source) $("scan-info").textContent = "Folder Sumber/ tidak ditemukan.";
+  hasSource = d.has_source;
+  if (!hasSource) $("scan-info").textContent = d.source_missing_text;
   $("tools").replaceChildren(...Object.entries(d.tools).map(([k, v]) =>
     el("li", {}, v ? `${k}: ${v}` : [`${k}: belum terpasang. Pasang dengan `, el("code", {}, d.hints[k])])));
   $("by-location").replaceChildren(...Object.entries(d.by_location).map(([k, n]) =>

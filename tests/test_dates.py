@@ -48,3 +48,12 @@ def test_pick_rejects_invalid_and_falls_through():
     assert pick_taken_at("0000:00:00 00:00:00", None, "IMG_20230812_143022.jpg", "Asia/Jakarta", NOW)[1] == "filename"
     assert pick_taken_at("1980:01:01 00:00:00", None, "DSC_1.JPG", "Asia/Jakarta", NOW) == (None, None)
     assert pick_taken_at("2031:01:01 00:00:00", None, "DSC_1.JPG", "Asia/Jakarta", NOW) == (None, None)
+
+
+def test_filename_has_time():
+    from arsipbersih.dates import filename_has_time
+
+    assert filename_has_time("IMG_20230812_143022.jpg")
+    assert filename_has_time("Screenshot_2023-08-12-14-30-22-123_com.whatsapp.jpg")
+    assert not filename_has_time("IMG-20230812-WA0001.jpg")
+    assert not filename_has_time("DSC_0001.jpg")

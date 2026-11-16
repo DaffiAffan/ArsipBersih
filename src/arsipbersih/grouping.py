@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .config import Settings
+from .dates import filename_has_time
 from .db import new_id
 from .pairing import gopro_clip_id
 from .pathrules import has_camera_name, is_chat, is_download, segments_of
@@ -45,6 +46,7 @@ class UnitView:
     duration_s: float | None
     kind: str | None
     sha256: str | None
+    date_source: str | None = None
     file_count: int = 1  # present files of the unit (RAW+JPG, Live Photo, sidecars)
     unit_bytes: int = 0  # their total size
 
@@ -58,7 +60,7 @@ class GroupingResult:
 
 def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
     rows = conn.execute(
-        "select u.id as unit_id, u.location, u.taken_at, f.rel_path, f.orig_rel_path, "
+        "select u.id as unit_id, u.location, u.taken_at, u.date_source, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
         "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
         "c.n as file_count, c.bytes as unit_bytes "
@@ -79,6 +81,7 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
             width=r["width"], height=r["height"], size=r["size"], sharpness=r["sharpness"],
             taken_at=r["taken_at"], phash=r["phash"], frame_phashes=frames,
             duration_s=r["duration_s"], kind=r["kind"], sha256=r["sha256"],
+            date_source=r["date_source"],
             file_count=r["file_count"] or 1, unit_bytes=r["unit_bytes"] or 0,
         ))
     return views
@@ -112,12 +115,13 @@ def choose_keeper_exact(units: list[UnitView]) -> str:
     return min(pool, key=_exact_key).unit_id
 
 
-def choose_keeper_version(units: list[UnitView]) -> str:
-    def key(u: UnitView) -> tuple:
-        return (*_completeness(u), -((u.width or 0) * (u.height or 0)), -(u.size or 0),
-                not (u.make or u.model), *_exact_key(u))
+def _version_key(u: UnitView) -> tuple:
+    return (*_completeness(u), -((u.width or 0) * (u.height or 0)), -(u.size or 0),
+            not (u.make or u.model), *_exact_key(u))
 
-    return min(units, key=key).unit_id
+
+def choose_keeper_version(units: list[UnitView]) -> str:
+    return min(units, key=_version_key).unit_id
 
 
 # ---------------------------------------------------------------- helpers
@@ -170,6 +174,44 @@ def find_close_pairs(hashes: np.ndarray, max_dist: int) -> list[tuple[int, int]]
     return pairs
 
 
+def _complete_linkage(units: list[UnitView], edges: dict[tuple[str, str], int]) -> list[list[UnitView]]:
+    """Split linked units into groups where every pair is itself a close match.
+
+    Plain union-find chains A~B~C into one group even when A and C differ, so one keeper
+    would push many distinct photos to the trash. Seeds are taken in keeper order; a unit
+    joins a seed's group (closest first) only if it is close to every unit already in it.
+    """
+    def dist(a: str, b: str) -> int | None:
+        return edges.get(_edge(a, b))
+
+    uf = _UnionFind()
+    for a, b in edges:
+        uf.union(a, b)
+    by_id = {u.unit_id: u for u in units}
+    out: list[list[UnitView]] = []
+    for comp in uf.groups():
+        left = sorted((by_id[x] for x in comp), key=_version_key)
+        while len(left) > 1:
+            seed, rest = left[0], left[1:]
+            near = sorted(
+                (u for u in rest if dist(seed.unit_id, u.unit_id) is not None),
+                key=lambda u: (dist(seed.unit_id, u.unit_id), _version_key(u)),
+            )
+            group = [seed]
+            for u in near:
+                if all(dist(g.unit_id, u.unit_id) is not None for g in group[1:]):
+                    group.append(u)
+            if len(group) > 1:
+                out.append(group)
+            taken = {u.unit_id for u in group}
+            left = [u for u in rest if u.unit_id not in taken]
+    return out
+
+
+def _edge(a: str, b: str) -> tuple[str, str]:
+    return (a, b) if a < b else (b, a)
+
+
 def _aspect(u: UnitView) -> float | None:
     if not u.width or not u.height:
         return None
@@ -192,7 +234,7 @@ def _photo_version_groups(photos: list[UnitView], max_dist: int) -> list[list[Un
     if len(cand) < 2:
         return []
     hashes = np.array([phash_int(u.phash) for u in cand], dtype=np.uint64)
-    uf = _UnionFind()
+    edges: dict[tuple[str, str], int] = {}
     for i, j in find_close_pairs(hashes, max_dist):
         a, b = cand[i], cand[j]
         if abs(_aspect(a) - _aspect(b)) > ASPECT_TOLERANCE:
@@ -203,9 +245,8 @@ def _photo_version_groups(photos: list[UnitView], max_dist: int) -> list[list[Un
         if (a.source_label == b.source_label and (a.width, a.height) == (b.width, b.height)
                 and a.taken_at and b.taken_at and a.taken_at != b.taken_at):
             continue
-        uf.union(a.unit_id, b.unit_id)
-    by_id = {u.unit_id: u for u in cand}
-    return [[by_id[x] for x in g] for g in uf.groups()]
+        edges[_edge(a.unit_id, b.unit_id)] = hamming(int(hashes[i]), int(hashes[j]))
+    return _complete_linkage(cand, edges)
 
 
 def _video_version_groups(videos: list[UnitView], max_dist: int) -> list[list[UnitView]]:
@@ -216,7 +257,7 @@ def _video_version_groups(videos: list[UnitView], max_dist: int) -> list[list[Un
     cand.sort(key=lambda u: u.duration_s)
     durations = [u.duration_s for u in cand]
     frames = {u.unit_id: [phash_int(f) for f in u.frame_phashes] for u in cand}
-    uf = _UnionFind()
+    edges: dict[tuple[str, str], int] = {}
     for i, a in enumerate(cand):
         hi = bisect.bisect_right(durations, a.duration_s + VIDEO_DURATION_TOLERANCE_S)
         for b in cand[i + 1:hi]:
@@ -226,10 +267,10 @@ def _video_version_groups(videos: list[UnitView], max_dist: int) -> list[list[Un
             cb = gopro_clip_id(posixpath.splitext(b.filename)[0])
             if ca is not None and ca == cb:
                 continue
-            if all(hamming(x, y) <= max_dist for x, y in zip(frames[a.unit_id], frames[b.unit_id])):
-                uf.union(a.unit_id, b.unit_id)
-    by_id = {u.unit_id: u for u in cand}
-    return [[by_id[x] for x in g] for g in uf.groups()]
+            d = [hamming(x, y) for x, y in zip(frames[a.unit_id], frames[b.unit_id])]
+            if all(x <= max_dist for x in d):
+                edges[_edge(a.unit_id, b.unit_id)] = sum(d)
+    return _complete_linkage(cand, edges)
 
 
 def _burst_id(filename: str) -> str | None:
@@ -243,6 +284,11 @@ def _burst_id(filename: str) -> str | None:
     return None
 
 
+def _time_known(u: UnitView) -> bool:
+    """A date-only filename (WhatsApp) stores 00:00:00; such units have no capture time."""
+    return u.date_source != "filename" or filename_has_time(u.filename)
+
+
 def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitView]]:
     from datetime import datetime
 
@@ -251,7 +297,7 @@ def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitV
 
     timed = []
     for u in photos:
-        if u.taken_at and u.phash:
+        if u.taken_at and u.phash and _time_known(u):
             try:
                 timed.append((u.source_label or "", datetime.fromisoformat(u.taken_at), u))
             except ValueError:

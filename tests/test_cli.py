@@ -76,7 +76,10 @@ def test_scan_pauses_on_broken_pool(root, monkeypatch):
 
     monkeypatch.setattr(pipeline, "run_scan", boom)
     res = runner.invoke(app, ["scan", str(root)])
-    assert res.exit_code == 0 and "Paused. Run the same command again to resume." in res.stdout
+    assert res.exit_code == 0 and "Run the same command again to resume." in res.stdout
+    assert "child killed" in res.stdout
+    log = root / ".arsipbersih" / "logs" / "scan-crash.log"
+    assert "BrokenProcessPool: child killed" in log.read_text(encoding="utf-8")
 
 
 def test_calibrate_save_without_data_does_not_save(root):
@@ -88,3 +91,19 @@ def test_calibrate_save_without_data_does_not_save(root):
     conn = open_db(root)
     assert load_settings(conn).blur_threshold is None
     conn.close()
+
+
+def test_scan_refuses_without_sumber(tmp_path):
+    res = runner.invoke(app, ["scan", str(tmp_path)])
+    assert res.exit_code == 1
+    assert "Sumber" in res.output and "Scan complete" not in res.output
+    assert not (tmp_path / ".arsipbersih").exists()
+
+
+def test_run_scan_raises_without_sumber(tmp_path):
+    import pytest
+
+    from arsipbersih.pipeline import SourceMissing
+
+    with pytest.raises(SourceMissing):
+        run_scan(tmp_path)

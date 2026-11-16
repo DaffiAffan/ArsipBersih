@@ -173,9 +173,9 @@ def conn_with(root):
             sha = r.get("sha")
             unit_id, file_id = new_id(), new_id()
             conn.execute(
-                "insert into units(id, primary_file_id, taken_at, location, primary_category) "
-                "values(?, NULL, ?, ?, ?)",
-                (unit_id, r.get("taken"), loc, r.get("category")),
+                "insert into units(id, primary_file_id, taken_at, date_source, location, "
+                "primary_category) values(?, NULL, ?, ?, ?, ?)",
+                (unit_id, r.get("taken"), r.get("date_source"), loc, r.get("category")),
             )
             conn.execute(
                 "insert into files(id, unit_id, rel_path, orig_rel_path, size, mtime_ns, kind, ext, "

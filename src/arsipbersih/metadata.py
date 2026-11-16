@@ -284,7 +284,8 @@ def _restart(et: ExifTool) -> None:
 
 
 def _read_exif(et: ExifTool, paths: list[Path]) -> tuple[list[dict | None], dict[int, str]]:
-    """ExifTool entries for paths, plus {index: error} for files that crashed ExifTool.
+    """ExifTool entries for paths, plus {index: error} for files that crashed ExifTool
+    or got an unreadable (non-JSON) reply.
 
     When the process dies mid-batch the files are not to blame yet: ExifTool is restarted
     once and the batch is read again one file at a time. A file that kills it again is
@@ -295,7 +296,9 @@ def _read_exif(et: ExifTool, paths: list[Path]) -> tuple[list[dict | None], dict
         return et.read(paths), {}
     except ExifToolDied as e:
         log.warning("ExifTool died mid-batch (%s); retrying one file at a time", e)
-    _restart(et)
+        _restart(et)
+    except ValueError as e:  # json.JSONDecodeError: one bad reply must not fail the batch
+        log.warning("ExifTool sent an unreadable reply (%s); retrying one file at a time", e)
     entries: list[dict | None] = []
     crashed: dict[int, str] = {}
     for i, p in enumerate(paths):
@@ -305,6 +308,9 @@ def _read_exif(et: ExifTool, paths: list[Path]) -> tuple[list[dict | None], dict
             _restart(et)  # a failed restart leaves this file unmarked too
             entries.append(None)
             crashed[i] = f"exiftool: crashed on this file ({e})"
+        except ValueError as e:
+            entries.append(None)
+            crashed[i] = f"exiftool: unreadable reply for this file ({e})"[:500]
     return entries, crashed
 
 

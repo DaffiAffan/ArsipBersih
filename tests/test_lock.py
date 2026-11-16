@@ -52,7 +52,9 @@ def test_other_process_is_refused_until_release(root):
     assert _child_exit_code(root) == 0
 
 
-@pytest.mark.parametrize("args", [["tidy", "--yes"], ["scan"], ["undo", "--all"]])
+@pytest.mark.parametrize("args", [
+    ["tidy", "--yes"], ["scan"], ["undo", "--all"], ["events"], ["calibrate", "--save"],
+])
 def test_cli_refuses_while_locked(root, args):
     with acquire_root_lock(root):
         res = runner.invoke(app, [args[0], str(root), *args[1:]])
@@ -65,3 +67,9 @@ def test_cli_releases_lock_after_command(root):
     res = runner.invoke(app, ["undo", str(root), "--all"])
     assert LOCKED not in res.output
     acquire_root_lock(root).release()
+
+
+def test_calibrate_without_save_runs_while_locked(root):
+    with acquire_root_lock(root):
+        res = runner.invoke(app, ["calibrate", str(root)])
+    assert res.exit_code == 0 and LOCKED not in res.output

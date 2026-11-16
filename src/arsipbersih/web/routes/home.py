@@ -13,7 +13,7 @@ from ...cli import WINGET_HINTS
 from ...db import open_db
 from ...layout import SOURCE_DIR
 from ...lock import RootLocked, acquire_root_lock
-from ...pipeline import SCAN_DONE_KEY, run_scan
+from ...pipeline import SCAN_DONE_KEY, run_scan, source_missing
 from ...tools import check_tools
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import RECONCILE_LABEL, JobBusy, reconcile_job
@@ -23,6 +23,10 @@ from ..queries import category_counts
 router = APIRouter()
 
 ROOT_LOCKED_TEXT = "Koleksi ini sedang dipakai proses ArsipBersih lain."
+SOURCE_MISSING_TEXT = (
+    "Folder Sumber/ tidak ditemukan. Salin isi tiap perangkat ke Sumber/<Nama-Perangkat>/, "
+    "lalu mulai scan lagi."
+)
 
 TOOL_HINTS = {
     "exiftool": WINGET_HINTS["ExifTool"],
@@ -52,7 +56,8 @@ def home_data(request: Request, conn=Depends(get_conn)):
     warnings = list(st.result.get("warnings", [])) if st.kind == "scan" and st.result else []
     return {
         "root": str(root),
-        "has_source": (root / SOURCE_DIR).is_dir(),
+        "has_source": not source_missing(root),
+        "source_missing_text": SOURCE_MISSING_TEXT,
         "tools": {"exiftool": t.exiftool, "ffmpeg": t.ffmpeg, "ffprobe": t.ffprobe},
         "hints": TOOL_HINTS,
         "last_scan_at": last,
@@ -115,6 +120,8 @@ def switch_root(request: Request, body: RootBody):
 @router.post("/api/scan")
 def start_scan(request: Request):
     root = get_root(request)
+    if source_missing(root):
+        raise UserError(SOURCE_MISSING_TEXT, status=400)
 
     def fn(report, stop):
         s = run_scan(root, progress=report, stop=stop)

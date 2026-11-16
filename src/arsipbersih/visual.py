@@ -27,6 +27,12 @@ from .tools import NO_CONSOLE_FLAGS, find_tool
 
 pillow_heif.register_heif_opener()
 
+# Pillow refuses to open anything above ~179 MP (DecompressionBombError), before a JPEG can be
+# drafted down. Its check is switched off; _load_rgb applies MAX_DECODE_PIXELS itself to the
+# size that would actually be decoded.
+Image.MAX_IMAGE_PIXELS = None
+MAX_DECODE_PIXELS = 2 * 89_478_485  # Pillow's own error limit
+
 CHUNK_SIZE = 100
 WEBP_QUALITY = 80
 VIDEO_FRAME_FRACTIONS = (0.1, 0.5, 0.9)
@@ -52,6 +58,10 @@ class VisualResult:
 
 class NoRawThumbnail(ValueError):
     """The RAW has no usable embedded preview; that says nothing about the RAW data."""
+
+
+class TooLargeToDecode(ValueError):
+    """Too many pixels to decode safely on this machine; that says nothing about the file."""
 
 
 # --- hashing and scoring -------------------------------------------------------------------
@@ -116,6 +126,10 @@ def _load_rgb(path: Path, kind: Kind, max_px: int) -> Image.Image:
         img = Image.open(long_path(path))
         if img.format == "JPEG":
             img.draft("RGB", (max_px, max_px))
+        w, h = img.size
+        if w * h > MAX_DECODE_PIXELS:
+            img.close()
+            raise TooLargeToDecode(f"{w}x{h} is too large to analyse")
         img.load()
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
@@ -159,7 +173,9 @@ def _is_transient(e: BaseException) -> bool:
 
 
 def _failure(e: BaseException) -> VisualResult:
-    if _is_transient(e):
+    if isinstance(e, TooLargeToDecode):
+        return VisualResult(decode_ok=None, error=_error_text(e))  # unknown, not rusak
+    if isinstance(e, MemoryError) or _is_transient(e):  # may pass with fewer workers busy
         return VisualResult(decode_ok=None, error=_error_text(e), retry=True)
     return VisualResult(decode_ok=False, error=_error_text(e))
 
@@ -411,10 +427,16 @@ def run_visual(
                 if stop is not None and stop.is_set():
                     return done
                 chunk = jobs[start : start + CHUNK_SIZE]
-                futures = [(job[0], pool.submit(_worker, job)) for job in chunk]
+                futures = []
+                for job in chunk:
+                    try:
+                        futures.append(pool.submit(_worker, job))
+                    except BrokenProcessPool:
+                        break  # a worker died while the chunk was queued: rest goes isolated
                 results: dict[str, VisualResult] = {}
-                unfinished: list[tuple] = []
-                for job, (fid, fut) in zip(chunk, futures):
+                unfinished: list[tuple] = list(chunk[len(futures):])
+                for job, fut in zip(chunk, futures):
+                    fid = job[0]
                     try:
                         _, results[fid] = fut.result()
                     except BrokenProcessPool:

@@ -131,3 +131,14 @@ def test_job_refused_when_root_switched_mid_request(web, tmp_path):
         start_job(req, "x", "X", lambda report, stop: None)
     assert str(ei.value) == ROOT_CHANGED_TEXT
     assert not web.app_ref.state.jobs.busy()
+
+
+def test_scan_refused_without_sumber(web, monkeypatch):
+    called = {}
+    monkeypatch.setattr("arsipbersih.web.routes.home.run_scan", _fake(called))
+    (web.app_ref.state.root / "Sumber").rmdir()
+    r = web.post("/api/scan")
+    assert r.status_code == 400 and "Sumber" in r.json()["detail"]
+    assert called == {}
+    d = web.get("/api/home").json()
+    assert d["has_source"] is False and "Sumber" in d["source_missing_text"]
