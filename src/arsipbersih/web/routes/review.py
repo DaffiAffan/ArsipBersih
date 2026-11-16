@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 
 from ... import decisions
 from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES
@@ -15,7 +15,7 @@ from ...db import open_db
 from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import batch_result_dict
-from ..messages import UserError
+from ..messages import APPLY_MISMATCH_TEXT, UserError
 
 router = APIRouter(prefix="/api/review")
 
@@ -29,6 +29,15 @@ class DecisionBody(BaseModel):
 
 class SeenBody(BaseModel):
     unit_ids: list[str]
+
+
+class ApplyBody(BaseModel):
+    keep: StrictInt = Field(ge=0)
+    discard: StrictInt = Field(ge=0)
+
+
+class ApplyMismatch(Exception):
+    """The counts changed between the owner's confirmation and the apply job."""
 
 
 class AcceptBody(BaseModel):
@@ -137,10 +146,13 @@ def apply_preview(category: str, conn: sqlite3.Connection = Depends(get_conn)):
     return {"keep": p.keep, "discard": p.discard, "unseen": p.unseen, "text": text}
 
 
-def _apply_job(root: Path, category: str):
+def _apply_job(root: Path, category: str, keep: int, discard: int):
     def run(report, stop):
         conn = open_db(root)  # sqlite connections are thread-bound
         try:
+            p = decisions.preview_apply(conn, category)
+            if (p.keep, p.discard) != (keep, discard):
+                raise ApplyMismatch(category)
             return batch_result_dict(decisions.apply_category(conn, root, category))
         finally:
             conn.close()
@@ -151,15 +163,19 @@ def _apply_job(root: Path, category: str):
 @router.post("/apply/{category}")
 def apply(
     category: str,
+    body: ApplyBody,
     request: Request,
     conn: sqlite3.Connection = Depends(get_conn),
     root: Path = Depends(get_root),
 ):
     _any_category(category)
     p = decisions.preview_apply(conn, category)
+    if (p.keep, p.discard) != (body.keep, body.discard):
+        raise UserError(APPLY_MISMATCH_TEXT, 409)
     if p.keep + p.discard == 0:
         raise UserError("Belum ada keputusan untuk diterapkan", 400)
-    return start_job(request, "apply", f"Terapkan {category}", _apply_job(root, category))
+    job = _apply_job(root, category, body.keep, body.discard)
+    return start_job(request, "apply", f"Terapkan {category}", job)
 
 # --- pages ---------------------------------------------------------------------------------
 
