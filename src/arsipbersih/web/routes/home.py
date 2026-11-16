@@ -68,7 +68,7 @@ def switch_root(request: Request, body: RootBody):
     raw = body.path.strip()
     new = Path(raw).expanduser() if raw else None
     if new is None or not new.is_absolute():
-        raise UserError("Masukkan path folder lengkap, misalnya D:\Foto.", status=400)
+        raise UserError("Masukkan path folder lengkap, misalnya D:\\Foto.", status=400)
     new = new.resolve()
     if not (new.is_dir() and (new / SOURCE_DIR).is_dir()):
         raise UserError("Folder ini tidak berisi Sumber/", status=400)
