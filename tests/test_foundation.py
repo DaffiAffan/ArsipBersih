@@ -94,3 +94,18 @@ def test_tool_markers_skip_when_binary_missing(monkeypatch):
     conftest.pytest_collection_modifyitems(None, [ffmpeg_item, exif_item, plain])
     assert [m.name for m in ffmpeg_item.added] == ["skip"]
     assert exif_item.added == [] and plain.added == []
+
+
+def test_open_db_does_not_wait_for_an_active_writer(root):
+    import time
+
+    a = open_db(root)
+    a.execute("begin immediate")
+    a.execute("insert into settings(key, value) values ('probe', '1')")
+    t0 = time.monotonic()
+    b = open_db(root)
+    b.execute("select count(*) from settings").fetchone()
+    assert time.monotonic() - t0 < 1.0
+    b.close()
+    a.rollback()
+    a.close()
