@@ -26,9 +26,7 @@ class OverrideBody(BaseModel):
     value: str | None = None
 
 
-def _payload(conn: sqlite3.Connection, root: Path) -> dict:
-    events = run_events(conn, load_settings(conn))
-    conn.commit()
+def _payload(conn: sqlite3.Connection, root: Path, events) -> dict:
     return {"summary": asdict(summarize_rapikan(conn, root)), "events": [asdict(e) for e in events]}
 
 
@@ -39,7 +37,9 @@ def plan_page(request: Request):
 
 @router.get("/api/plan")
 def get_plan(conn: sqlite3.Connection = Depends(get_conn), root: Path = Depends(get_root)):
-    return _payload(conn, root)
+    # GET stays read-only: events are resolved in memory; overrides and scan persist them.
+    events = run_events(conn, load_settings(conn), persist=False)
+    return _payload(conn, root, events)
 
 
 @router.post("/api/events/override")
@@ -57,10 +57,10 @@ def post_override(
     if body.kind in ("rename", "merge") and value is None:
         raise UserError("Nilai tujuan wajib diisi untuk ganti nama atau gabung.", status=400)
     add_override(conn, body.kind, name, value if body.kind != "not_event" else None)
-    run_events(conn, load_settings(conn))
+    events = run_events(conn, load_settings(conn))
     compute_plans(conn)
     conn.commit()
-    return _payload(conn, root)
+    return _payload(conn, root, events)
 
 
 @router.post("/api/tidy")

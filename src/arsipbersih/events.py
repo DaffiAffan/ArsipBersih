@@ -76,7 +76,9 @@ def add_override(conn, kind: str, name: str, value: str | None = None) -> None:
         )
 
 
-def run_events(conn, settings: Settings) -> list[EventSummary]:
+def run_events(conn, settings: Settings, *, persist: bool = True) -> list[EventSummary]:
+    """Resolve events for every unit. With persist=False nothing is written (read-only
+    preview, e.g. GET /api/plan); the returned summaries are the same either way."""
     generic = {normalize_event_key(g) for g in settings.generic_folders}
     not_event: set[str] = set()
     merges: dict[str, str] = {}
@@ -139,10 +141,11 @@ def run_events(conn, settings: Settings) -> list[EventSummary]:
         if r["source_label"]:
             g["sources"].add(r["source_label"])
 
-    with conn:
-        conn.executemany(
-            "update units set event_key=?, event_name=?, event_subpath=? where id=?", updates
-        )
+    if persist:
+        with conn:
+            conn.executemany(
+                "update units set event_key=?, event_name=?, event_subpath=? where id=?", updates
+            )
 
     return [
         EventSummary(

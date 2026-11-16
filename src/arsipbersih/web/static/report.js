@@ -60,7 +60,9 @@ watchJob((st) => {
   } else if (st.status === "done" && st.result) {
     if (st.kind === "verify") showVerify(st.result);
     else {
-      document.getElementById("cache-result").replaceChildren(el("p", {}, `Cache dihapus: ${fmtBytes(st.result.removed_bytes)}`));
+      const skipped = st.result.skipped || 0;
+      const note = skipped ? ` · ${skipped} file sedang dipakai dan dilewati` : "";
+      document.getElementById("cache-result").replaceChildren(el("p", {}, `Cache dihapus: ${fmtBytes(st.result.removed_bytes)}${note}`));
       load().catch(() => {});
     }
   }
