@@ -9,6 +9,7 @@ from pathlib import Path
 from .layout import STATE_DIR, long_path
 
 SCHEMA_VERSION = 1
+BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
 create table if not exists units (
@@ -135,14 +136,20 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
-def open_db(root: Path) -> sqlite3.Connection:
+def open_db(root: Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
     state = Path(root) / STATE_DIR
     state.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(long_path(state / "arsip.db"))
+    conn = sqlite3.connect(long_path(state / "arsip.db"), timeout=BUSY_TIMEOUT_MS / 1000,
+        check_same_thread=check_same_thread,
+    )
     conn.row_factory = sqlite3.Row
-    conn.execute("pragma journal_mode=wal")
+    conn.execute(f"pragma busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("pragma foreign_keys=on")
-    conn.executescript(SCHEMA)
-    conn.execute(f"pragma user_version={SCHEMA_VERSION}")
-    conn.commit()
+    # Only touch the file (write lock) when the schema is missing or outdated, so opening
+    # a connection never stalls behind a long writer such as a scan batch.
+    if conn.execute("pragma user_version").fetchone()[0] != SCHEMA_VERSION:
+        conn.execute("pragma journal_mode=wal")
+        conn.executescript(SCHEMA)
+        conn.execute(f"pragma user_version={SCHEMA_VERSION}")
+        conn.commit()
     return conn

@@ -1,11 +1,11 @@
 """Command-line interface: scan, review the plan, tidy, undo, report."""
 
-import os
 import signal
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures.process import BrokenProcessPool
-from collections import Counter
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -16,20 +16,20 @@ from .calibrate import suggest_blur_threshold
 from .config import load_settings, save_settings
 from .db import open_db
 from .events import EventSummary, add_override, run_events
-from .layout import REVIEW_DIR, long_path, to_abs
+from .layout import REVIEW_DIR
+from .lock import RootLocked, acquire_root_lock
 from .mover import (
     InsufficientSpace,
     NotUndoable,
     PendingMoves,
     UnknownBatch,
-    check_space,
     reconcile_or_refuse,
     undo_all,
     undo_batch,
 )
 from . import pipeline
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
-from .planner import compute_plans, plan_rapikan
+from .planner import compute_plans
 from .report import build_report, verify
 from .tools import check_tools
 
@@ -45,6 +45,26 @@ WINGET_HINTS = {
     "ffmpeg": "winget install Gyan.FFmpeg",
     "ffprobe": "winget install Gyan.FFmpeg",
 }
+
+
+LOCKED = (
+    "Another ArsipBersih process is using this collection (scan/tidy/undo or serve). "
+    "Close it first."
+)
+
+
+@contextmanager
+def _root_locked(root: Path) -> Iterator[None]:
+    """Hold the collection lock for a command that can move files or reconcile the journal."""
+    try:
+        lock = acquire_root_lock(root)
+    except RootLocked:
+        typer.echo(LOCKED, err=True)
+        raise typer.Exit(1)
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _root_arg() -> Path:
@@ -87,37 +107,17 @@ def _scan_done(conn) -> bool:
 
 
 def _plan_summary(conn, root: Path) -> None:
-    skipped: list[tuple[str, str]] = []
-    moves = plan_rapikan(conn, root, skipped)
-    archive_units = archive_bytes = 0
-    review: Counter = Counter()
-    review_bytes: Counter = Counter()
-    for um in moves:
-        size = 0
-        for fm in um.files:
-            try:
-                size += os.stat(long_path(to_abs(root, fm.src_rel))).st_size
-            except OSError:
-                pass
-        if um.to_location == "archive":
-            archive_units += 1
-            archive_bytes += size
-        else:
-            parts = um.files[0].dst_rel.replace("\\", "/").split("/") if um.files else []
-            cat = parts[1] if len(parts) > 1 and parts[0] == REVIEW_DIR else "other"
-            review[cat] += 1
-            review_bytes[cat] += size
-    typer.echo(f"To Arsip: {archive_units} units, {human_bytes(archive_bytes)}")
-    for cat in sorted(review):
-        typer.echo(f"To {REVIEW_DIR}/{cat}: {review[cat]} units, {human_bytes(review_bytes[cat])}")
-    typer.echo(f"Skipped units: {len(skipped)}")
-    for unit_id, reason in skipped:
+    summary = pipeline.summarize_rapikan(conn, root)
+    typer.echo(f"To Arsip: {summary.archive_units} units, {human_bytes(summary.archive_bytes)}")
+    for cat, (units, size) in summary.review.items():
+        typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
+    typer.echo(f"Skipped units: {len(summary.skipped)}")
+    for unit_id, reason in summary.skipped:
         typer.echo(f"  skipped {unit_id}: {reason}")
-    try:
-        check_space(root, moves)
+    if summary.space_ok:
         typer.echo("Free space: OK")
-    except InsufficientSpace as e:
-        typer.echo(f"Free space: NOT ENOUGH ({e})")
+    else:
+        typer.echo(f"Free space: NOT ENOUGH ({summary.space_error})")
 
 
 @app.command("check-tools")
@@ -140,6 +140,11 @@ def scan(
     workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Parallel workers."),
 ) -> None:
     """Scan the collection. Safe to interrupt and run again."""
+    with _root_locked(root):
+        _scan(root, workers)
+
+
+def _scan(root: Path, workers: Optional[int]) -> None:
     if workers is not None:
         conn = open_db(root)
         try:
@@ -245,6 +250,11 @@ def tidy(
     yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation."),
 ) -> None:
     """Move everything from Sumber/ into Arsip/ and _review/."""
+    with _root_locked(root):
+        _tidy(root, yes)
+
+
+def _tidy(root: Path, yes: bool) -> None:
     conn = open_db(root)
     try:
         if not _scan_done(conn):
@@ -289,6 +299,11 @@ def undo(
     if bool(batch) == all_:
         typer.echo("Error: give exactly one of --batch ID or --all.", err=True)
         raise typer.Exit(2)
+    with _root_locked(root):
+        _undo(root, batch, all_)
+
+
+def _undo(root: Path, batch: Optional[str], all_: bool) -> None:
     conn = open_db(root)
     journal_errors: list[str] = []
     try:
@@ -364,6 +379,37 @@ def calibrate(
             typer.echo("Run again with --save to store it.")
     finally:
         conn.close()
+
+
+@app.command()
+def serve(
+    root: Path = _root_arg(),
+    port: int = typer.Option(8765, help="Local port (127.0.0.1 only)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not open the browser."),
+) -> None:
+    """Start the local review UI."""
+    import webbrowser
+
+    import uvicorn
+
+    from .web.app import create_app
+
+    # Lock before create_app so its startup reconcile never races another process.
+    try:
+        lock = acquire_root_lock(root)
+    except RootLocked:
+        typer.echo(LOCKED, err=True)
+        raise typer.Exit(1)
+    web_app = None
+    try:
+        web_app = create_app(root, port=port, root_lock=lock)
+        if not no_browser:
+            threading.Timer(1.0, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
+        uvicorn.run(web_app, host="127.0.0.1", port=port)
+    finally:
+        lock.release()  # no-op if a root switch already released it
+        if web_app is not None and web_app.state.root_lock is not None:
+            web_app.state.root_lock.release()  # the lock of the root switched to
 
 
 if __name__ == "__main__":

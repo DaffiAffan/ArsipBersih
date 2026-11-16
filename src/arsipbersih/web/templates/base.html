@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ArsipBersih{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">ArsipBersih</div>
+    <nav>
+      {% for key, href, label in [
+        ("beranda", "/", "Beranda"),
+        ("rencana", "/rencana", "Rencana Rapikan"),
+        ("review", "/review", "Review"),
+        ("riwayat", "/riwayat", "Riwayat"),
+        ("pengaturan", "/pengaturan", "Pengaturan"),
+        ("laporan", "/laporan", "Laporan")] %}
+      <a href="{{ href }}"{% if active == key %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <span class="root-label">Folder kerja</span>
+      <code class="root-path">{{ root }}</code>
+    </header>
+    <div id="job-status" class="job-status" hidden></div>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script type="module">
+    import { mountJobBar } from "/static/job.js";
+    mountJobBar(document.getElementById("job-status"));
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -66,3 +66,23 @@ def test_scan_survives_corrupt_files(root, mini_collection):
 def test_suggest_blur_threshold(conn_with):
     conn = conn_with([dict(name=f"IMG_{i}.jpg", make="x", sharp=float(i)) for i in range(1, 101)])
     assert 4.0 <= suggest_blur_threshold(conn, sample=100) <= 7.0
+
+
+def test_summarize_rapikan_matches_plan(root, conn_with):
+    from arsipbersih.pipeline import summarize_rapikan
+    from arsipbersih.planner import compute_plans
+
+    conn_with([
+        dict(name="IMG_1.jpg", path="Sumber/HP/DCIM", taken="2023-06-01T10:00:00"),
+        dict(name="IMG_2.jpg", path="Sumber/HP/DCIM", taken="2023-06-02T10:00:00", category="burem"),
+    ])
+    conn = open_db(root)
+    for n in ("IMG_1.jpg", "IMG_2.jpg"):
+        (root / "Sumber/HP/DCIM").mkdir(parents=True, exist_ok=True)
+        (root / "Sumber/HP/DCIM" / n).write_bytes(b"x" * 1_000_000)
+    compute_plans(conn)
+    s = summarize_rapikan(conn, root)
+    assert s.archive_units == 1
+    assert s.review == {"burem": (1, 1_000_000)}
+    assert s.skipped == [] and s.space_ok and not s.scan_done
+    conn.close()

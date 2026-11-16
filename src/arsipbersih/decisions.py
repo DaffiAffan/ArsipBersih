@@ -71,7 +71,9 @@ def mark_seen(conn: sqlite3.Connection, unit_ids: list[str]) -> None:
 
 
 def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
-    """Keeper -> keep, every other member -> discard. Returns decisions recorded."""
+    """Keeper -> keep, every other member -> discard, but only for units without an
+    unapplied decision: an explicit choice the owner made and has not applied yet always
+    wins over the suggestion. Returns the number of decisions actually recorded."""
     n = 0
     for gid in group_ids:
         g = conn.execute(
@@ -84,12 +86,18 @@ def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
             r[0]
             for r in conn.execute("select unit_id from group_members where group_id=?", (gid,))
         ]
-        record(conn, keeper, "keep")
-        n += 1
+        wanted = {keeper: "keep"}
         for uid in members:
             if uid != keeper:
-                record(conn, uid, "discard")
-                n += 1
+                wanted[uid] = "discard"
+        for uid, decision in wanted.items():
+            pending = conn.execute(
+                "select 1 from decisions where unit_id=? and applied=0", (uid,)
+            ).fetchone()
+            if pending is not None:
+                continue
+            record(conn, uid, decision)
+            n += 1
     return n
 
 
@@ -199,6 +207,10 @@ def trash_totals(conn: sqlite3.Connection) -> tuple[int, int]:
     return int(row[0]), int(row[1])
 
 
+class _SizeChanged(Exception):
+    pass
+
+
 def _delete(path: Path) -> None:
     p = long_path(path)
     try:
@@ -237,7 +249,7 @@ def purge_trash(
         raise PurgeMismatch(f"trash holds {totals}, expected {(expected_files, expected_bytes)}")
     root = Path(os.path.abspath(root))
     rows = conn.execute(
-        "select f.id, f.unit_id, f.rel_path from files f join units u on u.id=f.unit_id"
+        "select f.id, f.unit_id, f.rel_path, f.size from files f join units u on u.id=f.unit_id"
         " where u.location='trash' and f.purged=0 and f.missing=0"
         f" and substr(f.rel_path,1,{_TRASH_PREFIX_LEN})='{_TRASH_PREFIX}' order by f.rowid"
     ).fetchall()
@@ -252,12 +264,18 @@ def purge_trash(
             (batch_id, _now()),
         )
     deleted = 0
-    for file_id, unit_id, rel in rows:
+    for file_id, unit_id, rel, size in rows:
         try:
             if not rel.startswith(TRASH_DIR + "/"):
                 raise ValueError(f"not in {TRASH_DIR}: {rel!r}")
             target = _abs(root, rel)
             try:
+                if size is not None:
+                    on_disk = os.stat(long_path(target)).st_size
+                    if on_disk != size:
+                        raise _SizeChanged(
+                            f"size on disk {on_disk} differs from recorded {size}, not deleted"
+                        )
                 _delete(target)
             except FileNotFoundError:
                 # Already gone (crash after unlink, or emptied by hand): settle the row, but
@@ -266,6 +284,11 @@ def purge_trash(
                     raise
         except Exception as e:  # noqa: BLE001 - reported; the file stays unpurged
             log.warning("could not purge %s: %s: %s", rel, type(e).__name__, e)
+            if errors is not None:
+                if isinstance(e, _SizeChanged):
+                    errors.append(f"{rel}: {e}")
+                else:
+                    errors.append(f"{rel}: {type(e).__name__}: {e}")
             continue
         with conn:
             conn.execute(

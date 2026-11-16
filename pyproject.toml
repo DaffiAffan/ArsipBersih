@@ -11,13 +11,19 @@ dependencies = [
     "numpy>=2.0",
     "tzdata",
     "typer",
+    "fastapi>=0.163.1",
+    "uvicorn>=0.54.0",
+    "jinja2>=3.1.6",
 ]
 
 [project.scripts]
 arsipbersih = "arsipbersih.cli:app"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest",
+]
 
 [build-system]
 requires = ["hatchling"]

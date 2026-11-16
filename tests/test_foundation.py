@@ -17,6 +17,34 @@ def test_open_db_creates_schema_and_wal(root):
     open_db(root)  # idempotent
 
 
+def test_open_db_waits_for_a_busy_writer(root):
+    import threading, time
+    from arsipbersih.db import open_db
+    # sqlite3 connections are thread-bound, so the writer connection is
+    # created and committed inside its own thread.
+    b = open_db(root)
+    assert b.execute("pragma busy_timeout").fetchone()[0] == 30000
+    locked = threading.Event()
+
+    def hold_write_lock():
+        a = open_db(root)
+        a.execute("begin immediate")
+        a.execute("insert into settings(key, value) values('x', '1')")
+        locked.set()
+        time.sleep(0.5)
+        a.commit()
+        a.close()
+
+    writer = threading.Thread(target=hold_write_lock)
+    writer.start()
+    assert locked.wait(5)
+    t0 = time.monotonic()
+    with b:
+        b.execute("insert into settings(key, value) values('y', '2')")  # waits, no "database is locked"
+    assert time.monotonic() - t0 >= 0.4
+    writer.join()
+
+
 def test_new_id_is_uuid4():
     assert uuid.UUID(new_id()).version == 4
 
@@ -66,3 +94,18 @@ def test_tool_markers_skip_when_binary_missing(monkeypatch):
     conftest.pytest_collection_modifyitems(None, [ffmpeg_item, exif_item, plain])
     assert [m.name for m in ffmpeg_item.added] == ["skip"]
     assert exif_item.added == [] and plain.added == []
+
+
+def test_open_db_does_not_wait_for_an_active_writer(root):
+    import time
+
+    a = open_db(root)
+    a.execute("begin immediate")
+    a.execute("insert into settings(key, value) values ('probe', '1')")
+    t0 = time.monotonic()
+    b = open_db(root)
+    b.execute("select count(*) from settings").fetchone()
+    assert time.monotonic() - t0 < 1.0
+    b.close()
+    a.rollback()
+    a.close()

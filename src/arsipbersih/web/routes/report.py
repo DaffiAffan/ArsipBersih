@@ -1,0 +1,94 @@
+"""Report page: totals, verification job and cache cleanup."""
+
+from __future__ import annotations
+
+import shutil
+import sqlite3
+from dataclasses import asdict
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, Request
+
+from ...db import open_db
+from ...layout import STATE_DIR
+from ...report import _dir_bytes, build_report, verify
+from ..deps import get_conn, get_root, render, start_job
+
+router = APIRouter()
+
+VERIFY_LIST_LIMIT = 200
+
+
+@router.get("/laporan")
+def page(request: Request):
+    return render(request, "report.html", active="laporan", title="Laporan")
+
+
+@router.get("/api/report")
+def report(conn: sqlite3.Connection = Depends(get_conn), root: Path = Depends(get_root)):
+    return asdict(build_report(conn, root))
+
+
+def verify_result_dict(result) -> dict:
+    d = asdict(result)
+    d["missing_total"] = len(result.missing)
+    d["unexpected_total"] = len(result.unexpected)
+    d["missing"] = result.missing[:VERIFY_LIST_LIMIT]
+    d["unexpected"] = result.unexpected[:VERIFY_LIST_LIMIT]
+    return d
+
+
+def _verify_job(root: Path):
+    def run(report_cb, stop):
+        conn = open_db(root)
+        try:
+            return verify_result_dict(verify(conn, root))
+        finally:
+            conn.close()
+
+    return run
+
+
+def clear_cache(root: Path) -> dict:
+    state = Path(root) / STATE_DIR
+    target = state / "cache"
+    if not target.exists() and not target.is_symlink() and not target.is_junction():
+        return {"removed_bytes": 0, "skipped": 0}
+    for p in (state, target):
+        if p.is_symlink() or p.is_junction():
+            raise RuntimeError("Folder cache atau folder status adalah tautan, tidak ada yang dihapus")
+    if not target.is_dir() or target.resolve() != state.resolve() / "cache":
+        raise RuntimeError("Folder cache tidak valid, tidak ada yang dihapus")
+    size = _dir_bytes(target)
+
+    def skip(function, path, exc) -> None:
+        pass  # e.g. a thumbnail Windows still has open: leave it, the rest is removed
+
+    shutil.rmtree(target, onexc=skip)
+    left = [p for p in target.rglob("*") if p.is_file()] if target.exists() else []
+    target.mkdir(exist_ok=True)
+    return {"removed_bytes": max(0, size - sum(_size(p) for p in left)), "skipped": len(left)}
+
+
+def _size(p: Path) -> int:
+    try:
+        return p.stat().st_size
+    except OSError:
+        return 0
+
+
+def _cache_job(root: Path):
+    def run(report_cb, stop):
+        return clear_cache(root)
+
+    return run
+
+
+@router.post("/api/report/verify")
+def start_verify(request: Request, root: Path = Depends(get_root)):
+    return start_job(request, "verify", "Verifikasi", _verify_job(root))
+
+
+@router.post("/api/cache/clear")
+def start_clear_cache(request: Request, root: Path = Depends(get_root)):
+    return start_job(request, "cache", "Hapus cache", _cache_job(root))
