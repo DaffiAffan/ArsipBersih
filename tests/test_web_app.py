@@ -30,3 +30,9 @@ def test_static_files_are_local(web):
 def test_explain_maps_known_and_unknown_errors():
     assert explain(PendingMoves("x")).startswith("Ada perpindahan yang terputus")
     assert explain(ValueError("boom")) == "Terjadi kesalahan: ValueError: boom"
+
+
+def test_favicon_is_served_locally(web):
+    assert '<link rel="icon" href="/static/favicon.svg"' in web.get("/").text
+    r = web.get("/static/favicon.svg")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
