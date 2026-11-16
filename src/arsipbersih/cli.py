@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures.process import BrokenProcessPool
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -48,7 +48,7 @@ WINGET_HINTS = {
 
 
 LOCKED = (
-    "Another ArsipBersih process is using this collection (scan/tidy/undo or serve). "
+    "Another ArsipBersih process is using this collection (scan/tidy/undo/events or serve). "
     "Close it first."
 )
 
@@ -247,6 +247,11 @@ def events(
     """Apply event overrides, then list events and recompute plans."""
     rename_pairs = _parse_pairs(rename, "--rename")
     merge_pairs = _parse_pairs(merge, "--merge")
+    with _root_locked(root):
+        _events(root, not_event, rename_pairs, merge_pairs)
+
+
+def _events(root: Path, not_event, rename_pairs, merge_pairs) -> None:
     conn = open_db(root)
     try:
         for name in not_event or []:
@@ -396,6 +401,12 @@ def calibrate(
     save: bool = typer.Option(False, "--save", help="Store the threshold in settings."),
 ) -> None:
     """Suggest a blur threshold from your own camera photos."""
+    # Only --save writes the DB; a plain suggestion may run next to serve.
+    with _root_locked(root) if save else nullcontext():
+        _calibrate(root, sample, save)
+
+
+def _calibrate(root: Path, sample: int, save: bool) -> None:
     conn = open_db(root)
     try:
         value = suggest_blur_threshold(conn, sample=sample)
