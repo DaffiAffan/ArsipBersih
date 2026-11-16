@@ -750,6 +750,10 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
         conn, _norm(root), "undo", label, plan,
         after_batch=lambda bid: _reset_review_state(conn, bid),
     )
+    # Folders the undone batch created are left empty; the base folders themselves stay.
+    for top in (ARCHIVE_DIR, REVIEW_DIR, TRASH_DIR):
+        if os.path.isdir(long_path(_norm(root) / top)):
+            remove_empty_dirs(_norm(root) / top)
     result.errors.extend(notes)
     return result
 
