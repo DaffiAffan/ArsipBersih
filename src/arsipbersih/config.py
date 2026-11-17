@@ -44,6 +44,7 @@ class Settings:
     clipping_max: float = 0.5            # [Claude] fraction of pixels <=5 or >=250
     dark_video_luma_max: float = 15.0    # [Claude]
     generic_folders: tuple[str, ...] = DEFAULT_GENERIC_FOLDERS
+    ai_head: str = "zeroshot"  # AI classification head: "zeroshot" or "trained-vN"
 
 
 def load_settings(conn: sqlite3.Connection) -> Settings:

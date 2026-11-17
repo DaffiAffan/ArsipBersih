@@ -1,0 +1,96 @@
+{
+  "version": "v1",
+  "templates": ["{}.", "a photo of {}.", "a close-up photo of {}."],
+  "as_is_prefixes": ["a photo", "a selfie", "a group photo"],
+  "as_is_contains": ["screenshot"],
+  "logit_scale": 100.0,
+  "thresholds": {"group_min": 0.7, "identitas_min": 0.95},
+  "rule_factors": {
+    "_doc": "Multiplied into group probabilities BEFORE thresholds; no renormalization afterwards (deterministic). Products are clipped to 1.0. 'screen_ratio_no_camera' applies only when has_camera is false. Factor 1.0 / empty table is a no-op.",
+    "has_camera": {"grafis": 0.5, "layar": 0.5},
+    "screen_ratio_no_camera": {"layar": 1.5},
+    "download_like": {"grafis": 1.3},
+    "is_png": {}
+  },
+  "groups": {
+    "identitas": [
+      {"prompt": "an identity card", "sub": "kartu identitas"},
+      {"prompt": "an Indonesian KTP identity card", "sub": "KTP"},
+      {"prompt": "an Indonesian electronic ID card (KTP)", "sub": "KTP"},
+      {"prompt": "a driver's license", "sub": "SIM"},
+      {"prompt": "a passport page", "sub": "paspor"},
+      {"prompt": "a bank card or membership card", "sub": "kartu"},
+      {"prompt": "a certificate or diploma", "sub": "sertifikat"},
+      {"prompt": "a photo of an ID card held in a hand", "sub": "kartu identitas"}
+    ],
+    "keuangan": [
+      {"prompt": "a shop receipt", "sub": "struk"},
+      {"prompt": "a printed till receipt", "sub": "struk"},
+      {"prompt": "an invoice", "sub": "faktur"},
+      {"prompt": "a bank transfer receipt screenshot", "sub": "bukti transfer"},
+      {"prompt": "a mobile banking transaction proof", "sub": "bukti transfer"},
+      {"prompt": "a utility bill", "sub": "tagihan"},
+      {"prompt": "a payment confirmation screenshot", "sub": "bukti pembayaran"},
+      {"prompt": "an Indomaret or Alfamart shopping receipt", "sub": "struk"},
+      {"prompt": "a mobile banking transfer receipt screenshot", "sub": "bukti transfer"},
+      {"prompt": "a bank savings passbook (buku tabungan)", "sub": "buku tabungan"}
+    ],
+    "kertas": [
+      {"prompt": "a page of a book", "sub": "halaman buku"},
+      {"prompt": "handwritten notes", "sub": "catatan tulisan tangan"},
+      {"prompt": "a printed document", "sub": "dokumen cetak"},
+      {"prompt": "a paper form", "sub": "formulir"},
+      {"prompt": "a school worksheet", "sub": "lembar kerja"},
+      {"prompt": "a whiteboard with writing", "sub": "papan tulis"},
+      {"prompt": "a presentation slide", "sub": "slide"},
+      {"prompt": "a photo of a document on a table", "sub": "dokumen"},
+      {"prompt": "an Indonesian school report card (rapor)", "sub": "rapor"}
+    ],
+    "grafis": [
+      {"prompt": "a meme", "sub": "meme"},
+      {"prompt": "a poster", "sub": "poster"},
+      {"prompt": "a flyer or brochure", "sub": "brosur"},
+      {"prompt": "a digital illustration", "sub": "ilustrasi"},
+      {"prompt": "a cartoon", "sub": "kartun"},
+      {"prompt": "a greeting card", "sub": "kartu ucapan"},
+      {"prompt": "an image with a quote in large text", "sub": "kutipan"},
+      {"prompt": "a graphic design with text", "sub": "desain grafis"}
+    ],
+    "layar": [
+      {"prompt": "a screenshot of a phone app", "sub": "aplikasi"},
+      {"prompt": "a screenshot of a chat conversation", "sub": "chat"},
+      {"prompt": "a screenshot of a website", "sub": "situs web"},
+      {"prompt": "a screenshot of a computer screen", "sub": "layar komputer"},
+      {"prompt": "a screenshot of source code", "sub": "kode"},
+      {"prompt": "a screenshot of a video game", "sub": "game"},
+      {"prompt": "a screenshot of a spreadsheet", "sub": "spreadsheet"},
+      {"prompt": "a screenshot of a video call", "sub": "video call"}
+    ],
+    "lainnya": [
+      {"prompt": "a photo of people", "sub": "orang"},
+      {"prompt": "a selfie", "sub": "selfie"},
+      {"prompt": "a group photo of friends", "sub": "foto grup"},
+      {"prompt": "a photo of a family", "sub": "keluarga"},
+      {"prompt": "a photo of a child", "sub": "anak"},
+      {"prompt": "a landscape photo", "sub": "pemandangan"},
+      {"prompt": "a photo of mountains", "sub": "gunung"},
+      {"prompt": "a photo of the beach", "sub": "pantai"},
+      {"prompt": "a photo of a city street", "sub": "jalan"},
+      {"prompt": "a photo of food", "sub": "makanan"},
+      {"prompt": "a photo of a building", "sub": "bangunan"},
+      {"prompt": "a photo of nature", "sub": "alam"},
+      {"prompt": "a photo of an event", "sub": "acara"},
+      {"prompt": "a photo of a room", "sub": "ruangan"},
+      {"prompt": "a photo of an animal", "sub": "hewan"},
+      {"prompt": "a photo taken while hiking", "sub": "mendaki"},
+      {"prompt": "a photo of a vehicle", "sub": "kendaraan"},
+      {"prompt": "a photo of the sky", "sub": "langit"},
+      {"prompt": "a blurry photo", "sub": "buram"},
+      {"prompt": "a dark photo taken at night", "sub": "malam"},
+      {"prompt": "a photo of a signboard at a tourist spot", "sub": "papan nama"},
+      {"prompt": "a photo of a gate with a sign", "sub": "gerbang"},
+      {"prompt": "a photo of people posing in front of a banner", "sub": "spanduk"},
+      {"prompt": "a photo of a laptop or electronic device", "sub": "perangkat"}
+    ]
+  }
+}
