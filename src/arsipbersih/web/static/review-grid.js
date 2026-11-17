@@ -19,8 +19,8 @@ const SEEN_CHUNK = 1000;
 const SEEN_DELAY_MS = 1000;
 const BULK_MAX = 500; // POST /api/review/decisions limit
 const SIZES = [100, 150, 220]; // slider value -> minimum column width in px (0 = cepat, 2 = santai)
-const VIEWS = [["all", "Semua"], ["unseen", "Belum dilihat"], ["keep", "Keep"]];
-const EMPTY = { all: "Tidak ada item di kategori ini.", unseen: "Semua foto di sini sudah dilihat.", keep: "Belum ada yang di-Keep." };
+const VIEWS = [["all", "Semua"], ["unseen", "Belum diputuskan"], ["keep", "Keep"]]; // "unseen": undecided, never opened in detail
+const EMPTY = { all: "Tidak ada item di kategori ini.", unseen: "Semua foto di sini sudah diputuskan atau sudah dibuka di detail.", keep: "Belum ada yang di-Keep." };
 const PREF_KEY = `ab.grid.${category}`;
 
 // --- preferences (view only; per category) -------------------------------------------
@@ -62,7 +62,7 @@ function indexOfUnit(id) { const it = byId.get(id); return it ? it.idx : -1; }
 function focusedItem() { return items[focus]; }
 
 // --- seen tracking (D-033) -------------------------------------------------------------
-// A unit counts as seen only when it is shown in the fullscreen viewer (openFull/onIndex).
+// A unit counts as seen only once its full media has loaded in the fullscreen viewer (onShown).
 // Thumbnails in the grid and S/D/Enter/click never mark anything seen.
 
 const localSeen = new Set(); // queued or sent this page: drawn with the dot right away
@@ -489,8 +489,6 @@ async function openFull(i) {
   const vs = { vitems: items.map(placeholder), loaded: new Set(), handle: null };
   viewerState = vs;
   setFocus(i, false);
-  queueSeen(items[i]);
-  flushSeen();
   await ensureCard(i);
   if (viewerState !== vs) return;
   vs.handle = openViewer({
@@ -511,12 +509,14 @@ async function openFull(i) {
     },
     onIndex: (n) => {
       setFocus(n, false); // grid is behind the viewer: do not scroll it
-      queueSeen(items[n]);
-      flushSeen();
       ensureCard(n);
       ensureCard(n + 1);
       ensureCard(n - 1);
       if (n >= items.length - 6) loadMore();
+    },
+    onShown: (card) => {
+      queueSeen(byId.get(card.unit_id));
+      flushSeen();
     },
     onClose: () => {
       viewerState = null;

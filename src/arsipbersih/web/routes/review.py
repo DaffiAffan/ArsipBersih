@@ -185,8 +185,8 @@ def apply_preview(category: str, conn: sqlite3.Connection = Depends(get_conn)):
     p = decisions.preview_apply(conn, category)
     if category in GRID_CATEGORIES:
         text = (
-            f"{p.keep + p.discard} sudah dilihat: {p.discard} delete, {p.keep} keep"
-            f" · {p.unseen} belum dilihat (tetap di review)"
+            f"{p.discard} delete, {p.keep} keep"
+            f" · {p.unseen} belum diputuskan (tetap di review)"
         )
     else:
         text = f"{p.keep} keep, {p.discard} delete"

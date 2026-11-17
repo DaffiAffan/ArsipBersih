@@ -10,12 +10,16 @@ function preload(item) {
   if (item && item.media && item.media.kind !== "video" && item.media.view) new Image().src = item.media.view;
 }
 
-function mediaPane(item) {
+// `onLoaded()` fires once the full media is really on screen: the full-size image decoded
+// (not the grid thumbnail a placeholder card carries) or the video's metadata loaded.
+// Nothing fires when the media fails to load.
+function mediaPane(item, onLoaded) {
   const pane = el("div", { class: "vw-pane" });
   const m = item.media || {};
   if (m.kind === "video" && m.video) {
     const status = el("div", { class: "vw-status" }, "Menyiapkan video…");
     const video = el("video", { controls: true, preload: "auto", src: m.video });
+    video.addEventListener("loadedmetadata", () => onLoaded(), { once: true });
     video.addEventListener("canplay", () => status.remove());
     video.addEventListener("error", () => {
       status.textContent = "Video tidak bisa diputar. Format atau file mungkin tidak didukung browser.";
@@ -24,12 +28,18 @@ function mediaPane(item) {
     pane.append(video, status);
     pane.isVideo = true;
   } else {
-    pane.append(el("img", { src: m.view || m.thumb, alt: item.primary ? item.primary.name : "", draggable: "false" }));
+    const img = el("img", { src: m.view || m.thumb, alt: item.primary ? item.primary.name : "", draggable: "false" });
+    if (m.view) {
+      const loaded = () => { if (img.naturalWidth > 1 || img.naturalHeight > 1) onLoaded(); };
+      if (img.complete && img.naturalWidth) queueMicrotask(loaded);
+      else img.addEventListener("load", loaded, { once: true });
+    }
+    pane.append(img);
   }
   return pane;
 }
 
-export function openViewer({ mode = "single", items, index = 0, onDecide, onIndex, onClose }) {
+export function openViewer({ mode = "single", items, index = 0, onDecide, onIndex, onClose, onShown }) {
   if (!items || !items.length) return { close() {}, go() {}, index: 0 };
   let i = Math.min(Math.max(index, 0), items.length - 1);
   let zoom = null;
@@ -83,7 +93,13 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     if (zoom) zoom.destroy();
     stage.replaceChildren();
     const shown = mode === "compare" ? items[i] : [items[i]];
-    const panes = shown.map(mediaPane);
+    // onShown(item): that item's full media loaded while it is still the one on screen.
+    const panes = shown.map((it) => {
+      const pane = mediaPane(it, () => {
+        if (onShown && !closed && pane.isConnected && shown.includes(it)) onShown(it);
+      });
+      return pane;
+    });
     panes.forEach((p) => stage.append(p));
     const zoomable = panes.filter((p) => !p.isVideo);
     zoom = zoomable.length ? createZoom(zoomable) : null;
@@ -120,7 +136,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     ArrowLeft: () => go(i - 1),
     ArrowRight: () => go(i + 1),
     s: () => { safeDecide(current(), "keep"); },
-    d: () => { safeDecide(current(), "discard"); },
+    d: (e) => { if (e && e.shiftKey) return; safeDecide(current(), "discard"); }, // Shift+D is a grid-only bulk action
     Enter: () => { safeDecide(current(), "suggest", true); },
     Escape: () => close(),
     " ": (e) => {

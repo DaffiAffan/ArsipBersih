@@ -91,6 +91,14 @@ def test_record_bulk_discard_fills_only_undecided_review_units(review_db):
     assert record_bulk_discard(conn, [a, b, c]) == 0  # second call changes nothing
 
 
+def test_record_bulk_discard_skips_group_categories(review_db):
+    conn, root, (a, _, _) = review_db("kiriman-chat")
+    grouped = _add_unit(conn, root, "_review/duplikat-persis/HP/D.jpg", location="review",
+                        category="duplikat-persis")
+    assert record_bulk_discard(conn, [a, grouped]) == 1
+    assert _decision_map(conn) == {a: "discard"}
+
+
 def test_record_bulk_discard_refills_applied_decision(review_db):
     conn, root, (a, b, c) = review_db("kiriman-chat")
     record(conn, a, "keep")

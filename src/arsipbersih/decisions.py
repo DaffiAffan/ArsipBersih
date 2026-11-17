@@ -63,10 +63,12 @@ def record(conn: sqlite3.Connection, unit_id: str, decision: Literal["keep", "di
 
 
 def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
-    """Discard every unit still in review that has no unapplied decision, in one
-    transaction. An explicit Keep or Delete the owner has not applied yet is never
+    """Discard every grid-category unit still in review that has no unapplied decision,
+    in one transaction. Group categories are decided per group, never in bulk. An explicit Keep or Delete the owner has not applied yet is never
     overwritten. Returns the number of decisions recorded."""
     ids = list(dict.fromkeys(unit_ids))
+    grid = sorted(GRID_CATEGORIES)
+    cats = ",".join("?" * len(grid))
     now = _now()
     n = 0
     with conn:
@@ -77,9 +79,10 @@ def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
                 r[0]
                 for r in conn.execute(
                     f"select u.id from units u where u.id in ({marks}) and u.location='review'"
+                    f" and u.primary_category in ({cats})"
                     " and not exists (select 1 from decisions d where d.unit_id=u.id"
                     " and d.applied=0)",
-                    part,
+                    [*part, *grid],
                 )
             ]
             conn.executemany(_UPSERT_DECISION, [(uid, "discard", now) for uid in todo])

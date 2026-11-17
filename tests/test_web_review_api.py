@@ -56,7 +56,7 @@ def test_grid_apply_never_discards_unseen(web, root, review_units):
     assert web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"}).status_code == 200
     r = web.get("/api/review/apply/burem").json()
     assert (r["keep"], r["discard"], r["unseen"]) == (1, 1, 1)
-    assert r["text"] == "2 sudah dilihat: 1 delete, 1 keep · 1 belum dilihat (tetap di review)"
+    assert r["text"] == "1 delete, 1 keep · 1 belum diputuskan (tetap di review)"
     assert web.post("/api/review/apply/burem", json={"keep": 1, "discard": 1}).status_code == 202
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
@@ -103,6 +103,14 @@ def test_bulk_discard_records_only_undecided(web, root, review_units):
     assert r.status_code == 200
     assert r.json() == {"recorded": 2}
     assert _decisions(root) == {a: "keep", b: "discard", c: "discard"}
+
+
+def test_bulk_discard_skips_group_categories(web, root, review_units):
+    (grid_unit,) = review_units(1, category="kiriman-chat")
+    (group_unit,) = review_units(1, category="duplikat-persis")
+    r = web.post("/api/review/decisions", json={"unit_ids": [grid_unit, group_unit], "decision": "discard"})
+    assert r.json() == {"recorded": 1}
+    assert _decisions(root) == {grid_unit: "discard"}
 
 
 def test_bulk_discard_validation(web, root, review_units):

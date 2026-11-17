@@ -96,6 +96,17 @@ def test_grid_counts_seen_only_in_the_viewer(web):
     assert "createSeenTracker" not in dwell
 
 
+def test_grid_tab_and_viewer_follow_detail_only_seen(web):
+    grid = web.get("/static/review-grid.js").text
+    assert "Belum diputuskan" in grid
+    assert "Belum dilihat" not in grid
+    assert "onShown" in grid
+    viewer = web.get("/static/viewer.js").text
+    assert "shiftKey" in viewer  # Shift+D is inert in the viewer
+    assert "onShown" in viewer
+    assert "loadedmetadata" in viewer
+
+
 def test_grid_help_no_longer_claims_unkept_is_deleted(web):
     from arsipbersih.web.labels import CATEGORY_HELP
 
