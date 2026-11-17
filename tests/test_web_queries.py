@@ -181,3 +181,46 @@ def test_grid_order_matches_grid_items_order(conn_with):
     for sort in ("score", "date"):
         expected = [i["unit_id"] for i in queries.grid_items(conn, "burem", sort, 0, 10_000)["items"]]
         assert queries.grid_order(conn, "burem", sort, "all") == expected
+
+
+def test_group_status_none_partial_all(conn_with):
+    conn = conn_with([{"name": n, "loc": "review"} for n in ("a.jpg", "b.jpg")])
+    a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
+    gid = _group(conn, "duplikat-persis", a, [a, b])
+    assert queries.group_detail(conn, gid)["status"] == "none"
+    decisions.record(conn, a, "keep")
+    assert queries.group_detail(conn, gid)["status"] == "partial"
+    decisions.record(conn, b, "discard")
+    assert queries.group_detail(conn, gid)["status"] == "all"
+
+
+def test_group_status_ignores_archived_keeper(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "archive"},
+        {"name": "b.jpg", "loc": "review"},
+    ])
+    a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
+    gid = _group(conn, "duplikat-persis", a, [a, b])
+    assert queries.group_detail(conn, gid)["status"] == "none"
+    decisions.record(conn, b, "discard")
+    assert queries.group_detail(conn, gid)["status"] == "all"
+
+
+def test_version_reason_names_resolution(conn_with):
+    conn = conn_with([
+        {"name": "IMG_1.jpg", "loc": "review", "w": 4032, "h": 3024},
+        {"name": "IMG-20230114-WA0001.jpg", "loc": "review", "w": 1600, "h": 1200},
+    ])
+    big, small = _unit(conn, "IMG_1.jpg")["uid"], _unit(conn, "IMG-20230114-WA0001.jpg")["uid"]
+    gid = _group(conn, "duplikat-versi", big, [big, small])
+    g = queries.group_detail(conn, gid)
+    assert g["reason"] == "Resolusi paling besar"
+    origins = {m["unit_id"]: m["origin"] for m in g["members"]}
+    assert origins[small] == "versi kiriman WA" and origins[big] is None
+
+
+def test_burst_reason_is_sharpest(conn_with):
+    conn = conn_with([{"name": n, "loc": "review"} for n in ("a.jpg", "b.jpg")])
+    a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
+    gid = _group(conn, "mirip-beruntun", a, [a, b])
+    assert queries.group_detail(conn, gid)["reason"] == "Foto paling tajam di rangkaian ini"

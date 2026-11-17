@@ -248,3 +248,13 @@ def test_detail_check_refuses_unreadable_files(root, conn_with):
         dict(name="IMG_2.jpg", phash="f0f0f0f0f0f0f0f0", w=4000, h=3000, sha="u2"),
     ])
     assert run_grouping(conn, Settings(), root).version == 0  # no files on disk to confirm
+
+
+def test_load_unit_views_filters_by_ids(conn_with):
+    from arsipbersih.grouping import load_unit_views
+
+    conn = conn_with([dict(name="a.jpg", sha="aa"), dict(name="b.jpg", sha="bb")])
+    ids = [r[0] for r in conn.execute("select id from units order by id")]
+    assert [v.unit_id for v in load_unit_views(conn, [ids[0]])] == [ids[0]]
+    assert load_unit_views(conn, []) == []
+    assert {v.unit_id for v in load_unit_views(conn)} == set(ids)

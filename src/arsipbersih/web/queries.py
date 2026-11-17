@@ -9,7 +9,10 @@ from typing import Literal
 
 from arsipbersih.classify import CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
 from arsipbersih.decisions import preview_apply
+from arsipbersih.grouping import load_unit_views
+from arsipbersih.pathrules import is_chat, segments_of
 from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+from arsipbersih.web.reasons import suggestion_reason
 
 GROUP_PAGE = 20
 GRID_PAGE = 120
@@ -158,6 +161,25 @@ def _group_rows(conn: sqlite3.Connection, group_ids: list[str]) -> list[dict]:
             part,
         ):
             members[r["group_id"]].append(r)
+    all_ids = [r["unit_id"] for rs in members.values() for r in rs]
+    views = {v.unit_id: v for v in load_unit_views(conn, all_ids)}
+    chat_flagged: set[str] = set()
+    for part in _chunks(all_ids):
+        marks = ",".join("?" * len(part))
+        chat_flagged.update(
+            r[0]
+            for r in conn.execute(
+                f"select unit_id from flags where category='kiriman-chat' and unit_id in ({marks})",
+                part,
+            )
+        )
+
+    def origin(uid: str) -> str | None:
+        v = views.get(uid)
+        if uid in chat_flagged or (v and is_chat(segments_of(v.orig_rel_path), v.filename)):
+            return "versi kiriman WA"
+        return None
+
     out = []
     for gid in group_ids:
         g = groups.get(gid)
@@ -179,12 +201,25 @@ def _group_rows(conn: sqlite3.Connection, group_ids: list[str]) -> list[dict]:
         else:
             summary = f"{n} versi {noun} yang sama"
         stamps = [r["taken_at"] for r in rows if r["taken_at"]]
+        # Same rule as _GROUP_ALL_DECIDED: an archived keeper and trashed members need no decision.
+        needing = [
+            r for r in rows
+            if r["location"] != "trash"
+            and not (r["location"] == "archive" and r["unit_id"] == keeper)
+        ]
+        decided = sum(1 for r in needing if r["decision"] is not None)
+        status = "none" if decided == 0 else ("all" if decided == len(needing) else "partial")
+        if not needing:
+            status = "all"
+        gviews = [views[r["unit_id"]] for r in rows if r["unit_id"] in views]
         out.append(
             {
                 "id": gid,
                 "kind": g["kind"],
                 "keeper_id": keeper,
-                "members": [_brief(r, keeper) for r in rows],
+                "members": [dict(_brief(r, keeper), origin=origin(r["unit_id"])) for r in rows],
+                "status": status,
+                "reason": suggestion_reason(g["kind"], gviews, keeper),
                 "folder": folder,
                 "taken_from": min(stamps, default=None),
                 "taken_to": max(stamps, default=None),
@@ -222,7 +257,8 @@ def group_detail(conn: sqlite3.Connection, group_id: str) -> dict | None:
         return None
     row = rows[0]
     row["members"] = [
-        unit_detail(conn, m["unit_id"]) | {"is_keeper": m["is_keeper"]} for m in row["members"]
+        unit_detail(conn, m["unit_id"]) | {"is_keeper": m["is_keeper"], "origin": m["origin"]}
+        for m in row["members"]
     ]
     return row
 
