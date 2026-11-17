@@ -482,27 +482,31 @@ def classify_cmd(
     head: Optional[str] = typer.Option(None, "--head", help="Head name (default: ai_head setting)."),
 ) -> None:
     """Recompute AI labels from stored embeddings (no image decoding) and refresh categories."""
-    from .ai.heads import get_head
+    from .ai.heads import canonical_head_name, get_head
     from .ai.stage import relabel_all
     from .classify import CATEGORY_PRIORITY, run_classify
 
+    changed = False
     with _root_locked(root):
         conn = open_db(root)
         try:
             settings = load_settings(conn)
-            name = head or settings.ai_head
             try:
-                get_head(name, root)
+                name = get_head(head or settings.ai_head, root).name  # aliases -> stored name
             except ValueError as e:
                 typer.echo(str(e))
                 raise typer.Exit(1)
-            if head and head != settings.ai_head:
-                settings = replace(settings, ai_head=head)
-                save_settings(conn, settings)  # later scans keep using the chosen head
             n = relabel_all(conn, root, settings, name)
+            # Persist only after relabeling worked; later scans keep using the chosen head.
+            if settings.ai_head != name:
+                changed = canonical_head_name(settings.ai_head) != name
+                settings = replace(settings, ai_head=name)
+                save_settings(conn, settings)
             counts = run_classify(conn, settings)
         finally:
             conn.close()
+    if changed:
+        typer.echo(f"Head aktif sekarang: {name}")
     typer.echo(f"Head {name}: {n} unit dilabel ulang.")
     for cat in CATEGORY_PRIORITY:
         if cat in counts:

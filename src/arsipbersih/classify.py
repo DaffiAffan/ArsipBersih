@@ -199,11 +199,11 @@ def ai_flags_for(conn: sqlite3.Connection, head_name: str) -> dict[str, tuple[st
     An owner correction (newest) replaces the head's label entirely; a confirmation changes
     nothing. Groups without a category (lainnya) yield no flag.
     """
-    from .ai.heads import GROUP_TO_CATEGORY
+    from .ai.heads import GROUP_TO_CATEGORY, canonical_head_name
     from .ai.store import effective_feedback, latest_labels
 
     out: dict[str, tuple[str, float, str]] = {}
-    for unit_id, (grp, sub, prob) in latest_labels(conn, head_name).items():
+    for unit_id, (grp, sub, prob) in latest_labels(conn, canonical_head_name(head_name)).items():
         cat = GROUP_TO_CATEGORY.get(grp)
         if cat:
             tail = f" · {sub}" if sub else ""

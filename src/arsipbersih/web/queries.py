@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime
 from typing import Literal
 
-from arsipbersih.ai.heads import group_thresholds, threshold_for
+from arsipbersih.ai.heads import canonical_head_name, group_thresholds, threshold_for
 from arsipbersih.classify import AI_GROUP_NAMES, CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
 from arsipbersih.config import load_settings
 from arsipbersih.decisions import preview_apply
@@ -293,7 +293,7 @@ def _ai_doubt_order(conn: sqlite3.Connection, ids: list[str], head: str) -> list
         marks = ",".join("?" * len(part))
         for r in conn.execute(
             f"select unit_id, grp, prob from ai_labels where head = ? and unit_id in ({marks})",
-            (head, *part),
+            (canonical_head_name(head), *part),
         ):
             probs[r["unit_id"]] = (r["grp"], r["prob"])
         corrected.update(
@@ -423,7 +423,7 @@ def ai_guess(conn: sqlite3.Connection, unit_id: str, head: str | None = None) ->
     else:
         lab = conn.execute(
             "select grp, sub, prob from ai_labels where unit_id = ? and head = ?",
-            (unit_id, head or load_settings(conn).ai_head),
+            (unit_id, canonical_head_name(head or load_settings(conn).ai_head)),
         ).fetchone()
         if lab is None:
             return None
