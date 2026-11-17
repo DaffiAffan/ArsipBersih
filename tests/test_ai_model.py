@@ -13,6 +13,21 @@ def test_crop_rgb_shape_and_center():
     assert tuple(out[128, 128]) == (250, 5, 5)
 
 
+@pytest.mark.parametrize("size", [(20000, 10), (10, 20000)])
+def test_crop_rgb_extreme_aspect_ratio(size, monkeypatch):
+    img = Image.new("RGB", size, (1, 2, 3))
+    real_resize = Image.Image.resize
+
+    def small_resize(self, wh, *a, **k):
+        assert wh == (256, 256) and self.size == (10, 10)  # cropped before any resize
+        return real_resize(self, wh, *a, **k)
+
+    monkeypatch.setattr(Image.Image, "resize", small_resize)
+    out = model.crop_rgb(img)
+    assert out.shape == (256, 256, 3) and out.dtype == np.uint8
+    assert tuple(out[128, 128]) == (1, 2, 3)
+
+
 def test_model_status_not_ready_when_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("ARSIPBERSIH_MODELS", str(tmp_path))
     st = model.model_status()

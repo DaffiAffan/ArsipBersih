@@ -102,14 +102,16 @@ def setup_models(
 
 
 def crop_rgb(img: Image.Image) -> np.ndarray:
-    """Resize the short side to 256 (BICUBIC) and center-crop: uint8 (256, 256, 3)."""
-    img = img.convert("RGB")
+    """Center-crop the short-side square, then resize it to 256 (BICUBIC): uint8 (256, 256, 3).
+
+    Cropping first keeps memory bounded for extreme aspect ratios (a 20000x10 banner never
+    becomes a huge intermediate image)."""
     w, h = img.size
-    s = INPUT_PX / min(w, h)
-    img = img.resize((max(INPUT_PX, round(w * s)), max(INPUT_PX, round(h * s))), Image.BICUBIC)
-    w, h = img.size
-    left, top = (w - INPUT_PX) // 2, (h - INPUT_PX) // 2
-    return np.asarray(img.crop((left, top, left + INPUT_PX, top + INPUT_PX)), dtype=np.uint8)
+    side = min(w, h)
+    left, top = (w - side) // 2, (h - side) // 2
+    img = img.crop((left, top, left + side, top + side)).convert("RGB")
+    img = img.resize((INPUT_PX, INPUT_PX), Image.BICUBIC)
+    return np.asarray(img, dtype=np.uint8)
 
 
 def _normalize(x: np.ndarray) -> np.ndarray:

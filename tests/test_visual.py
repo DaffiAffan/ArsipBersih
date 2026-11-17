@@ -139,3 +139,16 @@ def test_memory_error_is_retried_not_broken(root, make_image, monkeypatch):
     monkeypatch.setattr(visual, "_load_rgb", oom)
     r = analyze_photo(make_image(root / "a.jpg"), Kind.PHOTO, Settings(), root / "a.webp", None)
     assert r.decode_ok is None and r.retry
+
+
+def test_crop_failure_never_marks_good_photo_rusak(root, make_image, monkeypatch):
+    from arsipbersih import visual
+
+    def boom(img):
+        raise MemoryError("crop")
+
+    monkeypatch.setattr(visual, "crop_rgb", boom)
+    good = make_image(root / "g.jpg")
+    r = analyze_photo(good, Kind.PHOTO, Settings(), root / "g.webp", None, want_ai=True)
+    assert r.decode_ok is True and r.error is None and r.ai_rgb is None
+    assert r.phash and (root / "g.webp").exists()

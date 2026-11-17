@@ -209,7 +209,10 @@ def analyze_photo(
         if preview_dst is not None:
             _save_webp(img, preview_dst, settings.preview_px)
         if want_ai:  # crop from the image already decoded here: the AI stage never re-reads it
-            result.ai_rgb = crop_rgb(img).tobytes()
+            try:
+                result.ai_rgb = crop_rgb(img).tobytes()
+            except Exception:  # noqa: BLE001 - a crop problem never marks a good photo rusak
+                result.ai_rgb = None  # the AI backfill retries it and records any error
         return result
     except NoRawThumbnail as e:
         # Unknown, not corrupt: no thumbnail, and no rusak flag.
