@@ -81,3 +81,13 @@ def test_grid_page_loads_new_modules(web):
     dimmed = re.compile(r"img[^{]*\{[^}]*(opacity|filter)")
     for css in css_dir.glob("*.css"):
         assert not dimmed.search(css.read_text(encoding="utf-8")), css.name
+
+
+def test_group_page_loads_new_modules(web, root):
+    _make_group(root)
+    r = web.get("/review/duplikat-persis")
+    assert r.status_code == 200
+    assert "/static/review-groups.js" in r.text
+    js = web.get("/static/review-groups.js").text
+    assert "floatbar.js" in js
+    assert "ArrowUp" in js

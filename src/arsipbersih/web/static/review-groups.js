@@ -1,372 +1,417 @@
-import { api, el, fmtBytes } from "/static/api.js";
+// Review of groups (duplikat-persis, duplikat-versi, mirip-beruntun): group list on the left,
+// members of the active group side by side on the right. Decisions are never applied here;
+// the floating bar does that (floatbar.js).
+import { api, el, fmtBytes, LOCATION_LABELS } from "/static/api.js";
 import { bindKeys } from "/static/keys.js";
 import { openViewer } from "/static/viewer.js";
-import { watchJob } from "/static/job.js";
+import { reviewNav } from "/static/nav.js";
+import { confirmDialog, fmtNum, registerHelp, toast } from "/static/ui.js";
+import { createZoom } from "/static/zoom.js";
+import { mountFloatBar } from "/static/floatbar.js";
 
 const main = document.getElementById("rv-main");
 const root = document.getElementById("group-root");
 const category = main.dataset.category;
 const label = main.dataset.label || category;
 
+const MAX_MINI = 5;
+const DETAIL_DELAY_MS = 80;
+
 let page = 1;
 let data = { groups: [], page: 1, pages: 1, total: 0 };
-let focus = 0;
-let pendingApply = 0;
-let compare = null; // { index, group, focus, unbind }
-let message = "";
-let applying = false;
+let focus = 0; // active group (index in data.groups)
+let mfocus = 0; // focused member of the active group
+let detail = null; // full detail of the active group
+let cards = []; // [{ m, node, pane, paint }]
+let zoom = null;
 let busy = false;
+let viewerOpen = false;
+let wantGroup = null; // id of the group whose detail is wanted
+let detailTimer = null;
+let wantLast = false; // after a page change from the top edge: land on the last group
+const detailCache = new Map();
 
-const DECISION_LABEL = { keep: "Keep", discard: "Delete" };
+function fail(err) { toast(err && err.message ? err.message : String(err), { kind: "error" }); }
 
-function fail(err) {
-  message = err && err.message ? err.message : String(err);
-  renderList();
+// A member can be decided unless its decision is already applied or it sits in the trash.
+function locked(m) { return Boolean(m.applied) || m.location === "trash"; }
+
+// Same rule as the server: an archived suggested keeper and trashed members need no decision.
+function statusOf(g) {
+  const needing = g.members.filter((m) => m.location !== "trash"
+    && !(m.location === "archive" && m.unit_id === g.keeper_id));
+  if (!needing.length) return "all";
+  const n = needing.filter((m) => m.decision != null).length;
+  return n === 0 ? "none" : n === needing.length ? "all" : "partial";
 }
 
-// --- sidebar & header counts ----------------------------------------------------------
+// --- shell -----------------------------------------------------------------------------
 
-async function refreshChrome() {
-  try {
-    const cats = await api("GET", "/api/review/categories");
-    const byCat = new Map(cats.map((c) => [c.category, c]));
-    for (const a of document.querySelectorAll("#rv-cats a[data-cat]")) {
-      const c = byCat.get(a.dataset.cat);
-      a.hidden = !c && a.dataset.cat !== category;
-      const badge = a.querySelector(".rv-count");
-      if (badge) badge.textContent = c ? String(c.count) : "0";
-    }
-    const mine = byCat.get(category);
-    pendingApply = mine ? mine.pending_apply : 0;
-  } catch (_) { /* keep the previous numbers */ }
-}
+const countEl = el("span", { class: "grid-count muted" });
+const acceptAllBtn = el("button", { type: "button", class: "btn btn-secondary", onclick: () => acceptAll() }, "Ikuti saran semua di halaman ini");
+const listEl = el("div", { class: "grp-list", role: "listbox", "aria-label": "Daftar grup" });
+const pagerEl = el("div", { class: "grp-pager" });
+const reasonEl = el("div", { class: "grp-reason", hidden: true });
+const metaEl = el("div", { class: "grp-meta muted" });
+const actionsEl = el("div", { class: "grp-actions" });
+const cardsEl = el("div", { class: "cmp-cards" });
+const detailEl = el("section", { class: "grp-detail", "aria-label": "Perbandingan" }, metaEl, reasonEl, actionsEl, cardsEl);
 
-// --- list mode ------------------------------------------------------------------------
+root.classList.add("grp-root");
+root.replaceChildren(
+  el("div", { class: "grid-toolbar" }, countEl, el("span", { class: "grid-spacer" }), acceptAllBtn),
+  el("p", { class: "grid-hint muted" },
+    el("kbd", { class: "kbd" }, "↑↓"), " grup · ", el("kbd", { class: "kbd" }, "←→"), " anggota · ",
+    el("kbd", { class: "kbd" }, "S"), " keep · ", el("kbd", { class: "kbd" }, "D"), " delete · ",
+    el("kbd", { class: "kbd" }, "Enter"), " ikuti saran · ", el("kbd", { class: "kbd" }, "Spasi"), " layar penuh · ",
+    el("kbd", { class: "kbd" }, "Z"), " zoom bareng · ", el("kbd", { class: "kbd" }, "?"), " bantuan"),
+  el("div", { class: "grp-layout" }, el("div", { class: "grp-side" }, listEl, pagerEl), detailEl));
 
-async function loadList() {
-  data = await api("GET", `/api/review/groups/${encodeURIComponent(category)}?page=${page}`);
-  page = data.page;
-  if (focus >= data.groups.length) focus = Math.max(0, data.groups.length - 1);
-  await refreshChrome();
-  renderList();
-}
+const bar = mountFloatBar(root, {
+  category, mode: "group", label,
+  onApplied: () => { detailCache.clear(); loadList().catch(fail); },
+});
 
-// Owner decision (strong colour) replaces the suggestion badge. Photos are never dimmed.
-function stateBadge(m) {
-  if (m.decision) return el("span", { class: "badge decided " + m.decision }, DECISION_LABEL[m.decision] || m.decision);
-  return m.is_keeper
-    ? el("span", { class: "badge suggest keep" }, "✓ Saran: Keep")
-    : el("span", { class: "badge suggest discard" }, "Saran: Delete");
-}
-
-function memThumb(m) {
-  const box = el("div", { class: "mem" },
-    el("img", { src: m.thumb || "", alt: "", loading: "lazy", draggable: "false" }));
-  box.append(stateBadge(m));
-  return box;
-}
+// --- group list ------------------------------------------------------------------------
 
 function fmtRange(g) {
   if (!g.taken_from) return "Tanggal tidak diketahui";
   const a = new Date(g.taken_from);
-  return isNaN(a) ? String(g.taken_from) : a.toLocaleString("id-ID");
+  return Number.isNaN(a.getTime()) ? String(g.taken_from) : a.toLocaleString("id-ID");
 }
 
-function groupRow(g, i) {
-  const row = el("div", {
-    class: "grp" + (i === focus ? " focused" : ""),
-    tabindex: "-1",
-    "data-id": g.id,
-    onclick: () => { focus = i; openCompare(i); },
+function statusMark(g) {
+  const s = statusOf(g);
+  g.status = s;
+  if (s === "all") return el("span", { class: "badge badge-keep grp-status", title: "Semua anggota sudah diputuskan" }, "✓");
+  if (s === "partial") return el("span", { class: "badge grp-status", title: "Sebagian anggota sudah diputuskan" }, "sebagian");
+  return null;
+}
+
+function rowOf(g, i) {
+  const shown = g.members.slice(0, MAX_MINI);
+  const more = g.members.length - shown.length;
+  return el("button", {
+    type: "button", class: "grp-row" + (i === focus ? " is-active" : ""), role: "option",
+    "aria-selected": String(i === focus), "data-id": g.id, tabindex: "-1",
+    onclick: () => { if (i !== focus) selectGroup(i); },
   },
-  el("div", { class: "grp-thumbs" }, g.members.map(memThumb)),
+  el("div", { class: "grp-thumbs" },
+    ...shown.map((m) => el("img", { class: "grp-thumb" + (m.is_keeper ? " is-keeper" : ""), src: m.thumb || "", alt: "", loading: "lazy", draggable: "false" })),
+    ...(more > 0 ? [el("span", { class: "grp-more muted" }, `+${more}`)] : [])),
   el("div", { class: "grp-info" },
-    el("strong", {}, g.folder || "Folder tidak diketahui"),
-    el("div", {}, fmtRange(g)),
-    el("div", {}, g.summary)));
-  return row;
+    el("div", { class: "grp-line" }, el("strong", {}, g.summary), statusMark(g)),
+    el("div", { class: "muted grp-sub" }, fmtRange(g))));
 }
 
-function renderList() {
-  if (compare) return;
-  const applyBtn = el("button", { type: "button", class: "primary", disabled: pendingApply === 0 || applying,
-    onclick: openApply }, `Apply (${pendingApply})`);
-  const head = el("div", { class: "rv-head" }, el("h1", {}, label), applyBtn);
-  const children = [head];
-  if (message) children.push(el("div", { class: "vw-error" }, message));
-  if (!data.groups.length) {
-    children.push(el("p", { class: "muted" }, "Tidak ada grup yang perlu direview di kategori ini."));
-  } else {
-    children.push(el("div", { class: "rv-hint" },
-      "← → pindah grup · Enter ikuti saran · Spasi/klik: bandingkan"));
-    children.push(el("button", { type: "button", onclick: acceptAll },
-      `Ikuti saran semua di halaman ini (${data.groups.length} grup)`));
-    children.push(el("div", { style: "margin-top:10px" }, data.groups.map(groupRow)));
-    children.push(el("div", { class: "rv-pager" },
-      el("button", { type: "button", disabled: page <= 1, onclick: () => goPage(page - 1) }, "Sebelumnya"),
-      el("span", {}, `Halaman ${data.page} dari ${data.pages} · ${data.total} grup`),
-      el("button", { type: "button", disabled: page >= data.pages, onclick: () => goPage(page + 1) }, "Berikutnya")));
-  }
-  root.replaceChildren(...children);
-  const f = root.querySelector(".grp.focused");
-  if (f && f.scrollIntoView) f.scrollIntoView({ block: "nearest" });
+function paintList() {
+  listEl.replaceChildren(...data.groups.map(rowOf));
+  const act = listEl.querySelector(".is-active");
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
+  countEl.textContent = `${fmtNum(data.total)} grup`;
+  acceptAllBtn.disabled = !data.groups.length;
+  pagerEl.replaceChildren(
+    el("button", { type: "button", class: "btn btn-ghost", disabled: page <= 1, onclick: () => goPage(page - 1) }, "‹ Sebelumnya"),
+    el("span", { class: "muted" }, `${data.page} / ${data.pages}`),
+    el("button", { type: "button", class: "btn btn-ghost", disabled: page >= data.pages, onclick: () => goPage(page + 1) }, "Berikutnya ›"));
 }
 
-async function goPage(n) {
+function paintRow(i) {
+  const g = data.groups[i];
+  const old = listEl.children[i];
+  if (g && old) old.replaceWith(rowOf(g, i));
+}
+
+async function loadList() {
+  data = await api("GET", `/api/review/groups/${encodeURIComponent(category)}?page=${page}`);
+  page = data.page;
+  if (wantLast) { focus = Math.max(0, data.groups.length - 1); wantLast = false; }
+  if (focus >= data.groups.length) focus = Math.max(0, data.groups.length - 1);
+  paintList();
+  showActive();
+}
+
+async function goPage(n, last = false) {
+  if (n < 1 || n > data.pages) return;
   page = n;
   focus = 0;
-  message = "";
+  wantLast = last;
   try { await loadList(); } catch (e) { fail(e); }
 }
 
-async function acceptAll() {
-  try {
-    await api("POST", "/api/review/accept", { group_ids: data.groups.map((g) => g.id) });
-    message = "";
-    await loadList();
-  } catch (e) { fail(e); }
+function selectGroup(i) {
+  if (i < 0 || i >= data.groups.length) return;
+  const prev = focus;
+  focus = i;
+  for (const [idx, on] of [[prev, false], [i, true]]) {
+    const row = listEl.children[idx];
+    if (row) { row.classList.toggle("is-active", on); row.setAttribute("aria-selected", String(on)); }
+  }
+  const act = listEl.children[i];
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
+  showActive();
 }
 
-async function acceptFocused() {
+// --- active group: large comparison -------------------------------------------------------
+
+function destroyZoom() {
+  if (zoom) { zoom.destroy(); zoom = null; }
+}
+
+function showActive() {
+  destroyZoom();
   const g = data.groups[focus];
-  if (!g || busy) return;
-  busy = true;
-  try {
-    // The server keeps explicit unapplied decisions, so re-read the page instead of
-    // painting the suggestion locally.
-    await api("POST", "/api/review/accept", { group_ids: [g.id] });
-    message = "";
-    if (focus < data.groups.length - 1) focus += 1;
-    await loadList();
-  } catch (e) { fail(e); } finally { busy = false; }
+  clearTimeout(detailTimer);
+  if (!g) {
+    wantGroup = null;
+    detail = null;
+    cards = [];
+    metaEl.textContent = "";
+    reasonEl.hidden = true;
+    actionsEl.replaceChildren();
+    cardsEl.replaceChildren(el("p", { class: "empty" }, "Tidak ada grup yang perlu direview di kategori ini."));
+    return;
+  }
+  wantGroup = g.id;
+  const cached = detailCache.get(g.id);
+  if (cached) { renderDetail(cached); return; }
+  cardsEl.replaceChildren(el("p", { class: "empty muted" }, "Memuat…"));
+  detailTimer = setTimeout(async () => {
+    try {
+      const d = await api("GET", `/api/review/group/${encodeURIComponent(g.id)}`);
+      detailCache.set(g.id, d);
+      if (detailCache.size > 20) detailCache.delete(detailCache.keys().next().value);
+      if (wantGroup === g.id) renderDetail(d);
+    } catch (e) { fail(e); }
+  }, DETAIL_DELAY_MS);
 }
 
-const unbindList = bindKeys({
-  ArrowLeft: () => { if (!busy && focus > 0) { focus -= 1; renderList(); } },
-  ArrowRight: () => { if (!busy && focus < data.groups.length - 1) { focus += 1; renderList(); } },
-  Enter: acceptFocused,
-  " ": () => { if (!busy && data.groups[focus]) openCompare(focus); },
-});
-window.addEventListener("pagehide", unbindList);
-
-// --- compare mode ---------------------------------------------------------------------
-
-async function openCompare(index) {
-  const g = data.groups[index];
-  if (!g) { closeCompare(); return; }
-  busy = true;
-  try {
-    const detail = await api("GET", `/api/review/group/${encodeURIComponent(g.id)}`);
-    if (!compare) {
-      compare = { unbind: bindKeys({
-        ArrowLeft: () => moveCompareFocus(-1),
-        ArrowRight: () => moveCompareFocus(1),
-        s: () => decideFocused("keep"),
-        d: () => decideFocused("discard"),
-        Enter: acceptCompare,
-        Escape: closeCompare,
-      }) };
-    }
-    compare.index = index;
-    compare.group = detail;
-    compare.focus = Math.max(0, detail.members.findIndex((m) => !m.is_keeper));
-    renderCompare();
-  } catch (e) { busy = false; await closeCompare(); fail(e); return; }
-  busy = false;
+function badgeOf(m) {
+  if (m.decision) return el("span", { class: "badge " + (m.decision === "keep" ? "badge-keep" : "badge-danger") }, m.decision === "keep" ? "Keep" : "Delete");
+  return el("span", { class: "badge badge-muted" }, m.is_keeper ? "Saran: Keep" : "Saran: Delete");
 }
 
-function infoRows(m) {
+function dateOf(m) {
+  if (!m.taken_at) return null;
+  const d = new Date(m.taken_at);
+  return Number.isNaN(d.getTime()) ? String(m.taken_at) : d.toLocaleString("id-ID");
+}
+
+function makeCard(m, i) {
   const p = m.primary || {};
-  const date = m.taken_at ? (isNaN(new Date(m.taken_at)) ? m.taken_at : new Date(m.taken_at).toLocaleString("id-ID")) : "Tidak diketahui";
-  const rows = [
-    ["Nama file", p.name || "-"],
-    ["Resolusi", p.width && p.height ? `${p.width} × ${p.height}` : "-"],
-    ["Ukuran", fmtBytes(p.size_total)],
-    ["Sumber", p.source_label || "-"],
-    ["Tanggal", date],
-    ["GPS", p.has_gps ? "ada" : "tidak ada"],
-    ["Skor tajam", p.sharpness != null ? Number(p.sharpness).toFixed(1).replace(".", ",") : "-"],
-  ];
-  return el("dl", { class: "vw-info" },
-    rows.map(([k, v]) => el("div", { class: "vw-row" }, el("dt", {}, k), el("dd", {}, v))));
+  const media = m.media || {};
+  const src = media.kind === "video" ? media.thumb : (media.view || media.thumb);
+  const pane = el("div", { class: "cmp-img" },
+    el("img", { src: src || "", alt: p.name || "", draggable: "false" }));
+  const stateSlot = el("div", { class: "cmp-state" });
+  const keepBtn = el("button", { type: "button", class: "btn btn-keep", onclick: () => decide(i, "keep") }, "Keep ", el("kbd", { class: "kbd" }, "S"));
+  const delBtn = el("button", { type: "button", class: "btn btn-danger", onclick: () => decide(i, "discard") }, "Delete ", el("kbd", { class: "kbd" }, "D"));
+  const actions = el("div", { class: "cmp-actions" }, keepBtn, delBtn);
+  const facts = [
+    p.width && p.height ? `${p.width} × ${p.height}` : null,
+    p.size_total != null ? fmtBytes(p.size_total) : null,
+    dateOf(m),
+  ].filter(Boolean);
+  const node = el("article", { class: "cmp-card", "data-id": m.unit_id },
+    pane,
+    el("div", { class: "cmp-body" },
+      stateSlot,
+      el("div", { class: "cmp-name", title: p.name || "" }, p.name || "-"),
+      el("div", { class: "muted cmp-facts" }, facts.join(" · ") || "-"),
+      el("div", { class: "muted cmp-facts" }, [p.source_label, LOCATION_LABELS[m.location] || m.location].filter(Boolean).join(" · ")),
+      m.origin ? el("div", { class: "cmp-origin" }, m.origin) : null,
+      actions));
+  pane.addEventListener("click", () => { if (i !== mfocus) setMemberFocus(i); });
+  function paint() {
+    node.classList.toggle("is-focused", i === mfocus);
+    node.classList.toggle("is-keep", m.decision === "keep");
+    node.classList.toggle("is-discard", m.decision === "discard");
+    const lock = locked(m);
+    stateSlot.replaceChildren(...[badgeOf(m),
+      lock ? el("span", { class: "badge badge-muted" }, m.location === "trash" ? "Sudah di _sampah" : "Sudah diproses") : null].filter(Boolean));
+    actions.hidden = lock;
+    keepBtn.setAttribute("aria-pressed", String(m.decision === "keep"));
+    delBtn.setAttribute("aria-pressed", String(m.decision === "discard"));
+  }
+  paint();
+  return { m, node, pane, paint };
 }
 
-function renderCompare() {
-  if (!compare) return;
-  const g = compare.group;
-  const cards = g.members.map((m, i) => {
-    const media = m.media || {};
-    const src = media.kind === "video" ? media.thumb : (media.view || media.thumb);
-    return el("div", { class: "cmp-card" + (i === compare.focus ? " focused" : "") },
-      el("div", { class: "cmp-img" },
-        el("img", { class: "big", src: src || "", alt: "", draggable: "false",
-          onclick: () => { compare.focus = i; openCompareViewer(i); } }),
-        stateBadge(m)),
-      infoRows(m),
-      el("div", { class: "cmp-actions" },
-        el("button", { type: "button", class: m.decision === "keep" ? "on" : "", onclick: () => decide(i, "keep") }, "Keep"),
-        el("button", { type: "button", class: m.decision === "discard" ? "on" : "", onclick: () => decide(i, "discard") }, "Delete")));
-  });
-  const head = el("div", { class: "rv-head" },
-    el("h1", {}, `${label}: grup ${compare.index + 1} dari ${data.groups.length}`),
-    el("button", { type: "button", onclick: closeCompare }, "Kembali ke daftar"),
-    el("button", { type: "button", class: "primary", onclick: acceptCompare }, "Ikuti saran"));
-  const children = [head,
-    el("div", { class: "rv-hint" }, `${g.summary} · ← → pindah · S keep · D delete · Enter ikuti saran · Esc kembali · klik foto untuk layar penuh`),
-    el("div", { class: "cmp-grid" }, cards)];
-  if (message) children.splice(1, 0, el("div", { class: "vw-error" }, message));
-  root.replaceChildren(...children);
+function renderDetail(d) {
+  destroyZoom();
+  detail = d;
+  const first = d.members.findIndex((m) => !m.is_keeper && !locked(m));
+  mfocus = first >= 0 ? first : 0;
+  cards = d.members.map(makeCard);
+  cardsEl.replaceChildren(...cards.map((c) => c.node));
+  metaEl.textContent = `${d.summary} · ${d.folder || "Folder tidak diketahui"} · ${fmtRange(d)}`;
+  reasonEl.hidden = !d.reason;
+  reasonEl.replaceChildren(el("strong", {}, "Alasan saran: "), d.reason || "");
+  actionsEl.replaceChildren(
+    el("button", { type: "button", class: "btn btn-primary", onclick: () => acceptActive() }, "Ikuti saran ", el("kbd", { class: "kbd" }, "↵")),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => keepAll() }, "Keep semua"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => toggleZoom() }, "Zoom bareng ", el("kbd", { class: "kbd" }, "Z")),
+    el("button", { type: "button", class: "btn btn-ghost", onclick: () => openFull() }, "Layar penuh ", el("kbd", { class: "kbd" }, "Spasi")));
 }
 
-function moveCompareFocus(d) {
-  if (!compare) return;
-  const n = compare.focus + d;
-  if (n < 0 || n >= compare.group.members.length) return;
-  compare.focus = n;
-  renderCompare();
+function setMemberFocus(i) {
+  if (i < 0 || i >= cards.length) return;
+  mfocus = i;
+  cards.forEach((c) => c.paint());
+  const node = cards[i].node;
+  if (node.scrollIntoView) node.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function toggleZoom() {
+  if (zoom) { destroyZoom(); return; }
+  const panes = cards.filter((c) => (c.m.media || {}).kind !== "video").map((c) => c.pane);
+  if (!panes.length) { toast("Tidak ada foto untuk di-zoom."); return; }
+  zoom = createZoom(panes);
+  toast("Zoom bareng aktif: scroll untuk zoom, seret untuk geser, klik ganda untuk reset.");
+}
+
+// --- decisions ---------------------------------------------------------------------------
+
+function afterDecision() {
+  const g = data.groups[focus];
+  if (g) paintRow(focus);
+  cards.forEach((c) => c.paint());
+  bar.refresh();
+  reviewNav.refresh();
+}
+
+function record(g, c, decision) {
+  c.m.decision = decision;
+  const bm = g.members.find((x) => x.unit_id === c.m.unit_id);
+  if (bm) bm.decision = decision;
 }
 
 async function decide(i, decision) {
-  const m = compare && compare.group.members[i];
-  if (!m || busy) return;
+  const c = cards[i];
+  const g = data.groups[focus];
+  if (!c || !g) return false;
+  if (locked(c.m)) { toast("Anggota ini sudah diproses, tidak bisa diubah."); return false; }
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return false; }
+  if (busy) { toast("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return false; }
   busy = true;
   try {
-    await api("POST", "/api/review/decision", { unit_id: m.unit_id, decision });
-    m.decision = decision;
-    message = "";
-    renderCompare();
-    refreshChrome();
-  } catch (e) { message = e.message; renderCompare(); } finally { busy = false; }
+    await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision });
+    record(g, c, decision);
+    afterDecision();
+    return true;
+  } catch (e) { fail(e); return false; } finally { busy = false; }
 }
 
-function decideFocused(decision) {
-  if (compare) decide(compare.focus, decision);
-}
-
-async function acceptCompare() {
-  if (!compare || busy) return;
+async function keepAll() {
+  const g = data.groups[focus];
+  if (!g || busy) return;
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
   busy = true;
-  const g = compare.group;
-  const next = compare.index + 1;
   try {
+    for (const c of cards) {
+      if (locked(c.m) || c.m.decision === "keep") continue;
+      await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision: "keep" });
+      record(g, c, "keep");
+    }
+  } catch (e) { fail(e); } finally { busy = false; afterDecision(); }
+}
+
+async function acceptActive() {
+  const g = data.groups[focus];
+  if (!g || busy) return;
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
+  busy = true;
+  try {
+    // The server keeps explicit unapplied decisions, so re-read the page instead of painting
+    // the suggestion locally.
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
-    message = "";
-    refreshChrome(); // the next group / the list are re-fetched from the server below
-    busy = false;
-    if (next < data.groups.length) await openCompare(next);
-    else await closeCompare();
-  } catch (e) { message = e.message; renderCompare(); } finally { busy = false; }
+    detailCache.delete(g.id);
+    if (focus < data.groups.length - 1) focus += 1;
+    await loadList();
+    bar.refresh();
+    reviewNav.refresh();
+  } catch (e) { fail(e); } finally { busy = false; }
 }
 
-async function closeCompare() {
-  if (!compare) return;
-  const keepFocus = compare.index;
-  compare.unbind();
-  compare = null;
-  focus = keepFocus;
-  try { await loadList(); } catch (e) { fail(e); }
+async function acceptAll() {
+  if (!data.groups.length || busy) return;
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
+  const ok = await confirmDialog({
+    title: "Ikuti saran semua di halaman ini?",
+    body: [`${data.groups.length} grup di halaman ini akan mengikuti saran untuk anggota yang belum diputuskan.`,
+      "Keputusan yang sudah Anda buat tidak diubah. Belum ada file yang dipindah sebelum Apply."],
+    okLabel: "Ikuti saran semua",
+  });
+  if (!ok) return;
+  busy = true;
+  try {
+    await api("POST", "/api/review/accept", { group_ids: data.groups.map((g) => g.id) });
+    detailCache.clear();
+    await loadList();
+    bar.refresh();
+    reviewNav.refresh();
+  } catch (e) { fail(e); } finally { busy = false; }
 }
 
-function openCompareViewer(clicked) {
-  const g = compare.group;
-  const keeper = g.members.find((m) => m.is_keeper) || g.members[0];
-  const others = g.members.filter((m) => m !== keeper);
+// --- fullscreen compare ------------------------------------------------------------------
+
+function openFull() {
+  if (viewerOpen || !detail) return;
+  const members = detail.members;
+  const keeper = members.find((m) => m.is_keeper) || members[0];
+  const others = members.filter((m) => m !== keeper);
   if (!others.length) return;
-  const pairs = others.map((m) => [keeper, m]);
-  const start = Math.max(0, others.indexOf(g.members[clicked]));
+  const start = Math.max(0, others.indexOf(members[mfocus]));
+  viewerOpen = true;
   openViewer({
     mode: "compare",
-    items: pairs,
+    items: others.map((m) => [keeper, m]),
     index: start,
     onDecide: async (item, decision) => {
-      try {
-        if (decision === "suggest") {
-          const sug = item.is_keeper ? "keep" : "discard";
-          await api("POST", "/api/review/decision", { unit_id: item.unit_id, decision: sug });
-          item.decision = sug;
-        } else {
-          await api("POST", "/api/review/decision", { unit_id: item.unit_id, decision });
-          item.decision = decision;
-        }
-        refreshChrome();
-      } catch (e) { message = e.message; }
+      const i = members.indexOf(item);
+      if (i < 0) return;
+      await decide(i, decision === "suggest" ? (item.is_keeper ? "keep" : "discard") : decision);
     },
-    onClose: () => renderCompare(),
+    onClose: () => {
+      viewerOpen = false;
+      cards.forEach((c) => c.paint());
+    },
   });
 }
 
-// --- apply dialog ---------------------------------------------------------------------
+// --- keys ----------------------------------------------------------------------------------
 
-function modal(title, ...body) {
-  const overlay = el("div", { class: "rv-modal", role: "dialog", "aria-modal": "true" },
-    el("div", { class: "rv-dialog" }, el("h2", {}, title), ...body));
-  document.body.append(overlay);
-  return overlay;
+function moveGroup(d) {
+  if (busy) return;
+  const n = focus + d;
+  if (n >= 0 && n < data.groups.length) { selectGroup(n); return; }
+  if (d > 0 && page < data.pages) goPage(page + 1);
+  else if (d < 0 && page > 1) goPage(page - 1, true);
 }
 
-let applyOpen = false;
+const keyMap = {
+  ArrowUp: () => moveGroup(-1),
+  ArrowDown: () => moveGroup(1),
+  ArrowLeft: () => setMemberFocus(mfocus - 1),
+  ArrowRight: () => setMemberFocus(mfocus + 1),
+  s: () => decide(mfocus, "keep"),
+  d: () => decide(mfocus, "discard"),
+  Enter: () => acceptActive(),
+  " ": () => openFull(),
+  z: () => toggleZoom(),
+};
+let unbindKeys = bindKeys(keyMap);
+window.addEventListener("pagehide", () => { unbindKeys(); unbindKeys = () => {}; });
+window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindKeys = bindKeys(keyMap); });
 
-async function openApply() {
-  if (applying || applyOpen) return;
-  applyOpen = true;
-  // Key layer first: while the dialog loads or is open, list keys stay inert.
-  let closeDialog = null;
-  const unbind = bindKeys({ Escape: () => { if (!applying && closeDialog) closeDialog(); } });
-  let preview;
-  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
-    unbind(); applyOpen = false; fail(e); return;
-  }
-  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Apply");
-  const cancel = el("button", { type: "button" }, "Batal");
-  const actions = el("div", { class: "actions" }, cancel, confirm);
-  const box = modal(`Apply: ${label}`, el("p", {}, preview.text), el("p", { class: "muted" }, "File yang di-delete masuk _sampah dan masih bisa di-undo di Riwayat."), actions);
-  function close() { unbind(); box.remove(); applyOpen = false; }
-  closeDialog = close;
-  cancel.addEventListener("click", close);
-  confirm.addEventListener("click", async () => {
-    applying = true;
-    confirm.disabled = true;
-    cancel.disabled = true;
-    let started;
-    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`, { keep: preview.keep, discard: preview.discard }); } catch (e) {
-      applying = false;
-      actions.before(el("p", { class: "vw-error" }, e.message));
-      cancel.disabled = false;
-      return;
-    }
-    actions.before(el("p", { class: "muted" }, "Memindahkan file…"));
-    let stop = () => {};
-    let finished = false;
-    stop = watchJob((st) => {
-      if (finished || st.id !== started.id || st.status === "running" || st.status === "idle") return;
-      finished = true;
-      setTimeout(() => stop(), 0);
-      applying = false;
-      if (box.isConnected) showApplyResult(st, close, box);
-      loadList().catch(fail);
-    });
-  });
-}
+registerHelp([
+  { title: "Review grup", keys: [["↑ ↓", "Grup sebelumnya / berikutnya (pindah halaman otomatis di batas)"],
+    ["← →", "Pindah antar anggota grup"], ["S", "Keep anggota terpilih"], ["D", "Delete anggota terpilih"],
+    ["Enter", "Ikuti saran untuk grup ini, lalu ke grup berikutnya"], ["Spasi", "Layar penuh (banding dengan yang disarankan Keep)"],
+    ["Z", "Zoom bareng: semua foto di grup di-zoom dan digeser serentak"], ["?", "Bantuan ini"]] },
+  { title: "Penanda", keys: [["✓", "Semua anggota grup sudah diputuskan"], ["sebagian", "Baru sebagian anggota yang diputuskan"]] },
+]);
 
-function count(v) { return Array.isArray(v) ? v.length : Number(v) || 0; }
-
-function showApplyResult(st, close, overlay) {
-  const box = overlay.querySelector(".rv-dialog");
-  const done = el("button", { type: "button", class: "primary", onclick: close }, "Tutup");
-  const parts = [el("h2", {}, "Hasil")];
-  if (st.status === "done" && st.result) {
-    const r = st.result;
-    parts.push(el("p", {}, `${count(r.moved_units)} dipindah · ${count(r.failed_units)} gagal · ${count(r.skipped_units)} dilewati`));
-    if (r.errors && r.errors.length) {
-      parts.push(el("details", {}, el("summary", {}, `Detail (${r.errors.length})`), el("pre", {}, r.errors.join("\n"))));
-    }
-  } else {
-    parts.push(el("p", { class: "vw-error" }, `Gagal: ${st.error || st.status}`));
-  }
-  parts.push(el("div", { class: "actions" }, done));
-  box.replaceChildren(...parts);
-}
-
-// --- start ----------------------------------------------------------------------------
+// --- start ---------------------------------------------------------------------------------
 
 loadList().catch(fail);
