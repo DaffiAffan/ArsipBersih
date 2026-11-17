@@ -129,3 +129,19 @@ def test_group_page_loads_new_modules(web, root):
     js = web.get("/static/review-groups.js").text
     assert "floatbar.js" in js
     assert "ArrowUp" in js
+
+
+def test_grid_js_has_change_group_and_doubt_sort(web):
+    grid = web.get("/static/review-grid.js").text
+    assert "ai_doubt" in grid
+    assert "Paling ragu dulu" in grid
+    assert "/api/review/ai-group" in grid
+    assert "Dipindah ke" in grid
+    assert '"dokumen-identitas"' in grid  # Shift+D is off there
+    insp = web.get("/static/inspector.js").text
+    assert "Tebakan AI" in insp
+    assert "Ubah kelompok" in insp
+    for name in ("Identitas", "Keuangan", "Kertas & catatan", "Grafis", "Layar", "Foto biasa"):
+        assert name in insp
+    viewer = web.get("/static/viewer.js").text
+    assert "onChangeGroup" in viewer

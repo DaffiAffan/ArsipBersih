@@ -212,3 +212,25 @@ def test_classify_command_relabels_without_opening_files(tmp_path, monkeypatch):
     r = CliRunner().invoke(app, ["classify", str(tmp_path), "--head", "nope"])
     assert r.exit_code == 1
     assert "nope" in r.output
+
+
+def test_reclassify_units_matches_run_classify_and_leaves_others(conn_with):
+    from arsipbersih.ai import store
+    from arsipbersih.classify import reclassify_units
+
+    conn = conn_with([
+        dict(name="IMG-20230812-WA0001.jpg", path="Sumber/HP/WhatsApp", sharp=5, luma=120, std=50),
+        dict(name="a.png", w=1080, h=2400),
+    ])
+    a, b = [r[0] for r in conn.execute("select u.id from units u join files f on f.id = u.primary_file_id"
+                                        " order by f.rel_path desc")]
+    run_classify(conn, Settings())
+    before_b = sorted(tuple(r) for r in conn.execute("select id, category, reason from flags where unit_id=?", (b,)))
+    store.add_feedback(conn, a, "keuangan", "koreksi")
+    assert reclassify_units(conn, Settings(), [a]) == {a: "dokumen-keuangan"}
+    got = sorted(tuple(r) for r in conn.execute("select category, score, reason from flags where unit_id=?", (a,)))
+    # b keeps its exact rows (same ids): it was not rewritten
+    assert sorted(tuple(r) for r in conn.execute("select id, category, reason from flags where unit_id=?", (b,))) == before_b
+    run_classify(conn, Settings())
+    assert sorted(tuple(r) for r in conn.execute("select category, score, reason from flags where unit_id=?", (a,))) == got
+    assert {c for c, _, _ in got} == {"dokumen-keuangan", "kiriman-chat", "burem"}

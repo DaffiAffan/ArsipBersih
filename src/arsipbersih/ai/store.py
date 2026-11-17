@@ -98,12 +98,13 @@ def latest_labels(conn: sqlite3.Connection, head: str) -> dict[str, tuple[str, s
     return {r["unit_id"]: (r["grp"], r["sub"], r["prob"]) for r in rows}
 
 
-def add_feedback(conn: sqlite3.Connection, unit_id: str, grp: str, source: str) -> None:
+def add_feedback(conn: sqlite3.Connection, unit_id: str, grp: str, source: str, *, commit: bool = True) -> None:
     conn.execute(
         "insert into ai_feedback (id, unit_id, grp, source, created_at) values (?, ?, ?, ?, ?)",
         (new_id(), unit_id, grp, source, _now()),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def effective_feedback(conn: sqlite3.Connection) -> dict[str, tuple[str, str]]:

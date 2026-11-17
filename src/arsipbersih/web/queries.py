@@ -7,7 +7,9 @@ import sqlite3
 from datetime import datetime
 from typing import Literal
 
-from arsipbersih.classify import CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
+from arsipbersih.ai.heads import group_thresholds, threshold_for
+from arsipbersih.classify import AI_GROUP_NAMES, CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
+from arsipbersih.config import load_settings
 from arsipbersih.decisions import preview_apply
 from arsipbersih.grouping import load_unit_views
 from arsipbersih.pathrules import is_chat, segments_of
@@ -256,8 +258,9 @@ def group_detail(conn: sqlite3.Connection, group_id: str) -> dict | None:
     if not rows:
         return None
     row = rows[0]
+    head = load_settings(conn).ai_head
     row["members"] = [
-        unit_detail(conn, m["unit_id"]) | {"is_keeper": m["is_keeper"], "origin": m["origin"]}
+        unit_detail(conn, m["unit_id"], head) | {"is_keeper": m["is_keeper"], "origin": m["origin"]}
         for m in row["members"]
     ]
     return row
@@ -279,14 +282,50 @@ _GRID_FROM = (
 )
 
 
+def _ai_doubt_order(conn: sqlite3.Connection, ids: list[str], head: str) -> list[str]:
+    """Closest to its group's threshold first; no label (or an owner correction) last.
+
+    A stable sort over ``ids`` (already in the default order), so ties keep that order.
+    """
+    probs: dict[str, tuple[str, float]] = {}
+    corrected: set[str] = set()
+    for part in _chunks(ids):
+        marks = ",".join("?" * len(part))
+        for r in conn.execute(
+            f"select unit_id, grp, prob from ai_labels where head = ? and unit_id in ({marks})",
+            (head, *part),
+        ):
+            probs[r["unit_id"]] = (r["grp"], r["prob"])
+        corrected.update(
+            r[0]
+            for r in conn.execute(
+                f"select unit_id from ai_feedback where source = 'koreksi' and unit_id in ({marks})",
+                part,
+            )
+        )
+    thr = group_thresholds()
+
+    def key(uid: str) -> tuple[int, float]:
+        if uid in corrected or uid not in probs or probs[uid][1] is None:
+            return (1, 0.0)
+        grp, prob = probs[uid]
+        return (0, abs(prob - threshold_for(grp, thr)))
+
+    return sorted(ids, key=key)
+
+
 def grid_order(
     conn: sqlite3.Connection,
     category: str,
-    sort: Literal["score", "date"] = "score",
+    sort: Literal["score", "date", "ai_doubt"] = "score",
     view: Literal["all", "unseen", "keep"] = "all",
+    head: str | None = None,
 ) -> list[str]:
     if category not in GRID_CATEGORIES:
         return []
+    if sort == "ai_doubt":
+        ids = grid_order(conn, category, "score", view)
+        return _ai_doubt_order(conn, ids, head or load_settings(conn).ai_head)
     cond = ""
     if view == "unseen":
         cond = " and b.seen = 0 and b.decision is null"
@@ -372,7 +411,27 @@ def _badges(conn: sqlite3.Connection, unit_ids: list[str]) -> dict[str, list[str
 # --- unit card ---------------------------------------------------------------------------
 
 
-def unit_detail(conn: sqlite3.Connection, unit_id: str) -> dict | None:
+def ai_guess(conn: sqlite3.Connection, unit_id: str, head: str | None = None) -> dict | None:
+    """The AI group shown for a unit: the owner's newest correction wins over the head's label."""
+    fb = conn.execute(
+        "select grp from ai_feedback where unit_id = ? and source = 'koreksi'"
+        " order by rowid desc limit 1",
+        (unit_id,),
+    ).fetchone()
+    if fb is not None:
+        grp, sub, prob, source = fb["grp"], None, None, "koreksi"
+    else:
+        lab = conn.execute(
+            "select grp, sub, prob from ai_labels where unit_id = ? and head = ?",
+            (unit_id, head or load_settings(conn).ai_head),
+        ).fetchone()
+        if lab is None:
+            return None
+        grp, sub, prob, source = lab["grp"], lab["sub"], lab["prob"], "ai"
+    return {"grp": grp, "sub": sub, "prob": prob, "source": source, "label": AI_GROUP_NAMES.get(grp, grp)}
+
+
+def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None) -> dict | None:
     u = conn.execute(
         "select u.*, d.decision, d.applied from units u"
         " left join decisions d on d.unit_id = u.id where u.id = ?",
@@ -461,6 +520,7 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str) -> dict | None:
         "primary": primary,
         "flags": flags,
         "media": media,
+        "ai": ai_guess(conn, unit_id, head),
     }
 
 
