@@ -136,3 +136,27 @@ def test_shutdown_stops_scan_then_waits(root):
     assert done.wait(5)
     assert seen.is_set() and lock.released.is_set()
     assert app.state.jobs.status().status == "stopped"
+
+
+def test_drain_installs_sigint_handler_during_wait_and_restores(monkeypatch):
+    import signal
+
+    from arsipbersih.web import app as appmod
+
+    calls = []
+    sentinel = object()
+    monkeypatch.setattr(
+        appmod.signal, "signal", lambda sig, h: (calls.append((sig, h)), sentinel)[1]
+    )
+    exits = []
+    monkeypatch.setattr(appmod.os, "_exit", lambda c: exits.append(c))
+    jr = JobRunner()
+    gate = threading.Event()
+    jr.start("apply", "Apply", lambda r, s: (gate.wait(10), {})[1])
+    t = threading.Thread(target=lambda: (gate.wait(0.3), gate.set()), daemon=True)
+    t.start()
+    appmod._drain_jobs(jr)
+    assert [c[0] for c in calls] == [signal.SIGINT, signal.SIGINT]
+    assert calls[1][1] is sentinel
+    calls[0][1](signal.SIGINT, None)
+    assert exits == [130]

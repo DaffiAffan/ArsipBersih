@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -68,8 +71,26 @@ def _drain_jobs(jobs: JobRunner) -> None:
         file=sys.stderr,
         flush=True,
     )
-    while jobs.status().status == "running":
-        jobs.wait(1)
+    prev = None
+    installed = False
+    if threading.current_thread() is threading.main_thread():
+        def _force_exit(signum, frame):
+            print(
+                "Memaksa keluar. Jurnal akan merapikan perpindahan yang terputus "
+                "saat ArsipBersih dibuka lagi.",
+                file=sys.stderr,
+                flush=True,
+            )
+            os._exit(130)  # no KeyboardInterrupt: uvicorn would swallow it and free the lock
+
+        prev = signal.signal(signal.SIGINT, _force_exit)
+        installed = True
+    try:
+        while jobs.status().status == "running":
+            jobs.wait(0.5)  # short slices so signals are delivered on Windows
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, prev)
 
 
 def create_app(
