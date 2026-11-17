@@ -64,6 +64,31 @@ def record(conn: sqlite3.Connection, unit_id: str, decision: Literal["keep", "di
         _confirm_document(conn, unit_id)
 
 
+def correct_group(conn: sqlite3.Connection, settings, unit_id: str, grp: str) -> str | None:
+    """Store the owner's AI-group correction and reclassify the unit, in one transaction.
+
+    When the unit lands in another category, what it carried from the old one must not
+    decide its fate there: `seen` is reset (a seen grid unit is discarded at Apply) and an
+    unapplied Delete is cleared (e.g. a bulk Delete, which dokumen-identitas forbids).
+    An unapplied Keep stays. No file moves. Returns the new primary category.
+    """
+    from arsipbersih.ai.store import add_feedback
+    from arsipbersih.classify import reclassify_units
+
+    with conn:
+        row = conn.execute("select primary_category from units where id=?", (unit_id,)).fetchone()
+        old = row[0] if row else None
+        add_feedback(conn, unit_id, grp, "koreksi", commit=False)
+        new = reclassify_units(conn, settings, [unit_id], commit=False).get(unit_id, old)
+        if new != old:
+            conn.execute("update units set seen=0 where id=?", (unit_id,))
+            conn.execute(
+                "delete from decisions where unit_id=? and applied=0 and decision='discard'",
+                (unit_id,),
+            )
+    return new
+
+
 def _confirm_document(conn: sqlite3.Connection, unit_id: str) -> None:
     """A Keep in a document category confirms the AI group (training data for train-head).
 

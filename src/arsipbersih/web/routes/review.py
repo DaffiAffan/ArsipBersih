@@ -11,8 +11,7 @@ from pydantic import BaseModel, Field, StrictInt
 
 from ... import decisions
 from ...ai.heads import GROUPS
-from ...ai.store import add_feedback
-from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES, reclassify_units
+from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES
 from ...config import load_settings
 from ...db import open_db
 from .. import queries
@@ -176,9 +175,8 @@ def ai_group(body: AiGroupBody, request: Request, conn: sqlite3.Connection = Dep
     try:
         # No scan or apply may rewrite categories or move files while this one changes.
         with request.app.state.jobs.exclusive():
-            add_feedback(conn, body.unit_id, body.grp, "koreksi")
             settings = load_settings(conn)
-            reclassify_units(conn, settings, [body.unit_id])
+            decisions.correct_group(conn, settings, body.unit_id, body.grp)
     except JobBusy as exc:
         raise UserError(explain(exc), 409) from exc
     row = conn.execute("select primary_category from units where id=?", (body.unit_id,)).fetchone()

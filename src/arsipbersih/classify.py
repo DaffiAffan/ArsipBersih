@@ -285,17 +285,24 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
     return counts
 
 
-def reclassify_units(conn: sqlite3.Connection, settings: Settings, unit_ids: list[str]) -> dict[str, str | None]:
+def reclassify_units(
+    conn: sqlite3.Connection, settings: Settings, unit_ids: list[str], *, commit: bool = True
+) -> dict[str, str | None]:
     """Recompute flags and primary_category of just these units, exactly as run_classify would.
 
     Every input is per unit (group flags are read from the stored groups, not recomputed),
     so other units are never touched. Units run_classify skips (trash, primary file missing)
     are left as they are. Returns {unit_id: primary_category} for the units rewritten.
+    With ``commit=False`` the writes join the caller's open transaction.
     """
     ids = list(dict.fromkeys(unit_ids))
     views = [u for u in load_unit_views(conn, ids) if u.location in _CLASSIFIED_LOCATIONS]
     facts = _Facts(conn, settings, ids)
     out: dict[str, str | None] = {}
+    if not commit:
+        for u in views:
+            out[u.unit_id] = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
+        return out
     with conn:
         for u in views:
             out[u.unit_id] = _write_unit(conn, u.unit_id, _unit_flags(u, facts))

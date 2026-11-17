@@ -357,3 +357,43 @@ def test_bulk_discard_skips_identity_documents(web, root, review_units):
     r = web.post("/api/review/decisions", json={"unit_ids": [ident, money], "decision": "discard"})
     assert r.json() == {"recorded": 1}
     assert _decisions(root) == {money: "discard"}
+
+
+def _unit_state(root, uid):
+    conn = open_db(root)
+    try:
+        seen = conn.execute("select seen from units where id=?", (uid,)).fetchone()[0]
+        d = conn.execute("select decision from decisions where unit_id=?", (uid,)).fetchone()
+        return seen, d[0] if d else None
+    finally:
+        conn.close()
+
+
+def test_ai_group_move_resets_seen_so_apply_does_not_discard(web, root, review_units):
+    (a,) = review_units(1, category="download-meme", seen={0})
+    r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "identitas"})
+    assert r.json()["primary_category"] == "dokumen-identitas"
+    assert _unit_state(root, a) == (0, None)
+    p = web.get("/api/review/apply/dokumen-identitas").json()
+    assert (p["keep"], p["discard"], p["unseen"]) == (0, 0, 1)
+
+
+def test_ai_group_move_clears_pending_discard_keeps_keep(web, root, review_units):
+    a, b = review_units(2, category="download-meme")
+    web.post("/api/review/decisions", json={"unit_ids": [a], "decision": "discard"})
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+    web.post("/api/review/ai-group", json={"unit_id": a, "grp": "identitas"})
+    web.post("/api/review/ai-group", json={"unit_id": b, "grp": "identitas"})
+    assert _unit_state(root, a) == (0, None)
+    assert _unit_state(root, b) == (0, "keep")
+    p = web.get("/api/review/apply/dokumen-identitas").json()
+    assert (p["keep"], p["discard"], p["unseen"]) == (1, 0, 1)
+
+
+def test_ai_group_same_category_leaves_seen_and_decision(web, root, review_units):
+    (a,) = review_units(1, category="dokumen-keuangan", seen={0})
+    _label(root, a, "keuangan", "struk", 0.9)
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"})
+    r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "keuangan"})
+    assert r.json()["primary_category"] == "dokumen-keuangan"
+    assert _unit_state(root, a) == (1, "discard")
