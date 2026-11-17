@@ -56,6 +56,10 @@ from .routes import history as _history_routes  # noqa: E402
 ROUTERS.append(_history_routes.router)
 ROUTERS.append(_history_routes.pages)
 
+from .routes import dates as _dates_routes  # noqa: E402
+
+ROUTERS.append(_dates_routes.router)
+
 
 def _drain_jobs(jobs: JobRunner) -> None:
     """Wait for a running job before shutdown. Scan is asked to stop (it resumes later);

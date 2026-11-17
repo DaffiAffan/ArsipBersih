@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Tanggal - ArsipBersih{% endblock %}
+{% block content %}
+<header class="dt-head">
+  <div>
+    <h1>Tanggal</h1>
+    <p class="muted">Perbaiki tanggal foto di sini. Tidak ada file yang dipindah dari halaman ini: foto pindah ke folder bulan yang benar saat "Rapikan" berikutnya.</p>
+  </div>
+  <div class="dt-write">
+    <button id="dt-write" class="btn btn-secondary" type="button">Tulis tanggal ke file .xmp</button>
+    <small class="muted">Untuk foto yang sudah di Arsip. File foto tidak diubah; tanggal disimpan di file .xmp di sebelahnya supaya Immich bisa membacanya.</small>
+  </div>
+</header>
+<div id="dt-error" class="plan-error" role="alert" hidden></div>
+
+<section class="card" aria-labelledby="dt-events-title">
+  <h2 id="dt-events-title">Tanggal acara</h2>
+  <p class="muted">Foto kiriman WA memakai tanggal kirim, bukan tanggal foto diambil. Kalau disetujui, foto WA di acara itu diberi tanggal di dalam rentang foto kamera acaranya, urutannya tetap.</p>
+  <div id="dt-events" class="dt-events" aria-live="polite"></div>
+  <p id="dt-events-empty" class="empty" hidden>Tidak ada acara yang perlu diperiksa.</p>
+</section>
+
+<section class="card" aria-labelledby="dt-undated-title">
+  <div class="dt-section-head">
+    <h2 id="dt-undated-title">Tanpa tanggal</h2>
+    <span id="dt-undated-count" class="muted"></span>
+  </div>
+  <p class="muted">Foto ini tidak punya tanggal sama sekali. Pilih satu atau beberapa (klik, Shift+klik untuk rentang), lalu isi tahun dan bulannya. Hari boleh dikosongkan.</p>
+  <div class="dt-toolbar">
+    <button id="dt-select-all" class="btn btn-ghost" type="button">Pilih semua yang tampil</button>
+    <span id="dt-selected" class="muted" aria-live="polite"></span>
+    <span class="grid-spacer"></span>
+    <button id="dt-leave" class="btn btn-secondary" type="button" disabled title="Biarkan tanpa tanggal: pilihan dibatalkan, foto tetap di Tanpa-Tanggal">Biarkan</button>
+    <button id="dt-fill" class="btn btn-primary" type="button" disabled>Isi tanggal</button>
+  </div>
+  <div id="dt-undated" class="dt-grid" role="listbox" aria-multiselectable="true" aria-labelledby="dt-undated-title"></div>
+  <p id="dt-undated-empty" class="empty" hidden>Semua foto sudah punya tanggal.</p>
+  <div class="dt-more"><button id="dt-more" class="btn btn-ghost" type="button" hidden>Tampilkan lagi</button></div>
+</section>
+
+<template id="dt-event-tpl">
+  <article class="dt-event">
+    <header class="dt-event-head">
+      <h3 class="dt-event-name"></h3>
+      <span class="badge dt-changed" hidden>Berubah — ada foto kamera baru</span>
+    </header>
+    <p class="dt-event-summary"></p>
+    <p class="muted dt-event-meta"></p>
+    <div class="dt-samples"></div>
+    <div class="dt-range" hidden>
+      <label>Mulai <input type="date" class="dt-start" required></label>
+      <label>Selesai <input type="date" class="dt-end" required></label>
+    </div>
+    <div class="dt-actions">
+      <button class="btn btn-primary dt-approve" type="button">Setujui</button>
+      <button class="btn btn-secondary dt-ignore" type="button" title="Foto WA tetap memakai tanggal kirim">Abaikan</button>
+      <button class="btn btn-ghost dt-edit" type="button" aria-expanded="false">Ubah rentang</button>
+    </div>
+  </article>
+</template>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/dates.js"></script>
+{% endblock %}
