@@ -91,3 +91,12 @@ def test_whatsapp_web_name_parses_with_time():
 )
 def test_is_whatsapp_name(name, expected):
     assert is_whatsapp_name(name) is expected
+
+
+def test_whatsapp_web_24_hour_and_narrow_nbsp():
+    name = "WhatsApp Image 2024-10-30 at 15.55.48.jpeg"
+    assert parse_filename_date(name) == datetime(2024, 10, 30, 15, 55, 48)
+    assert filename_has_time(name) is True
+    assert parse_filename_date("WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg") == datetime(
+        2024, 10, 30, 15, 55, 48
+    )

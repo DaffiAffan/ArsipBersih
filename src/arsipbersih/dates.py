@@ -27,7 +27,7 @@ _FILENAME_PATTERNS = [
 
 # WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg, WhatsApp Video 2024-11-20 at 10.04.48 PM(1).mp4
 _WA_WEB_RE = re.compile(
-    r"WhatsApp (?:Image|Video) (\d{4})-(\d{2})-(\d{2}) at (\d{1,2})\.(\d{2})\.(\d{2}) ([AP]M)",
+    r"WhatsApp (?:Image|Video) (\d{4})-(\d{2})-(\d{2}) at (\d{1,2})\.(\d{2})\.(\d{2})(?:\s*([AP]M))?",
     re.IGNORECASE,
 )
 _WA_CLASSIC_RE = re.compile(r"^(?:IMG|VID)-\d{8}-WA\d+", re.IGNORECASE)
@@ -44,11 +44,15 @@ def _parse_whatsapp_web(name: str) -> datetime | None:
     if not m:
         return None
     y, mo, d, h, mi, s = (int(g) for g in m.groups()[:6])
-    if not 1 <= h <= 12:
+    meridiem = m.group(7)
+    if meridiem:
+        if not 1 <= h <= 12:
+            return None
+        h %= 12
+        if meridiem.upper() == "PM":
+            h += 12
+    elif not 0 <= h <= 23:
         return None
-    h %= 12
-    if m.group(7).upper() == "PM":
-        h += 12
     try:
         return datetime(y, mo, d, h, mi, s)
     except ValueError:
