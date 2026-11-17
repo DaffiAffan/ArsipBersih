@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..db import open_db
 from .jobs import JobBusy, JobPrecheckFailed
+from .labels import CATEGORY_LABELS
 from .messages import UserError, explain
 
 
@@ -37,6 +39,8 @@ def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
 def render(request: Request, template: str, **ctx) -> HTMLResponse:
     ctx.setdefault("active", "")
     ctx["root"] = request.app.state.root
+    # Embedded in a <script type="application/json"> block: "<" must never appear raw.
+    ctx["category_labels_json"] = json.dumps(CATEGORY_LABELS).replace("<", "\\u003c")
     return request.app.state.templates.TemplateResponse(request, template, ctx)
 
 

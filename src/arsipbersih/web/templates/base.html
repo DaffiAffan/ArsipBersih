@@ -38,6 +38,7 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script type="application/json" id="category-labels">{{ category_labels_json|safe }}</script>
   <script type="module">
     import { mountJobBar } from "/static/job.js";
     mountJobBar(document.getElementById("job-status"));

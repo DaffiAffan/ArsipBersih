@@ -45,3 +45,9 @@ def test_shell_uses_token_stylesheets(web):
     assert "/static/app.css" not in html
     assert 'id="nav-review"' in html
     assert web.get("/static/css/tokens.css").status_code == 200
+
+
+def test_category_labels_are_embedded_for_the_viewer(web):
+    html = web.get("/").text
+    assert 'id="category-labels"' in html
+    assert "Chat (WA/Telegram)" in html

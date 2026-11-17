@@ -1,68 +1,12 @@
-import { el, fmtBytes } from "./api.js";
+import { el } from "./api.js";
 import { bindKeys } from "./keys.js";
+import { renderInspector } from "./inspector.js";
 import { createZoom } from "./zoom.js";
 
-export const CATEGORY_LABELS = {
-  "rusak": "Rusak (corrupt)",
-  "duplikat-persis": "Duplikat identik",
-  "duplikat-versi": "Duplikat beda versi",
-  "mirip-beruntun": "Burst / mirip",
-  "screenshot": "Screenshot",
-  "kiriman-chat": "Chat (WA/Telegram)",
-  "download-meme": "Download / meme",
-  "pendamping-gopro": "File GoPro (LRV/THM)",
-  "sampah-hp": "Trash HP",
-  "video-pendek-gelap": "Video pendek / gelap",
-  "kepencet": "Kepencet (tidak sengaja)",
-  "burem": "Blur",
-  "gelap-terang": "Terlalu gelap / terang",
-};
-
-function catLabel(c) { return CATEGORY_LABELS[c] || c; }
+export { CATEGORY_LABELS } from "./labels.js";
 
 function preload(item) {
   if (item && item.media && item.media.kind !== "video" && item.media.view) new Image().src = item.media.view;
-}
-
-function fmtNum(v, digits) { return Number(v).toFixed(digits).replace(".", ","); }
-
-function fmtDate(item) {
-  if (!item.taken_at) return "Tidak diketahui";
-  const d = new Date(item.taken_at);
-  const s = isNaN(d) ? String(item.taken_at) : d.toLocaleString("id-ID");
-  return item.date_source ? `${s} (${item.date_source})` : s;
-}
-
-function row(label, value) {
-  return el("div", { class: "vw-row" }, el("dt", {}, label), el("dd", {}, value));
-}
-
-function infoPanel(item) {
-  const p = item.primary || {};
-  const dl = el("dl", { class: "vw-info" },
-    row("Nama file", p.name || "-"),
-    row("Resolusi", p.width && p.height ? `${p.width} × ${p.height}` : "-"),
-    row("Ukuran", fmtBytes(p.size_total)),
-    row("Sumber", p.source_label || "-"),
-    row("Tanggal", fmtDate(item)),
-    row("GPS", p.has_gps ? "ada" : "tidak ada"),
-    row("Skor tajam", p.sharpness != null ? fmtNum(p.sharpness, 1) : "-"),
-  );
-  const box = el("div", { class: "vw-infobox" }, dl);
-  const flags = item.flags || [];
-  if (flags.length) {
-    box.append(el("h4", {}, "Alasan"));
-    for (const f of flags) {
-      const score = f.score != null ? ` (${fmtNum(f.score, 2)})` : "";
-      box.append(el("div", { class: "vw-flag" },
-        el("span", { class: "vw-badge" }, catLabel(f.category)), ` ${f.reason || ""}${score}`));
-    }
-  }
-  if (item.decision) {
-    const label = item.decision === "keep" ? "Keep" : item.decision === "discard" ? "Delete" : item.decision;
-    box.append(el("div", { class: "vw-decision" }, `Keputusan: ${label}`));
-  }
-  return box;
 }
 
 function mediaPane(item) {
@@ -90,16 +34,42 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   let zoom = null;
   const overlay = el("div", { class: "vw-overlay", role: "dialog", "aria-modal": "true" });
   const stage = el("div", { class: "vw-stage" });
-  const side = el("aside", { class: "vw-side" });
-  const counter = el("span", { class: "vw-counter" });
-  const bar = el("div", { class: "vw-bar" }, counter,
-    el("span", { class: "vw-hint" }, "← → pindah · S keep · D delete · Enter ikuti saran · Spasi play/pause · Esc tutup"),
-    el("button", { type: "button", onclick: () => close() }, "Tutup"));
+  const side = el("aside", { class: "vw-side inspector", "aria-label": "Info foto" });
+  const counter = el("span", { class: "vw-counter", "aria-live": "polite" });
+  const hint = el("span", { class: "vw-hint" });
+  for (const [k, t] of [["← →", "pindah"], ["S", "keep"], ["D", "delete"], ["Esc", "tutup"]]) {
+    if (hint.childNodes.length) hint.append(" · ");
+    hint.append(el("kbd", { class: "kbd" }, k), ` ${t}`);
+  }
+  const bar = el("div", { class: "vw-bar" }, counter, hint,
+    el("button", { type: "button", class: "btn", onclick: () => close() }, "Tutup ", el("kbd", { class: "kbd" }, "Esc")));
   overlay.append(bar, el("div", { class: "vw-body" }, stage, side));
   document.body.append(overlay);
 
   // compare: items[i] = [kiri, kanan]; item aktif = panel kanan.
   function current() { return mode === "compare" ? items[i][1] : items[i]; }
+
+  // Inspector panel(s). A decision made with the panel's own buttons goes through the same
+  // onDecide as the S/D keys; null (toggle off) means "back to the suggestion".
+  function renderSide() {
+    const shown = mode === "compare" ? items[i] : [items[i]];
+    side.replaceChildren();
+    shown.forEach((it, n) => {
+      const box = el("div", { class: "vw-unit" });
+      if (mode === "compare") box.append(el("h3", {}, n === 0 ? "Kiri" : "Kanan (aktif)"));
+      const body = el("div", {});
+      box.append(body);
+      side.append(box);
+      renderInspector(body, it, {
+        onDecide: async (want) => {
+          if (!onDecide) return;
+          const at = i;
+          await onDecide(it, want === null ? "suggest" : want);
+          if (!closed && i === at) renderSide();
+        },
+      });
+    });
+  }
 
   function render() {
     if (zoom) zoom.destroy();
@@ -110,12 +80,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     stage.classList.toggle("vw-compare", mode === "compare");
     const zoomable = panes.filter((p) => !p.isVideo);
     zoom = zoomable.length ? createZoom(zoomable) : null;
-    side.replaceChildren();
-    if (mode === "compare") {
-      shown.forEach((it, n) => side.append(el("h3", {}, n === 0 ? "Kiri" : "Kanan (aktif)"), infoPanel(it)));
-    } else {
-      side.append(infoPanel(shown[0]));
-    }
+    renderSide();
     counter.textContent = `${i + 1} / ${items.length}`;
     for (const j of [i + 1, i - 1]) {
       const x = items[j];
