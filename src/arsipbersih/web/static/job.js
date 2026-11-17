@@ -59,7 +59,7 @@ export function mountJobBar(bar) {
         text: document.createTextNode(""),
         pause: el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"),
       };
-      bar.replaceChildren(nodes.label, nodes.text, nodes.pause);
+      bar.replaceChildren(nodes.label, nodes.text, " ", nodes.pause);
     }
     nodes.label.textContent = st.label || "";
     let text = "";

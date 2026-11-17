@@ -18,7 +18,6 @@ from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import JobBusy, batch_result_dict
 from ..labels import CATEGORY_HELP, CATEGORY_LABELS
-from arsipbersih.decisions import ApplyContentChanged
 from ..messages import APPLY_CONTENT_CHANGED_TEXT, APPLY_MISMATCH_TEXT, UserError, explain
 
 router = APIRouter(prefix="/api/review")
@@ -237,7 +236,7 @@ def _apply_job(root: Path, category: str, keep: int, discard: int, fingerprint: 
             if (p.keep, p.discard) != (keep, discard):
                 raise ApplyMismatch(category)
             if fingerprint is not None and p.fingerprint != fingerprint:
-                raise ApplyContentChanged(category)
+                raise decisions.ApplyContentChanged(category)
             return batch_result_dict(decisions.apply_category(conn, root, category, fingerprint))
         finally:
             conn.close()
