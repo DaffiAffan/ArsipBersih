@@ -445,6 +445,52 @@ def _calibrate(root: Path, sample: int, save: bool) -> None:
         conn.close()
 
 
+@app.command("train-head")
+def train_head_cmd(
+    root: Path = _root_arg(),
+    min_per_group: int = typer.Option(30, "--min", min=1, help="Minimum training examples per group."),
+) -> None:
+    """Train a small head from your corrections/confirmations."""
+    from .ai.train import format_metrics_table, train_head
+
+    with _root_locked(root):
+        conn = open_db(root)
+        try:
+            res = train_head(conn, root, min_per_group=min_per_group)
+        finally:
+            conn.close()
+    if not res.version:
+        have = ", ".join(f"{g} {n}" for g, n in res.n_examples.items())
+        typer.echo(
+            f"Contoh koreksi belum cukup: butuh sedikitnya 2 kelompok dengan {min_per_group} contoh latih "
+            f"atau lebih. Contoh latih saat ini: {have or 'belum ada'}."
+        )
+        return
+    typer.echo(f"Head tersimpan: {res.version}")
+    typer.echo("Kelompok terlatih: " + ", ".join(res.trained_groups))
+    if res.fallback_groups:
+        typer.echo("Kelompok memakai zero-shot (contoh kurang): " + ", ".join(res.fallback_groups))
+    typer.echo(f"Data uji: {res.n_holdout} unit. Ketepatan dan daya tangkap (head baru vs zero-shot):")
+    for line in format_metrics_table(res.holdout_metrics, res.baseline_metrics):
+        typer.echo("  " + line)
+    typer.echo(f"Pakai head ini dengan: arsipbersih classify --head {res.version}")
+
+
+@app.command("ai-report")
+def ai_report_cmd(
+    root: Path = _root_arg(),
+    head: Optional[str] = typer.Option(None, "--head", help="Head name (default: newest trained head, else zeroshot)."),
+) -> None:
+    """Show AI label counts and accuracy against the targets."""
+    from .ai.train import ai_report
+
+    conn = open_db(root)
+    try:
+        typer.echo(ai_report(conn, root, head))
+    finally:
+        conn.close()
+
+
 @app.command()
 def serve(
     root: Path = _root_arg(),

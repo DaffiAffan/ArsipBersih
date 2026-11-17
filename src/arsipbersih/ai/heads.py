@@ -9,6 +9,7 @@ renormalized, so a hint can push a probability up to 1.0 or down without touchin
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Protocol
 
 import numpy as np
 
+from ..layout import STATE_DIR
 from .model import text_embeddings
 
 GROUPS = ("identitas", "keuangan", "kertas", "grafis", "layar", "lainnya")
@@ -105,7 +107,8 @@ class ZeroShotHead:
             mul(rf.get("is_png", {}))
         return out
 
-    def predict(self, emb: np.ndarray, facts: list[UnitFacts]) -> list[tuple[str, str | None, float]]:
+    def group_scores(self, emb: np.ndarray, facts: list[UnitFacts]) -> list[tuple[dict[str, float], dict[str, str]]]:
+        """Per row: group probabilities after rule factors (before thresholds) and best sub label per group."""
         emb = np.asarray(emb, dtype=np.float32)
         if len(emb) == 0:
             return []
@@ -116,24 +119,94 @@ class ZeroShotHead:
         p = np.exp(logits - logits.max(1, keepdims=True))
         p /= p.sum(1, keepdims=True)
         sub_group = np.array(self._sub_group)
-        thr = self._cfg["thresholds"]
-        results: list[tuple[str, str | None, float]] = []
+        out: list[tuple[dict[str, float], dict[str, str]]] = []
         for i, f in enumerate(facts):
             gp = {g: float(p[i, sub_group == g].sum()) for g in GROUPS}
             for g, k in self._factors(f).items():
                 gp[g] = min(1.0, gp[g] * k)
-            winner = max(GROUPS, key=lambda g: gp[g])
-            prob = gp[winner]
-            if winner != "lainnya" and (prob < thr["group_min"] or (winner == "identitas" and prob < thr["identitas_min"])):
-                winner, prob = "lainnya", gp["lainnya"]
-            idx = np.flatnonzero(sub_group == winner)
-            sub = self._sub_label[int(idx[np.argmax(p[i, idx])])]
-            results.append((winner, sub, prob))
+            subs = {}
+            for g in GROUPS:
+                idx = np.flatnonzero(sub_group == g)
+                if len(idx):
+                    subs[g] = self._sub_label[int(idx[np.argmax(p[i, idx])])]
+            out.append((gp, subs))
+        return out
+
+    def decide(self, gp: dict[str, float], subs: dict[str, str]) -> tuple[str, str | None, float]:
+        """Pick the winning group with the shared thresholds."""
+        return decide(gp, subs, self._cfg["thresholds"])
+
+    def predict(self, emb: np.ndarray, facts: list[UnitFacts]) -> list[tuple[str, str | None, float]]:
+        return [self.decide(gp, subs) for gp, subs in self.group_scores(emb, facts)]
+
+
+def decide(gp: dict[str, float], subs: dict[str, str], thr: dict) -> tuple[str, str | None, float]:
+    """Winner by probability; a non-lainnya group below the thresholds falls back to lainnya."""
+    winner = max(GROUPS, key=lambda g: gp.get(g, 0.0))
+    prob = gp.get(winner, 0.0)
+    if winner != "lainnya" and (prob < thr["group_min"] or (winner == "identitas" and prob < thr["identitas_min"])):
+        winner, prob = "lainnya", gp.get("lainnya", 0.0)
+    return winner, subs.get(winner), prob
+
+
+HEAD_DIR = Path(STATE_DIR) / "ai" / "heads"
+_TRAINED_RE = re.compile(r"^trained-v(\d+)$")
+
+
+class TrainedHead:
+    """Softmax weights for the trained groups, zero-shot for the rest (see ai/train.py).
+
+    Final probability: fallback group = its zero-shot probability (after rule factors);
+    trained group = trained softmax prob * (1 - sum of fallback zero-shot probs), then the
+    same rule factors as zero-shot (clipped at 1.0). Thresholds are shared with zero-shot.
+    """
+
+    def __init__(self, path: Path, text_emb_fn: Callable[[list[str]], np.ndarray] = text_embeddings,
+                 config_path: Path | None = None):
+        path = Path(path)
+        data = np.load(path, allow_pickle=False)
+        self.weights = data["weights"].astype(np.float32)
+        self.bias = data["bias"].astype(np.float32)
+        self.groups = [str(g) for g in data["groups"]]
+        self.name = path.stem
+        self.version = self.name.removeprefix("trained-")
+        self._zs = ZeroShotHead(text_emb_fn=text_emb_fn, config_path=config_path)
+
+    def predict(self, emb: np.ndarray, facts: list[UnitFacts]) -> list[tuple[str, str | None, float]]:
+        emb = np.asarray(emb, dtype=np.float32)
+        base = self._zs.group_scores(emb, facts)
+        if not base:
+            return []
+        z = emb @ self.weights.T + self.bias
+        z = np.exp(z - z.max(1, keepdims=True))
+        z /= z.sum(1, keepdims=True)
+        thr = self._zs._cfg["thresholds"]
+        results = []
+        for i, (gp, subs) in enumerate(base):
+            fallback = sum(v for g, v in gp.items() if g not in self.groups)
+            scale = max(0.0, 1.0 - fallback)
+            final = {g: v for g, v in gp.items() if g not in self.groups}
+            factors = self._zs._factors(facts[i])
+            for j, g in enumerate(self.groups):
+                final[g] = min(1.0, float(z[i, j]) * scale * factors.get(g, 1.0))
+            results.append(decide(final, subs, thr))
         return results
 
 
-def get_head(name: str, root: Path | None = None) -> Head:
-    """Resolve a head by setting name. Task 8 adds ``trained-vN`` (loaded from ``root``)."""
+def trained_head_dir(root: Path) -> Path:
+    return Path(root) / HEAD_DIR
+
+
+def get_head(name: str, root: Path | None = None,
+             text_emb_fn: Callable[[list[str]], np.ndarray] | None = None) -> Head:
+    """Resolve a head by setting name: ``zeroshot`` or ``trained-vN`` (loaded from ``root``)."""
     if name in ("zeroshot", "zeroshot-v1"):
-        return ZeroShotHead()
-    raise ValueError(f"Head tidak dikenal: {name!r} (pilihan: zeroshot)")
+        return ZeroShotHead(**({"text_emb_fn": text_emb_fn} if text_emb_fn else {}))
+    if _TRAINED_RE.match(name):
+        if root is None:
+            raise ValueError(f"Head {name!r} butuh folder koleksi.")
+        path = trained_head_dir(root) / f"{name}.npz"
+        if not path.is_file():
+            raise ValueError(f"Head {name!r} tidak ditemukan di {path.parent}.")
+        return TrainedHead(path, **({"text_emb_fn": text_emb_fn} if text_emb_fn else {}))
+    raise ValueError(f"Head tidak dikenal: {name!r} (pilihan: zeroshot, trained-vN)")
