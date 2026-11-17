@@ -29,6 +29,7 @@ let viewerOpen = false;
 let wantGroup = null; // id of the group whose detail is wanted
 let detailTimer = null;
 let wantLast = false; // after a page change from the top edge: land on the last group
+let loading = 0; // group-list requests in flight: the rendered list may be about to change
 const detailCache = new Map();
 
 // After a pointer click the button would keep focus, and keys.js ignores Enter/Space on buttons.
@@ -118,11 +119,27 @@ function paintList() {
   const act = listEl.querySelector(".is-active");
   if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
   countEl.textContent = `${fmtNum(data.total)} grup`;
-  acceptAllBtn.disabled = !data.groups.length;
   pagerEl.replaceChildren(
-    el("button", { type: "button", class: "btn btn-ghost", disabled: page <= 1, onclick: pt(() => goPage(page - 1)) }, "‹ Sebelumnya"),
+    el("button", { type: "button", class: "btn btn-ghost", "data-step": "-1", onclick: pt(() => goPage(page - 1)) }, "‹ Sebelumnya"),
     el("span", { class: "muted" }, `${data.page} / ${data.pages}`),
-    el("button", { type: "button", class: "btn btn-ghost", disabled: page >= data.pages, onclick: pt(() => goPage(page + 1)) }, "Berikutnya ›"));
+    el("button", { type: "button", class: "btn btn-ghost", "data-step": "1", onclick: pt(() => goPage(page + 1)) }, "Berikutnya ›"));
+  syncControls();
+}
+
+// Page-level controls stay disabled while a group list is loading.
+function syncControls() {
+  acceptAllBtn.disabled = loading > 0 || !data.groups.length;
+  listEl.setAttribute("aria-busy", String(loading > 0));
+  for (const b of pagerEl.querySelectorAll("button[data-step]")) {
+    b.disabled = loading > 0 || (b.dataset.step === "-1" ? data.page <= 1 : data.page >= data.pages);
+  }
+}
+
+// True (with a toast) while the rendered list may still be replaced by a pending load.
+function listPending() {
+  if (!loading) return false;
+  toast("Masih memuat grup…");
+  return true;
 }
 
 function paintRow(i) {
@@ -132,25 +149,41 @@ function paintRow(i) {
 }
 
 async function loadList() {
-  data = await api("GET", `/api/review/groups/${encodeURIComponent(category)}?page=${page}`);
-  page = data.page;
-  if (wantLast) { focus = Math.max(0, data.groups.length - 1); wantLast = false; }
-  if (focus >= data.groups.length) focus = Math.max(0, data.groups.length - 1);
-  paintList();
-  showActive();
+  loading += 1;
+  syncControls();
+  try {
+    data = await api("GET", `/api/review/groups/${encodeURIComponent(category)}?page=${page}`);
+    page = data.page;
+    if (wantLast) { focus = Math.max(0, data.groups.length - 1); wantLast = false; }
+    if (focus >= data.groups.length) focus = Math.max(0, data.groups.length - 1);
+    paintList();
+    showActive();
+  } finally {
+    loading -= 1;
+    syncControls();
+  }
 }
 
 async function goPage(n, last = false) {
-  if (n < 1 || n > data.pages) return;
+  if (n < 1 || n > data.pages || listPending()) return;
+  const prevPage = page;
+  const prevFocus = focus;
   page = n;
   focus = 0;
   wantLast = last;
   clearDetail(); // until the new page arrives nothing on screen may be decided
-  try { await loadList(); } catch (e) { fail(e); }
+  try { await loadList(); } catch (e) {
+    // Stay on the page that is still rendered.
+    page = prevPage;
+    focus = prevFocus;
+    wantLast = false;
+    showActive();
+    fail(e);
+  }
 }
 
 function selectGroup(i) {
-  if (i < 0 || i >= data.groups.length) return;
+  if (i < 0 || i >= data.groups.length || listPending()) return;
   const prev = focus;
   focus = i;
   for (const [idx, on] of [[prev, false], [i, true]]) {
@@ -177,6 +210,9 @@ function clearDetail() {
   detail = null;
   cards = [];
   mfocus = 0;
+  metaEl.textContent = "";
+  reasonEl.hidden = true;
+  actionsEl.replaceChildren();
   cardsEl.replaceChildren(el("p", { class: "empty muted" }, "Memuat…"));
 }
 
@@ -355,8 +391,9 @@ async function keepAll() {
 }
 
 async function acceptActive() {
-  const g = data.groups[focus];
-  if (!g || busy) return;
+  if (busy || listPending()) return;
+  const g = readyGroup(); // only the group whose comparison is on screen
+  if (!g) return;
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
   busy = true;
   try {
@@ -376,18 +413,22 @@ async function acceptActive() {
 }
 
 async function acceptAll() {
-  if (!data.groups.length || busy) return;
+  if (!data.groups.length || busy || listPending()) return;
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
+  const shown = data; // the page the owner confirms for
+  const ids = shown.groups.map((g) => g.id);
   const ok = await confirmDialog({
     title: "Ikuti saran semua di halaman ini?",
-    body: [`${data.groups.length} grup di halaman ini akan mengikuti saran untuk anggota yang belum diputuskan.`,
+    body: [`${ids.length} grup di halaman ini akan mengikuti saran untuk anggota yang belum diputuskan.`,
       "Keputusan yang sudah Anda buat tidak diubah. Belum ada file yang dipindah sebelum Apply."],
     okLabel: "Ikuti saran semua",
   });
   if (!ok) return;
+  if (data !== shown || loading) { toast("Daftar grup berubah, silakan ulangi."); return; }
+  if (busy) return;
   busy = true;
   try {
-    await api("POST", "/api/review/accept", { group_ids: data.groups.map((g) => g.id) });
+    await api("POST", "/api/review/accept", { group_ids: ids });
     detailCache.clear();
     await loadList();
     bar.refresh();
@@ -426,7 +467,7 @@ function openFull() {
 // --- keys ----------------------------------------------------------------------------------
 
 function moveGroup(d) {
-  if (busy) return;
+  if (busy || listPending()) return;
   const n = focus + d;
   if (n >= 0 && n < data.groups.length) { selectGroup(n); return; }
   if (d > 0 && page < data.pages) goPage(page + 1);
