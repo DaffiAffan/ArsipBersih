@@ -6,6 +6,7 @@ from ..decisions import PurgeMismatch
 from ..mover import InsufficientSpace, NotUndoable, PendingMoves, UnknownBatch
 from ..pipeline import ScanIncomplete
 
+APPLY_CONTENT_CHANGED_TEXT = "Isi Apply berubah sejak dilihat — buka lagi ringkasannya."
 APPLY_MISMATCH_TEXT = "Jumlah berubah sejak kamu konfirmasi. Muat ulang, lalu periksa lagi."
 
 
@@ -32,6 +33,7 @@ _BY_CLASS = {
 # Classes from modules not importable here (yet) are matched by class name.
 _BY_NAME = {
     "ApplyMismatch": APPLY_MISMATCH_TEXT,
+    "ApplyContentChanged": APPLY_CONTENT_CHANGED_TEXT,
     "StillOnDisk": "File masih ada di disk, jadi baris ini tidak perlu dilepas. Coba jalankan lagi.",
     "EndpointOffline": "Folder file ini tidak bisa diakses (harddisk terlepas?). Sambungkan dulu, lalu coba lagi.",
     "HasPendingMove": (

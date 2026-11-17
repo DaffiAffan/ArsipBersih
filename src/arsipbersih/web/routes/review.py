@@ -18,7 +18,8 @@ from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import JobBusy, batch_result_dict
 from ..labels import CATEGORY_HELP, CATEGORY_LABELS
-from ..messages import APPLY_MISMATCH_TEXT, UserError, explain
+from arsipbersih.decisions import ApplyContentChanged
+from ..messages import APPLY_CONTENT_CHANGED_TEXT, APPLY_MISMATCH_TEXT, UserError, explain
 
 router = APIRouter(prefix="/api/review")
 
@@ -48,6 +49,8 @@ class GridIdsBody(BaseModel):
 class ApplyBody(BaseModel):
     keep: StrictInt = Field(ge=0)
     discard: StrictInt = Field(ge=0)
+    # Digest of the exact unit lists the owner saw; optional so count-only callers still work.
+    fingerprint: str | None = None
 
 
 class ApplyMismatch(Exception):
@@ -220,17 +223,22 @@ def apply_preview(category: str, conn: sqlite3.Connection = Depends(get_conn)):
         )
     else:
         text = f"{p.keep} keep, {p.discard} delete"
-    return {"keep": p.keep, "discard": p.discard, "unseen": p.unseen, "text": text}
+    return {
+        "keep": p.keep, "discard": p.discard, "unseen": p.unseen,
+        "text": text, "fingerprint": p.fingerprint,
+    }
 
 
-def _apply_job(root: Path, category: str, keep: int, discard: int):
+def _apply_job(root: Path, category: str, keep: int, discard: int, fingerprint: str | None = None):
     def run(report, stop):
         conn = open_db(root)  # sqlite connections are thread-bound
         try:
             p = decisions.preview_apply(conn, category)
             if (p.keep, p.discard) != (keep, discard):
                 raise ApplyMismatch(category)
-            return batch_result_dict(decisions.apply_category(conn, root, category))
+            if fingerprint is not None and p.fingerprint != fingerprint:
+                raise ApplyContentChanged(category)
+            return batch_result_dict(decisions.apply_category(conn, root, category, fingerprint))
         finally:
             conn.close()
 
@@ -249,9 +257,11 @@ def apply(
     p = decisions.preview_apply(conn, category)
     if (p.keep, p.discard) != (body.keep, body.discard):
         raise UserError(APPLY_MISMATCH_TEXT, 409)
+    if body.fingerprint is not None and p.fingerprint != body.fingerprint:
+        raise UserError(APPLY_CONTENT_CHANGED_TEXT, 409)
     if p.keep + p.discard == 0:
         raise UserError("Belum ada keputusan untuk di-apply", 400)
-    job = _apply_job(root, category, body.keep, body.discard)
+    job = _apply_job(root, category, body.keep, body.discard, body.fingerprint)
     return start_job(request, "apply", f"Apply {CATEGORY_LABELS.get(category, category)}", job)
 
 # --- pages ---------------------------------------------------------------------------------

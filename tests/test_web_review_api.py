@@ -397,3 +397,48 @@ def test_ai_group_same_category_leaves_seen_and_decision(web, root, review_units
     r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "keuangan"})
     assert r.json()["primary_category"] == "dokumen-keuangan"
     assert _unit_state(root, a) == (1, "discard")
+
+
+def test_apply_refuses_when_units_swapped_with_equal_counts(web, root, review_units):
+    a, b = review_units(2, seen={0, 1})
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    pv = web.get("/api/review/apply/burem").json()
+    assert (pv["keep"], pv["discard"]) == (1, 1) and pv["fingerprint"]
+    # Another tab swaps the two decisions: same counts, different units.
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"})
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+    r = web.post("/api/review/apply/burem",
+                 json={"keep": 1, "discard": 1, "fingerprint": pv["fingerprint"]})
+    assert r.status_code == 409
+    assert "Isi Apply berubah sejak dilihat" in r.json()["detail"]
+    assert _db_row(root, a) == "review" and _db_row(root, b) == "review"
+
+
+def test_apply_proceeds_when_fingerprint_matches(web, root, review_units):
+    a, b = review_units(2, seen={0, 1})
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    pv = web.get("/api/review/apply/burem").json()
+    r = web.post("/api/review/apply/burem",
+                 json={"keep": 1, "discard": 1, "fingerprint": pv["fingerprint"]})
+    assert r.status_code == 202
+    assert web.app_ref.state.jobs.wait().status == "done"
+    assert _db_row(root, a) == "archive" and _db_row(root, b) == "trash"
+
+
+def test_apply_category_rejects_changed_lists_before_moving(web, root, review_units):
+    from arsipbersih.decisions import ApplyContentChanged, apply_category, preview_apply
+
+    a, b = review_units(2, seen={0, 1})
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    conn = open_db(root)
+    try:
+        fp = preview_apply(conn, "burem").fingerprint
+        # Decision changes after the route check, before apply_category builds its lists.
+        web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"})
+        web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+        with pytest.raises(ApplyContentChanged):
+            apply_category(conn, root, "burem", fp)
+    finally:
+        conn.close()
+    assert _db_row(root, a) == "review" and _db_row(root, b) == "review"
+    assert (root / "_review/burem/HP/IMG_0.jpg").exists()
