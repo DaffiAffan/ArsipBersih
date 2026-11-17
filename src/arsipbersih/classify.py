@@ -20,7 +20,7 @@ from .pathrules import (
 CATEGORY_PRIORITY: tuple[str, ...] = (
     "rusak", "duplikat-persis", "duplikat-versi", "mirip-beruntun",
     "dokumen-identitas", "dokumen-keuangan", "dokumen-kertas", "screenshot",
-    "kiriman-chat", "download-meme", "pendamping-gopro", "sampah-hp",
+    "download-meme", "kiriman-chat", "pendamping-gopro", "sampah-hp",
     "video-pendek-gelap", "kepencet", "burem", "gelap-terang",
 )
 GROUP_CATEGORIES = frozenset({"duplikat-persis", "duplikat-versi", "mirip-beruntun"})

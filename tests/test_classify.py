@@ -81,6 +81,16 @@ def test_ai_label_adds_document_category_above_chat(conn_with):
     assert flags["dokumen-keuangan"] == "AI: Keuangan · struk (0,90)"
 
 
+def test_ai_grafis_label_moves_chat_unit_to_download_meme(conn_with):
+    # Owner decision 2026-11-17: graphics received by chat leave the Chat category.
+    conn = conn_with([dict(name="IMG-20230812-WA0001.jpg", path="Sumber/HP/WhatsApp",
+                           sharp=80, luma=120, std=50)])
+    _put_label(conn, _ai_unit_id(conn), "grafis", 0.9, sub="meme")
+    run_classify(conn, Settings())
+    assert conn.execute("select primary_category from units").fetchone()[0] == "download-meme"
+    assert set(_flags(conn)) == {"download-meme", "kiriman-chat"}
+
+
 def test_ai_never_removes_rule_flag(conn_with):
     conn = conn_with([dict(name="a.png", w=1080, h=2400)])
     _put_label(conn, _ai_unit_id(conn), "lainnya", 0.99, sub=None)
