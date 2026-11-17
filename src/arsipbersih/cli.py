@@ -133,6 +133,8 @@ def _plan_summary(conn, root: Path) -> None:
     typer.echo(f"To Arsip: {summary.archive_units} units, {human_bytes(summary.archive_bytes)}")
     for cat, (units, size) in summary.review.items():
         typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
+    for reason, (units, size) in summary.by_reason.items():
+        typer.echo(f"Within Arsip ({reason}): {units} units, {human_bytes(size)}")
     typer.echo(f"Skipped units: {len(summary.skipped)}")
     for unit_id, reason in summary.skipped:
         typer.echo(f"  skipped {unit_id}: {reason}")
@@ -411,6 +413,16 @@ def report(root: Path = _root_arg()) -> None:
     typer.echo(f"Saved by removing duplicates: {human_bytes(r.bytes_saved_duplicates)}")
     typer.echo(f"Non-media files left: {r.non_media_left}")
     typer.echo(f"Undated: {r.undated}")
+    if r.date_sources:
+        typer.echo("Sumber tanggal:")
+        for src, n in sorted(r.date_sources.items()):
+            typer.echo(f"  {src}: {n}")
+    typer.echo(f"Usulan tanggal acara yang belum diputuskan: {r.date_proposals}")
+    for folder, folder_month, month in r.event_month_mismatch:
+        typer.echo(
+            f"Saran ganti nama: {folder} berbulan {folder_month}, "
+            f"tapi sebagian besar fotonya {month}"
+        )
     typer.echo(f"Cache size: {human_bytes(r.cache_bytes)}")
     for w in r.clock_warnings:
         typer.echo(f"Warning: {w}")

@@ -259,6 +259,9 @@ class RapikanSummary:
     space_ok: bool
     space_error: str | None
     scan_done: bool
+    # Archive units moved for another reason (e.g. a corrected date): reason -> (units, bytes).
+    # Not counted in archive_units, which are the units that newly enter Arsip.
+    by_reason: dict[str, tuple[int, int]] = field(default_factory=dict)
 
 
 def summarize_rapikan(conn, root: Path) -> RapikanSummary:
@@ -268,6 +271,7 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
     archive_units = archive_bytes = 0
     review_units: dict[str, int] = {}
     review_bytes: dict[str, int] = {}
+    by_reason: dict[str, list[int]] = {}
     for um in moves:
         size = 0
         for fm in um.files:
@@ -275,7 +279,11 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
                 size += os.stat(long_path(to_abs(root, fm.src_rel))).st_size
             except OSError:
                 pass
-        if um.to_location == "archive":
+        if um.reason:
+            acc = by_reason.setdefault(um.reason, [0, 0])
+            acc[0] += 1
+            acc[1] += size
+        elif um.to_location == "archive":
             archive_units += 1
             archive_bytes += size
         else:
@@ -297,4 +305,5 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
         space_error is None,
         space_error,
         scan_done,
+        {r: (n, b) for r, (n, b) in by_reason.items()},
     )
