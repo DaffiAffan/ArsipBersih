@@ -230,6 +230,69 @@ def group_detail(conn: sqlite3.Connection, group_id: str) -> dict | None:
 # --- grid --------------------------------------------------------------------------------
 
 
+def _grid_order_sql(sort: str) -> str:
+    if sort == "date":
+        return "(b.taken_at is null), b.taken_at, b.unit_id"
+    return "(fl.score is null), fl.score, (b.taken_at is null), b.taken_at, b.unit_id"
+
+
+_GRID_FROM = (
+    f"from ({_BRIEF_SQL}) b"
+    " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
+)
+
+
+def grid_order(
+    conn: sqlite3.Connection,
+    category: str,
+    sort: Literal["score", "date"] = "score",
+    view: Literal["all", "unseen", "keep"] = "all",
+) -> list[str]:
+    if category not in GRID_CATEGORIES:
+        return []
+    cond = ""
+    if view == "unseen":
+        cond = " and b.seen = 0 and b.decision is null"
+    elif view == "keep":
+        cond = " and b.decision = 'keep'"
+    rows = conn.execute(
+        f"select b.unit_id {_GRID_FROM}"
+        f" where b.location='review' and b.primary_category=?{cond} order by {_grid_order_sql(sort)}",
+        (category,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _grid_item(r: sqlite3.Row, badges: dict[str, list[str]]) -> dict:
+    item = _brief(r)
+    item.update(
+        {
+            "score": r["score"],
+            "reason": r["reason"],
+            "seen": bool(r["seen"]),
+            "taken_at": r["taken_at"],
+            "badges": badges.get(r["unit_id"], []),
+        }
+    )
+    return item
+
+
+def grid_items_by_ids(conn: sqlite3.Connection, category: str, unit_ids: list[str]) -> list[dict]:
+    if category not in GRID_CATEGORIES:
+        return []
+    rows: dict[str, sqlite3.Row] = {}
+    for part in _chunks(unit_ids):
+        marks = ",".join("?" * len(part))
+        for r in conn.execute(
+            f"select b.*, fl.score, fl.reason {_GRID_FROM}"
+            f" where b.location='review' and b.primary_category=? and b.unit_id in ({marks})",
+            (category, *part),
+        ):
+            rows[r["unit_id"]] = r
+    badges = _badges(conn, list(rows))
+    return [_grid_item(rows[u], badges) for u in unit_ids if u in rows]
+
+
 def grid_items(
     conn: sqlite3.Connection,
     category: str,
@@ -242,10 +305,7 @@ def grid_items(
     total = conn.execute(
         "select count(*) from units where location='review' and primary_category=?", (category,)
     ).fetchone()[0]
-    if sort == "date":
-        order = "(b.taken_at is null), b.taken_at, b.unit_id"
-    else:
-        order = "(fl.score is null), fl.score, (b.taken_at is null), b.taken_at, b.unit_id"
+    order = _grid_order_sql(sort)
     rows = conn.execute(
         f"select b.*, fl.score, fl.reason from ({_BRIEF_SQL}) b"
         " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
@@ -253,19 +313,7 @@ def grid_items(
         (category, limit, offset),
     ).fetchall()
     badges = _badges(conn, [r["unit_id"] for r in rows])
-    items = []
-    for r in rows:
-        item = _brief(r)
-        item.update(
-            {
-                "score": r["score"],
-                "reason": r["reason"],
-                "seen": bool(r["seen"]),
-                "taken_at": r["taken_at"],
-                "badges": badges.get(r["unit_id"], []),
-            }
-        )
-        items.append(item)
+    items = [_grid_item(r, badges) for r in rows]
     return {"items": items, "total": total}
 
 

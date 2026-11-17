@@ -21,6 +21,7 @@ from ..messages import APPLY_MISMATCH_TEXT, UserError
 router = APIRouter(prefix="/api/review")
 
 MAX_SEEN_BATCH = 1000
+MAX_GRID_IDS = 500
 
 
 class DecisionBody(BaseModel):
@@ -29,6 +30,10 @@ class DecisionBody(BaseModel):
 
 
 class SeenBody(BaseModel):
+    unit_ids: list[str]
+
+
+class GridIdsBody(BaseModel):
     unit_ids: list[str]
 
 
@@ -97,6 +102,32 @@ def grid(
     if offset < 0:
         raise UserError("Offset tidak valid", 400)
     return queries.grid_items(conn, category, sort, offset)
+
+
+@router.get("/grid/{category}/order")
+def grid_order(
+    category: str,
+    sort: str = "score",
+    view: str = "all",
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    _grid_category(category)
+    if sort not in ("score", "date"):
+        raise UserError("Urutan tidak dikenal", 400)
+    if view not in ("all", "unseen", "keep"):
+        raise UserError("Tampilan tidak dikenal", 400)
+    ids = queries.grid_order(conn, category, sort, view)
+    return {"unit_ids": ids, "total": len(ids)}
+
+
+@router.post("/grid/{category}/items")
+def grid_items_by_ids(
+    category: str, body: GridIdsBody, conn: sqlite3.Connection = Depends(get_conn)
+):
+    _grid_category(category)
+    if len(body.unit_ids) > MAX_GRID_IDS:
+        raise UserError(f"Maksimal {MAX_GRID_IDS} item per permintaan", 400)
+    return {"items": queries.grid_items_by_ids(conn, category, body.unit_ids)}
 
 
 @router.get("/unit/{unit_id}")

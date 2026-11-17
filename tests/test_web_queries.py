@@ -169,3 +169,15 @@ def test_every_category_has_label_and_help():
 
     for cat in CATEGORY_PRIORITY:
         assert CATEGORY_LABELS.get(cat) and CATEGORY_HELP.get(cat), cat
+
+
+def test_grid_order_matches_grid_items_order(conn_with):
+    conn = conn_with([
+        {"name": n, "loc": "review", "category": "burem"} for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")
+    ])
+    for name, score in (("a.jpg", 40.0), ("b.jpg", 10.0), ("c.jpg", None), ("d.jpg", 10.0)):
+        conn.execute("update flags set score=? where unit_id=?", (score, _unit(conn, name)["uid"]))
+    conn.commit()
+    for sort in ("score", "date"):
+        expected = [i["unit_id"] for i in queries.grid_items(conn, "burem", sort, 0, 10_000)["items"]]
+        assert queries.grid_order(conn, "burem", sort, "all") == expected

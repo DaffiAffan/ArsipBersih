@@ -174,3 +174,29 @@ def test_apply_job_rechecks_counts_inside_job(web, root, review_units):
     assert _db_row(root, b) == "review"
     assert (root / "_review/burem/HP/IMG_0.jpg").exists()
     assert (root / "_review/burem/HP/IMG_1.jpg").exists()
+
+
+def test_unseen_snapshot_does_not_skip_when_items_become_seen(web, review_units):
+    ids = review_units(5)
+    order = web.get("/api/review/grid/burem/order?view=unseen").json()
+    assert order["total"] == 5 and set(order["unit_ids"]) == set(ids)
+    first = order["unit_ids"][:2]
+    web.post("/api/review/seen", json={"unit_ids": first})
+    rest = web.post("/api/review/grid/burem/items", json={"unit_ids": order["unit_ids"][2:]}).json()
+    assert [i["unit_id"] for i in rest["items"]] == order["unit_ids"][2:]
+    again = web.get("/api/review/grid/burem/order?view=unseen").json()
+    assert again["total"] == 3
+
+
+def test_keep_view_and_items_skip_units_no_longer_in_category(web, review_units):
+    a, b, c = review_units(3)
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+    assert web.get("/api/review/grid/burem/order?view=keep").json()["unit_ids"] == [b]
+    items = web.post("/api/review/grid/burem/items", json={"unit_ids": [a, "nope", c]}).json()["items"]
+    assert [i["unit_id"] for i in items] == [a, c]
+
+
+def test_grid_items_rejects_oversized_and_bad_view(web, review_units):
+    review_units(1)
+    assert web.post("/api/review/grid/burem/items", json={"unit_ids": ["x"] * 501}).status_code == 400
+    assert web.get("/api/review/grid/burem/order?view=semua").status_code == 400
