@@ -88,6 +88,35 @@ def test_seen_rejects_huge_batches(web, review_units, root):
     conn.close()
 
 
+def _decisions(root):
+    conn = open_db(root)
+    try:
+        return dict(conn.execute("select unit_id, decision from decisions where applied=0").fetchall())
+    finally:
+        conn.close()
+
+
+def test_bulk_discard_records_only_undecided(web, root, review_units):
+    a, b, c = review_units(3, category="kiriman-chat")
+    assert web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"}).status_code == 200
+    r = web.post("/api/review/decisions", json={"unit_ids": [a, b, c], "decision": "discard"})
+    assert r.status_code == 200
+    assert r.json() == {"recorded": 2}
+    assert _decisions(root) == {a: "keep", b: "discard", c: "discard"}
+
+
+def test_bulk_discard_validation(web, root, review_units):
+    (a,) = review_units(1, category="kiriman-chat")
+    r = web.post("/api/review/decisions", json={"unit_ids": ["x"] * 501, "decision": "discard"})
+    assert r.status_code == 400
+    assert "Maksimal 500 item per permintaan" in r.text
+    assert web.post("/api/review/decisions", json={"unit_ids": [a], "decision": "keep"}).status_code == 400
+    assert web.post("/api/review/decisions", json={"unit_ids": [a]}).status_code in (400, 422)
+    assert web.post("/api/review/decisions", json={"unit_ids": [a], "decision": "discard"},
+                    headers={"X-ArsipBersih": ""}).status_code == 403
+    assert _decisions(root) == {}
+
+
 def test_apply_conflicts_while_job_running(web, review_units):
     (u,) = review_units(1)
     web.post("/api/review/decision", json={"unit_id": u, "decision": "keep"})

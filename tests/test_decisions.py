@@ -16,6 +16,7 @@ from arsipbersih.decisions import (
     preview_apply,
     purge_trash,
     record,
+    record_bulk_discard,
     trash_totals,
 )
 
@@ -77,6 +78,27 @@ def test_grid_default_discard_only_for_seen(review_db):
     apply_category(conn, root, "burem")
     loc = dict(conn.execute("select id, location from units").fetchall())
     assert (loc[a], loc[b], loc[c]) == ("trash", "archive", "review")
+
+
+def test_record_bulk_discard_fills_only_undecided_review_units(review_db):
+    conn, root, (a, b, c) = review_db("kiriman-chat")
+    archived = _add_unit(conn, root, "Arsip/2024/2024-01/X.jpg", location="archive")
+    record(conn, a, "keep")
+    record(conn, b, "discard")
+    n = record_bulk_discard(conn, [a, b, c, archived, "missing-id"])
+    assert n == 1
+    assert _decision_map(conn) == {a: "keep", b: "discard", c: "discard"}
+    assert record_bulk_discard(conn, [a, b, c]) == 0  # second call changes nothing
+
+
+def test_record_bulk_discard_refills_applied_decision(review_db):
+    conn, root, (a, b, c) = review_db("kiriman-chat")
+    record(conn, a, "keep")
+    conn.execute("update decisions set applied=1 where unit_id=?", (a,))
+    conn.commit()
+    assert record_bulk_discard(conn, [a]) == 1
+    row = conn.execute("select decision, applied from decisions where unit_id=?", (a,)).fetchone()
+    assert tuple(row) == ("discard", 0)
 
 
 def test_group_accept_and_override_archive_keeper(group_db):

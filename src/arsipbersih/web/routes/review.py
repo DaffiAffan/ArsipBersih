@@ -22,10 +22,16 @@ router = APIRouter(prefix="/api/review")
 
 MAX_SEEN_BATCH = 1000
 MAX_GRID_IDS = 500
+MAX_BULK_DECISIONS = 500
 
 
 class DecisionBody(BaseModel):
     unit_id: str
+    decision: str | None = None
+
+
+class BulkDecisionBody(BaseModel):
+    unit_ids: list[str]
     decision: str | None = None
 
 
@@ -149,6 +155,15 @@ def decision(body: DecisionBody, conn: sqlite3.Connection = Depends(get_conn)):
     else:
         decisions.record(conn, body.unit_id, body.decision)
     return {"ok": True}
+
+
+@router.post("/decisions")
+def bulk_decisions(body: BulkDecisionBody, conn: sqlite3.Connection = Depends(get_conn)):
+    if body.decision != "discard":
+        raise UserError("Keputusan tidak valid", 400)
+    if len(body.unit_ids) > MAX_BULK_DECISIONS:
+        raise UserError(f"Maksimal {MAX_BULK_DECISIONS} item per permintaan", 400)
+    return {"recorded": decisions.record_bulk_discard(conn, body.unit_ids)}
 
 
 @router.post("/seen")

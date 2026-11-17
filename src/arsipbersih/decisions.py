@@ -50,14 +50,41 @@ def _now() -> str:
 # --- recording ---------------------------------------------------------------------------
 
 
+_UPSERT_DECISION = (
+    "insert into decisions (unit_id, decision, decided_at, applied) values (?, ?, ?, 0)"
+    " on conflict(unit_id) do update set decision=excluded.decision,"
+    " decided_at=excluded.decided_at, applied=0"
+)
+
+
 def record(conn: sqlite3.Connection, unit_id: str, decision: Literal["keep", "discard"]) -> None:
     with conn:
-        conn.execute(
-            "insert into decisions (unit_id, decision, decided_at, applied) values (?, ?, ?, 0)"
-            " on conflict(unit_id) do update set decision=excluded.decision,"
-            " decided_at=excluded.decided_at, applied=0",
-            (unit_id, decision, _now()),
-        )
+        conn.execute(_UPSERT_DECISION, (unit_id, decision, _now()))
+
+
+def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
+    """Discard every unit still in review that has no unapplied decision, in one
+    transaction. An explicit Keep or Delete the owner has not applied yet is never
+    overwritten. Returns the number of decisions recorded."""
+    ids = list(dict.fromkeys(unit_ids))
+    now = _now()
+    n = 0
+    with conn:
+        for i in range(0, len(ids), _CHUNK):
+            part = ids[i : i + _CHUNK]
+            marks = ",".join("?" * len(part))
+            todo = [
+                r[0]
+                for r in conn.execute(
+                    f"select u.id from units u where u.id in ({marks}) and u.location='review'"
+                    " and not exists (select 1 from decisions d where d.unit_id=u.id"
+                    " and d.applied=0)",
+                    part,
+                )
+            ]
+            conn.executemany(_UPSERT_DECISION, [(uid, "discard", now) for uid in todo])
+            n += len(todo)
+    return n
 
 
 def clear(conn: sqlite3.Connection, unit_id: str) -> None:
