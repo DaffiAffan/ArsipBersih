@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ArsipBersih{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/viewer.css">
+  <link rel="stylesheet" href="/static/css/review.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
 </head>
 <body>
   <aside class="sidebar">
@@ -16,9 +21,10 @@
         ("rencana", "/rencana", "Rencana Rapikan"),
         ("review", "/review", "Review"),
         ("riwayat", "/riwayat", "Riwayat"),
-        ("pengaturan", "/pengaturan", "Pengaturan"),
-        ("laporan", "/laporan", "Laporan")] %}
-      <a href="{{ href }}"{% if active == key %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
+        ("laporan", "/laporan", "Laporan"),
+        ("pengaturan", "/pengaturan", "Pengaturan")] %}
+      <a class="nav-item{% if active == key %} is-active{% endif %}" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% if key == "review" %}<ul id="nav-review" class="nav-sub" aria-label="Kategori review"></ul>{% endif %}
       {% endfor %}
     </nav>
   </aside>

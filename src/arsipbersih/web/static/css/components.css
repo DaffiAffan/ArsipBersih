@@ -1,0 +1,104 @@
+/* Tombol */
+button, .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  background: var(--color-surface-2); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-4); font: inherit; cursor: pointer; text-decoration: none;
+  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
+}
+button:hover, .btn:hover { border-color: var(--color-accent); }
+button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary, button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); font-weight: 600; }
+.btn-secondary { background: var(--color-surface-2); }
+.btn-keep { background: var(--color-keep); border-color: var(--color-keep); color: var(--color-bg); font-weight: 600; }
+.btn-danger, button.danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-bg); font-weight: 600; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--color-text-muted); }
+.btn-ghost:hover { background: var(--color-surface-2); color: var(--color-text); border-color: transparent; }
+.btn-icon { padding: var(--space-2); width: 32px; height: 32px; background: transparent; border-color: transparent; color: var(--color-text-muted); }
+.btn-icon:hover { background: var(--color-surface-2); color: var(--color-text); }
+
+/* Pil, lencana */
+.pill {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  background: var(--color-surface-2); color: var(--color-text-muted);
+  border: 1px solid var(--color-border); border-radius: var(--radius-pill);
+  padding: 2px var(--space-3); font-size: 13px; cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+.pill:hover { color: var(--color-text); }
+.pill.is-active { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); font-weight: 600; }
+.badge {
+  display: inline-flex; align-items: center; border-radius: var(--radius-control);
+  padding: 1px var(--space-2); font-size: 12px; font-weight: 600; line-height: 1.5;
+  background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border);
+}
+.badge-keep { background: var(--color-keep); border-color: var(--color-keep); color: var(--color-bg); }
+.badge-danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-bg); }
+.badge-muted { color: var(--color-text-muted); font-weight: 400; }
+
+/* Kartu, tabel */
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.card h2 { margin: 0 0 var(--space-2); font-size: 16px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); vertical-align: top; }
+.table th { color: var(--color-text-muted); font-weight: 600; font-size: 13px; }
+
+/* Dialog, menu, toast */
+.dialog, dialog {
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  padding: var(--space-5); max-width: 480px; box-shadow: var(--shadow-float);
+}
+.dialog::backdrop, dialog::backdrop { background: var(--scrim); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+.menu {
+  position: absolute; z-index: 60; min-width: 180px; padding: var(--space-1);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-float);
+}
+.menu button { display: flex; width: 100%; justify-content: flex-start; background: transparent; border-color: transparent; }
+.menu button:hover { background: var(--color-surface); border-color: transparent; }
+.toast {
+  position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%); z-index: 120;
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); box-shadow: var(--shadow-float);
+  animation: toast-in var(--duration-fast) ease-out;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.kbd {
+  font: 12px var(--font-mono); background: var(--color-surface-2); color: var(--color-text-muted);
+  border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: 4px; padding: 0 var(--space-2);
+}
+.empty { text-align: center; color: var(--color-text-muted); padding: var(--space-8) var(--space-5); }
+
+/* Spinner, progres */
+.spinner {
+  display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--color-border); border-top-color: var(--color-accent);
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress { display: block; height: 6px; border-radius: var(--radius-pill); background: var(--color-surface-2); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--color-accent); transition: width var(--duration-fast); }
+
+/* Sel foto: foto tidak pernah diredupkan atau diwarnai ulang */
+.photo-cell {
+  position: relative; aspect-ratio: 1; overflow: hidden; cursor: pointer; outline: none;
+  background: var(--color-surface-2); border-radius: var(--radius-control); border: 3px solid transparent;
+  transition: border-color var(--duration-fast);
+}
+.photo-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-cell.is-keep { border-color: var(--color-keep); }
+.photo-cell.is-focused { border-color: var(--color-accent); }
+.photo-cell .seen-dot { position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 0 2px var(--color-bg); }
+
+/* Inspektor, bilah melayang */
+.inspector { width: 300px; flex: none; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-left: 1px solid var(--color-border); font-size: 13px; }
+.floatbar {
+  position: fixed; left: 50%; bottom: var(--space-5); transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill); padding: var(--space-2) var(--space-4); box-shadow: var(--shadow-float);
+}

@@ -36,3 +36,12 @@ def test_favicon_is_served_locally(web):
     assert '<link rel="icon" href="/static/favicon.svg"' in web.get("/").text
     r = web.get("/static/favicon.svg")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_shell_uses_token_stylesheets(web):
+    html = web.get("/").text
+    for css in ("tokens.css", "base.css", "components.css"):
+        assert f'href="/static/css/{css}"' in html
+    assert "/static/app.css" not in html
+    assert 'id="nav-review"' in html
+    assert web.get("/static/css/tokens.css").status_code == 200

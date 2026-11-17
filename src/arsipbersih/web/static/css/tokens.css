@@ -1,0 +1,55 @@
+/* Lapisan primitif */
+:root {
+  --p-gray-950: #111215;
+  --p-gray-900: #18191d;
+  --p-gray-800: #24262c;
+  --p-gray-700: #2b2e35;
+  --p-gray-100: #e8e9ec;
+  --p-gray-400: #8e919a;
+  --p-blue-400: #7aa7ff;
+  --p-blue-950: #0b1220;
+  --p-green-400: #6cc497;
+  --p-red-400: #e0786e;
+
+  --p-space-unit: 4px;
+  --p-radius-6: 6px;
+  --p-radius-10: 10px;
+  --p-radius-full: 999px;
+  --p-font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --p-font-mono: ui-monospace, Consolas, monospace;
+}
+
+/* Token semantik */
+:root {
+  color-scheme: dark;
+  --color-bg: var(--p-gray-950);
+  --color-surface: var(--p-gray-900);
+  --color-surface-2: var(--p-gray-800);
+  --color-border: var(--p-gray-700);
+  --color-text: var(--p-gray-100);
+  --color-text-muted: var(--p-gray-400);
+  --color-accent: var(--p-blue-400);
+  --color-on-accent: var(--p-blue-950);
+  --color-keep: var(--p-green-400);
+  --color-danger: var(--p-red-400);
+
+  --space-1: calc(var(--p-space-unit) * 1);
+  --space-2: calc(var(--p-space-unit) * 2);
+  --space-3: calc(var(--p-space-unit) * 3);
+  --space-4: calc(var(--p-space-unit) * 4);
+  --space-5: calc(var(--p-space-unit) * 5);
+  --space-6: calc(var(--p-space-unit) * 6);
+  --space-7: calc(var(--p-space-unit) * 8);
+  --space-8: calc(var(--p-space-unit) * 12);
+
+  --radius-control: var(--p-radius-6);
+  --radius-card: var(--p-radius-10);
+  --radius-pill: var(--p-radius-full);
+
+  --font-ui: var(--p-font-ui);
+  --font-mono: var(--p-font-mono);
+
+  --duration-fast: 150ms;
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, .45), 0 0 0 1px var(--color-border);
+  --scrim: rgba(0, 0, 0, .6);
+}
