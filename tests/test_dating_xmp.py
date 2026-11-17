@@ -272,3 +272,57 @@ def test_rapikan_writes_xmp_for_units_moved_to_archive(root):
     assert sorted(p.name for p in (root / "Arsip/2023/2023-06").iterdir()) == [
         "IMG-20230601-WA0001.jpg", "IMG-20230601-WA0001.jpg.xmp", "IMG_1.jpg",
     ]
+
+
+def test_leftover_partial_is_an_error_not_foreign(root):
+    conn = open_db(root)
+    _add_unit(conn, root, "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg")
+    partial = root / "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg.xmp.partial"
+    partial.write_bytes(b"half")
+    res = write_dates(conn, root, SETTINGS)
+    assert res.written == 0 and res.skipped_foreign == []
+    assert len(res.errors) == 1 and "leftover temp file" in res.errors[0]
+    assert partial.read_bytes() == b"half"
+    assert not (root / "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg.xmp").exists()
+    assert conn.execute("select count(*) from xmp_writes").fetchone()[0] == 0
+
+
+def test_invalid_timezone_fails_before_writing(root):
+    from dataclasses import replace
+
+    from arsipbersih.config import save_settings
+    from arsipbersih.dating.xmp import InvalidTimezone
+
+    conn = open_db(root)
+    _add_unit(conn, root, "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg")
+    with pytest.raises(InvalidTimezone):
+        write_dates(conn, root, replace(SETTINGS, timezone="Mars/Olympus"))
+    save_settings(conn, replace(SETTINGS, timezone="Mars/Olympus"))
+    conn.close()
+    res = CliRunner().invoke(app, ["write-dates", str(root)])
+    assert res.exit_code == 1 and "Zona waktu" in res.stdout
+    assert not list(root.rglob("*.xmp"))
+
+
+def test_own_xmp_left_alone_when_date_is_camera_or_gone(root):
+    conn = open_db(root)
+    uid, _ = _add_unit(conn, root, "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg")
+    write_dates(conn, root, SETTINGS)
+    xmp = root / "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg.xmp"
+    before = xmp.read_bytes()
+
+    conn.execute("update units set taken_at=NULL, date_source=NULL where id=?", (uid,))
+    conn.commit()
+    res = write_dates(conn, root, SETTINGS)
+    assert res.stale_own == ["Arsip/2023/2023-06/IMG-20230601-WA0001.jpg"]
+    assert (res.written, res.rewritten, res.unchanged, res.not_needed) == (0, 0, 0, 0)
+
+    conn.execute("update units set taken_at='2023-06-01T10:00:00', date_source='exif' where id=?",
+                 (uid,))
+    conn.commit()
+    res = write_dates(conn, root, SETTINGS)
+    assert res.stale_own == ["Arsip/2023/2023-06/IMG-20230601-WA0001.jpg"]
+    assert xmp.read_bytes() == before
+    conn.close()
+    out = CliRunner().invoke(app, ["write-dates", str(root)])
+    assert out.exit_code == 0 and "XMP lama dibiarkan" in out.stdout

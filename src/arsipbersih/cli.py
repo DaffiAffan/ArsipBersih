@@ -523,7 +523,7 @@ def classify_cmd(
 @app.command("write-dates")
 def write_dates_cmd(root: Path = _root_arg()) -> None:
     """Write or refresh the date .xmp sidecars of archive units (media files are not changed)."""
-    from .dating.xmp import MAX_REPORTED, write_dates
+    from .dating.xmp import MAX_REPORTED, InvalidTimezone, write_dates
 
     with _root_locked(root):
         conn = open_db(root)
@@ -534,7 +534,11 @@ def write_dates_cmd(root: Path = _root_arg()) -> None:
             except PendingMoves as e:
                 typer.echo(str(e))
                 raise typer.Exit(1)
-            res = write_dates(conn, root, load_settings(conn))
+            try:
+                res = write_dates(conn, root, load_settings(conn))
+            except InvalidTimezone as e:
+                typer.echo(str(e))
+                raise typer.Exit(1)
         finally:
             conn.close()
     typer.echo(f"Ditulis: {res.written}")
@@ -544,6 +548,12 @@ def write_dates_cmd(root: Path = _root_arg()) -> None:
     typer.echo(f"Dilewati (punya XMP sendiri): {len(res.skipped_foreign)}")
     for rel in res.skipped_foreign[:MAX_REPORTED]:
         typer.echo(f"  {rel}")
+    if res.stale_own:
+        typer.echo(
+            f"XMP lama dibiarkan (tanggal kini dari EXIF atau kosong): {len(res.stale_own)}"
+        )
+        for rel in res.stale_own[:MAX_REPORTED]:
+            typer.echo(f"  {rel}")
     for err in journal_errors + res.errors:
         typer.echo(f"  Gagal: {err}")
     if res.errors:

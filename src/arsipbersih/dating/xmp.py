@@ -21,7 +21,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..config import Settings, load_settings
 from ..db import new_id
@@ -59,6 +59,17 @@ class XmpResult:
     not_needed: int = 0  # camera-dated (exif/quicktime): Immich reads the file itself
     unchanged: int = 0  # our sidecar already holds this date
     errors: list[str] = field(default_factory=list)
+    # Media rel paths whose unit has our sidecar but now a camera date or no date at all:
+    # the sidecar is left as it is (never deleted automatically) and reported.
+    stale_own: list[str] = field(default_factory=list)
+
+
+class InvalidTimezone(ValueError):
+    """settings.timezone is not a known IANA time zone."""
+
+
+class _LeftoverPartial(Exception):
+    """A `<target>.partial` already exists; it is never overwritten."""
 
 
 def _xmp_datetime(taken_at: str, precision: str | None, tz: str) -> str:
@@ -96,7 +107,11 @@ def _exists(path: Path) -> bool:
 
 def _write_partial(partial: Path, data: bytes) -> None:
     # "xb": a leftover or foreign .partial is never overwritten either.
-    with open(long_path(partial), "xb") as f:
+    try:
+        f = open(long_path(partial), "xb")
+    except FileExistsError:
+        raise _LeftoverPartial(partial.name) from None
+    with f:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
@@ -179,10 +194,10 @@ def _sidecars(conn: sqlite3.Connection) -> tuple[dict[str, _Own], dict[str, list
     return own, foreign
 
 
-def _tracked(conn: sqlite3.Connection, rel: str) -> bool:
-    return conn.execute(
-        "select 1 from files where rel_path = ? collate nocase limit 1", (rel,)
-    ).fetchone() is not None
+def _tracked_paths(conn: sqlite3.Connection) -> set[str]:
+    """Every files.rel_path, lowercased: one query per run instead of a full-table
+    `collate nocase` scan per new sidecar."""
+    return {r[0].lower() for r in conn.execute("select rel_path from files")}
 
 
 # --- main ---------------------------------------------------------------------------------
@@ -254,18 +269,29 @@ def write_dates(
     """Write or refresh date sidecars for archive units whose effective date is not a
     camera date. `unit_ids=None` means every archive unit."""
     root = Path(root)
+    try:
+        ZoneInfo(settings.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise InvalidTimezone(
+            f"Zona waktu di pengaturan tidak dikenal: {settings.timezone!r}."
+            " Perbaiki di Pengaturan (misalnya Asia/Jakarta). Belum ada file .xmp yang ditulis."
+        ) from None
     res = XmpResult()
+    tracked: set[str] | None = None
     units = _archive_units(conn, unit_ids)
     dates = effective_dates(conn, [u.unit_id for u in units])
     own_by_unit, foreign_by_unit = _sidecars(conn)
     for unit in units:
         taken_at, source, precision = dates.get(unit.unit_id, (None, None, None))
+        own = own_by_unit.get(unit.unit_id)
+        if own is not None and (source in CAMERA_SOURCES or not taken_at):
+            res.stale_own.append(unit.rel_path)  # left untouched, only reported
+            continue
         if source in CAMERA_SOURCES:
             res.not_needed += 1
             continue
         if not taken_at or not unit.present:
             continue
-        own = own_by_unit.get(unit.unit_id)
         try:
             media = _abs(root, unit.rel_path)
             stem_xmp = media.with_name(posixpath.splitext(media.name)[0] + ".xmp")
@@ -275,10 +301,13 @@ def write_dates(
             data = render_xmp(taken_at, precision or "second", settings.timezone)
             if own is None:
                 target_rel = unit.rel_path + ".xmp"
-                if _exists(_abs(root, target_rel)) or _tracked(conn, target_rel):
+                if tracked is None:
+                    tracked = _tracked_paths(conn)
+                if _exists(_abs(root, target_rel)) or target_rel.lower() in tracked:
                     res.skipped_foreign.append(unit.rel_path)
                     continue
                 _write_one(conn, root, unit, None, taken_at, data)
+                tracked.add(target_rel.lower())
                 res.written += 1
                 continue
             target = _abs(root, own.rel_path)
@@ -291,6 +320,11 @@ def write_dates(
                     continue
             _write_one(conn, root, unit, own, taken_at, data)
             res.rewritten += 1
+        except _LeftoverPartial as e:
+            res.errors.append(
+                f"{unit.rel_path}: leftover temp file {e} from an earlier run is in the way;"
+                " remove it, then write dates again"
+            )
         except FileExistsError:
             res.skipped_foreign.append(unit.rel_path)  # appeared between check and write
         except (OSError, ValueError, sqlite3.Error) as e:
