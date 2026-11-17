@@ -18,7 +18,8 @@ from .pathrules import (
 )
 
 CATEGORY_PRIORITY: tuple[str, ...] = (
-    "rusak", "duplikat-persis", "duplikat-versi", "mirip-beruntun", "screenshot",
+    "rusak", "duplikat-persis", "duplikat-versi", "mirip-beruntun",
+    "dokumen-identitas", "dokumen-keuangan", "dokumen-kertas", "screenshot",
     "kiriman-chat", "download-meme", "pendamping-gopro", "sampah-hp",
     "video-pendek-gelap", "kepencet", "burem", "gelap-terang",
 )
@@ -162,12 +163,49 @@ def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: str | None) -> li
     return flags
 
 
+AI_GROUP_NAMES = {
+    "identitas": "Identitas",
+    "keuangan": "Keuangan",
+    "kertas": "Kertas & catatan",
+    "grafis": "Grafis",
+    "layar": "Layar",
+    "lainnya": "Foto biasa",
+}
+
+
+def ai_flags_for(conn: sqlite3.Connection, head_name: str) -> dict[str, tuple[str, float, str]]:
+    """{unit_id: (category, prob, reason)} from stored AI labels of ``head_name``.
+
+    An owner correction (newest) replaces the head's label entirely; a confirmation changes
+    nothing. Groups without a category (lainnya) yield no flag.
+    """
+    from .ai.heads import GROUP_TO_CATEGORY
+    from .ai.store import effective_feedback, latest_labels
+
+    out: dict[str, tuple[str, float, str]] = {}
+    for unit_id, (grp, sub, prob) in latest_labels(conn, head_name).items():
+        cat = GROUP_TO_CATEGORY.get(grp)
+        if cat:
+            tail = f" · {sub}" if sub else ""
+            out[unit_id] = (cat, prob, f"AI: {AI_GROUP_NAMES.get(grp, grp)}{tail} ({prob:.2f})".replace(".", ","))
+    for unit_id, (grp, source) in effective_feedback(conn).items():
+        if source != "koreksi":
+            continue
+        cat = GROUP_TO_CATEGORY.get(grp)
+        if cat:
+            out[unit_id] = (cat, 1.0, f"Dikoreksi pemilik: {AI_GROUP_NAMES.get(grp, grp)}")
+        else:
+            out.pop(unit_id, None)
+    return out
+
+
 def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]:
     """Rewrite flags and primary_category for source/review/archive units."""
     views = [u for u in load_unit_views(conn) if u.location in ("source", "review", "archive")]
     extras = _extras(conn)
     broken = _broken_units(conn)
     group_flags = _group_flags(conn)
+    ai_flags = ai_flags_for(conn, settings.ai_head)
     counts: dict[str, int] = {}
     with conn:
         # A unit whose primary file is gone keeps no stale category from an earlier scan.
@@ -184,6 +222,10 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
             flags = list(group_flags.get(u.unit_id, []))
             if u.location != "archive":
                 flags += _classify_unit(u, extras[u.unit_id], settings, broken.get(u.unit_id))
+            if u.location != "archive" and u.kind != "video" and u.unit_id in ai_flags:
+                cat, prob, reason = ai_flags[u.unit_id]
+                if not any(f[0] == cat for f in flags):
+                    flags.append((cat, prob, reason))
             by_cat = {f[0]: f for f in flags}
             conn.execute("delete from flags where unit_id = ?", (u.unit_id,))
             for cat, score, reason in by_cat.values():
