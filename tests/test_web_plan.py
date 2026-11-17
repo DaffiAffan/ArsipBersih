@@ -38,3 +38,9 @@ def test_get_plan_does_not_write(web, conn_with):
     assert web.get("/api/plan").status_code == 200
     row = conn.execute("select event_key, event_name from units").fetchone()
     assert tuple(row) == (None, None)  # nothing persisted by the GET
+
+
+def test_plan_js_shares_modal_and_restores_focus_by_name(web):
+    js = web.get("/static/plan.js").text
+    assert "modalDialog" in js and 'dlg.showModal' not in js
+    assert "restoreFocus(ev.key, " in js
