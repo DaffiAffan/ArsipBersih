@@ -204,3 +204,44 @@ def test_decision_follows_event_rename(root, conn_with):
     _run(conn)
     new = _ids(conn)["IMG-20241102-WA0001.jpg"]
     assert store.effective_dates(conn)[new][1] == "event"
+
+
+def test_owner_narrow_range_stays_in_force(conn_with):
+    conn, ids = _bali(conn_with)
+    infer.approve_event(conn, "bali", "2024-07-12", "2024-07-20")
+    res = _run(conn)
+    assert res.proposals == [] and res.applied_events == 1
+    conn_with([_wa("IMG-20241105-WA0001.jpg", "2024-11-05T00:00:00")])
+    new = _ids(conn)["IMG-20241105-WA0001.jpg"]
+    _event(conn, "Bali", new)
+    res = _run(conn)
+    assert res.proposals == []
+    taken, source, _ = store.effective_dates(conn)[new]
+    assert source == "event" and "2024-07-12" <= taken[:10] <= "2024-07-20"
+
+
+def test_borrowed_date_replaces_event_date(conn_with):
+    conn, ids = _bali(conn_with)
+    wa = ids["IMG-20241030-WA0005.jpg"]
+    infer.approve_event(conn, "bali", "2024-07-10", "2024-07-28")
+    assert store.effective_dates(conn)[wa][1] == "event"
+    conn_with([_cam("IMG_20240801_120000.jpg", "2024-08-01T12:00:00", "Sumber/HP/DCIM")])
+    orig = _ids(conn)["IMG_20240801_120000.jpg"]
+    _group(conn, "duplikat-versi", orig, wa)
+    _run(conn)
+    assert store.effective_dates(conn)[wa] == ("2024-08-01T12:00:00", "borrowed", "second")
+    assert conn.execute("select count(*) from date_overrides where unit_id=? and source='event'",
+                        (wa,)).fetchone()[0] == 0
+
+
+def test_unit_leaving_event_loses_event_date(root, conn_with):
+    conn, ids = _bali(conn_with)
+    settings = load_settings(conn)
+    run_events(conn, settings)
+    infer.approve_event(conn, "bali", "2024-07-10", "2024-07-28")
+    wa = ids["IMG-20241030-WA0005.jpg"]
+    assert store.effective_dates(conn)[wa][1] == "event"
+    add_override(conn, "not_event", "Bali")
+    run_events(conn, settings)
+    _run(conn)
+    assert store.effective_dates(conn)[wa][1] == "filename"

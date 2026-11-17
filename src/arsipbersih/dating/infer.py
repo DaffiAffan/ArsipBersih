@@ -111,30 +111,55 @@ def _borrow(conn: sqlite3.Connection, units: dict[str, sqlite3.Row]) -> int:
     store.clear_auto_overrides(conn, "borrowed", commit=False)
     marks = ",".join("?" * len(LENDING_GROUPS))
     members: dict[str, list[str]] = defaultdict(list)
-    keep: dict[str, str | None] = {}
     for r in conn.execute(
-        "select g.id, g.suggested_keep_unit_id, m.unit_id from groups g"
-        f" join group_members m on m.group_id = g.id where g.kind in ({marks})"
-        " order by g.id, m.unit_id",
+        f"select m.group_id, m.unit_id from group_members m join groups g on g.id = m.group_id"
+        f" where g.kind in ({marks})",
         LENDING_GROUPS,
     ):
-        members[r["id"]].append(r["unit_id"])
-        keep[r["id"]] = r["suggested_keep_unit_id"]
-    done: set[str] = set()
-    for gid, ids in members.items():
+        members[r["group_id"]].append(r["unit_id"])
+    # Every camera-dated co-member of a WA copy is a candidate donor; the earliest
+    # (taken_at, unit id) wins, so the choice does not depend on group ids, which change
+    # with every scan.
+    best: dict[str, sqlite3.Row] = {}
+    for ids in members.values():
         rows = [units[u] for u in ids if u in units]
         donors = [r for r in rows if r["date_source"] in CAMERA_SOURCES and r["taken_at"]]
         if not donors:
             continue
-        preferred = [r for r in donors if r["id"] == keep[gid]]
-        donor = preferred[0] if preferred else min(donors, key=lambda r: (r["taken_at"], r["id"]))
+        donor = min(donors, key=lambda r: (r["taken_at"], r["id"]))
         for r in rows:
-            if r["id"] in done or not _is_wa_filename_unit(r):
+            if not _is_wa_filename_unit(r):
                 continue
-            store.set_override(conn, r["id"], donor["taken_at"], "second", "borrowed",
-                               donor["id"], "auto", commit=False)
-            done.add(r["id"])
-    return len(done)
+            cur = best.get(r["id"])
+            if cur is None or (donor["taken_at"], donor["id"]) < (cur["taken_at"], cur["id"]):
+                best[r["id"]] = donor
+    for uid in sorted(best):
+        donor = best[uid]
+        store.set_override(conn, uid, donor["taken_at"], "second", "borrowed",
+                           donor["id"], "auto", commit=False)
+    # Source order is borrowed > event: a real borrowed date replaces an owner event date.
+    conn.execute(
+        "delete from date_overrides where source = 'event' and unit_id in"
+        " (select unit_id from date_overrides where source = 'borrowed' and decided_by = 'auto')"
+    )
+    return len(best)
+
+
+def _drop_stray_event_rows(conn: sqlite3.Connection) -> None:
+    """Remove event dates of units that no longer belong to the event they came from
+    (event marked not_event, unit moved to another event)."""
+    mapped: dict[str, str] = {}
+    stray: list[tuple[str]] = []
+    for r in conn.execute(
+        "select o.id, o.ref, u.event_key from date_overrides o join units u on u.id = o.unit_id"
+        " where o.source = 'event'"
+    ):
+        ref = r["ref"]
+        if ref is not None and ref not in mapped:
+            mapped[ref] = current_event_key(conn, ref)
+        if ref is None or r["event_key"] != mapped[ref]:
+            stray.append((r["id"],))
+    conn.executemany("delete from date_overrides where id = ?", stray)
 
 
 # --- events -----------------------------------------------------------------------------
@@ -225,14 +250,23 @@ def _proposal(ev: _Event, dec: sqlite3.Row | None) -> EventProposal | None:
             return None
         status = "new"
     elif dec["decision"] == "approved":
-        if _within(cam, (dec["range_start"], dec["range_end"])):
+        # The owner's range (even one narrower than the camera range) stays in force until
+        # new camera photos grow the camera range past the one recorded at approval.
+        if not _camera_grew(cam, dec):
             return None
         status = "changed"
     else:  # ignored: quiet until the camera range grows past the one the owner saw
-        if not late or _within(cam, (dec["camera_start"], dec["camera_end"])):
+        if not late or not _camera_grew(cam, dec):
             return None
         status = "changed"
     return EventProposal(ev.key, ev.name, cam[0], cam[1], [u.unit_id for u in late], status)
+
+
+def _camera_grew(cam: tuple[str, str] | None, dec: sqlite3.Row) -> bool:
+    """True when the camera range now reaches outside the one recorded with the decision."""
+    if cam is None:
+        return False
+    return not _within(cam, (dec["camera_start"], dec["camera_end"]))
 
 
 def event_proposals(conn: sqlite3.Connection) -> list[EventProposal]:
@@ -301,13 +335,13 @@ def run_dates(conn: sqlite3.Connection, settings: Settings) -> DatesResult:
     try:
         rows = _units(conn)
         result.borrowed = _borrow(conn, {r["id"]: r for r in rows})
+        _drop_stray_event_rows(conn)
         decisions = _decisions(conn)
         for ev in _events(conn, rows).values():
             dec = decisions.get(ev.key)
-            cam = ev.camera_range
-            if dec is None or dec["decision"] != "approved" or cam is None:
+            if dec is None or dec["decision"] != "approved":
                 continue
-            if _within(cam, (dec["range_start"], dec["range_end"])):
+            if not _camera_grew(ev.camera_range, dec):
                 _apply(conn, ev, dec["range_start"], dec["range_end"])
                 result.applied_events += 1
         conn.commit()
