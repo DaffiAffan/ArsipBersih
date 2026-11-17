@@ -26,9 +26,12 @@ _OPEN_GROUP = (
 )
 
 
-# A group is fully decided when every member has a decisions row.
+# A group is fully decided when every member that needs a decision has a decisions row.
+# Members needing none: an archived suggested keeper, and members already in the trash.
 _GROUP_ALL_DECIDED = (
-    "not exists (select 1 from group_members m where m.group_id = g.id"
+    "not exists (select 1 from group_members m join units mu on mu.id = m.unit_id"
+    " where m.group_id = g.id and mu.location != 'trash'"
+    " and not (mu.location = 'archive' and m.unit_id is g.suggested_keep_unit_id)"
     " and not exists (select 1 from decisions d where d.unit_id = m.unit_id))"
 )
 

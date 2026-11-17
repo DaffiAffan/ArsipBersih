@@ -149,3 +149,23 @@ def test_group_progress_counts_only_fully_decided_groups(conn_with):
     decisions.record(conn, c, "keep")
     row = next(r for r in queries.category_counts(conn) if r["category"] == "duplikat-persis")
     assert (row["count"], row["done"]) == (2, 1)
+
+
+def test_group_with_archived_keeper_is_done_when_review_copy_decided(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "archive"},
+        {"name": "b.jpg", "loc": "review"},
+    ])
+    a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
+    _group(conn, "duplikat-persis", a, [a, b])
+    decisions.record(conn, b, "discard")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "duplikat-persis")
+    assert (row["count"], row["done"]) == (1, 1)
+
+
+def test_every_category_has_label_and_help():
+    from arsipbersih.classify import CATEGORY_PRIORITY
+    from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+
+    for cat in CATEGORY_PRIORITY:
+        assert CATEGORY_LABELS.get(cat) and CATEGORY_HELP.get(cat), cat
