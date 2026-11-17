@@ -25,8 +25,42 @@ _FILENAME_PATTERNS = [
     re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})-WA\d+", re.IGNORECASE),
 ]
 
+# WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg, WhatsApp Video 2024-11-20 at 10.04.48 PM(1).mp4
+_WA_WEB_RE = re.compile(
+    r"WhatsApp (?:Image|Video) (\d{4})-(\d{2})-(\d{2}) at (\d{1,2})\.(\d{2})\.(\d{2}) ([AP]M)",
+    re.IGNORECASE,
+)
+_WA_CLASSIC_RE = re.compile(r"^(?:IMG|VID)-\d{8}-WA\d+", re.IGNORECASE)
+_WA_WEB_NAME_RE = re.compile(r"^WhatsApp (?:Image|Video) \d{4}-\d{2}-\d{2} at ", re.IGNORECASE)
+
+
+def is_whatsapp_name(name: str) -> bool:
+    """True for WhatsApp phone names (IMG-YYYYMMDD-WA####) and Web/Desktop names."""
+    return bool(_WA_CLASSIC_RE.match(name) or _WA_WEB_NAME_RE.match(name))
+
+
+def _parse_whatsapp_web(name: str) -> datetime | None:
+    m = _WA_WEB_RE.search(name)
+    if not m:
+        return None
+    y, mo, d, h, mi, s = (int(g) for g in m.groups()[:6])
+    if not 1 <= h <= 12:
+        return None
+    h %= 12
+    if m.group(7).upper() == "PM":
+        h += 12
+    try:
+        return datetime(y, mo, d, h, mi, s)
+    except ValueError:
+        return None
+
 
 def parse_filename_date(name: str) -> datetime | None:
+    wa = _parse_whatsapp_web(name)
+    if wa is not None:
+        return wa
+    if _WA_WEB_RE.search(name):
+        return None
     for pattern in _FILENAME_PATTERNS:
         m = pattern.search(name)
         if not m:
@@ -43,6 +77,8 @@ def filename_has_time(name: str) -> bool:
 
     WhatsApp names (IMG-20230812-WA0001) only give the day; their 00:00:00 is not a real time.
     """
+    if _WA_WEB_RE.search(name):
+        return _parse_whatsapp_web(name) is not None
     for pattern in _FILENAME_PATTERNS:
         m = pattern.search(name)
         if not m:
