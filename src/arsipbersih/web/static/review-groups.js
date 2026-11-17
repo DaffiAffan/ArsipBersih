@@ -145,6 +145,7 @@ async function goPage(n, last = false) {
   page = n;
   focus = 0;
   wantLast = last;
+  clearDetail(); // until the new page arrives nothing on screen may be decided
   try { await loadList(); } catch (e) { fail(e); }
 }
 
@@ -167,14 +168,30 @@ function destroyZoom() {
   if (zoom) { zoom.destroy(); zoom = null; }
 }
 
-function showActive() {
+// Forget the shown group before anything async happens, so a key press while the next group
+// loads can never land on the previous group's members (readyGroup refuses instead).
+function clearDetail() {
   destroyZoom();
-  const g = data.groups[focus];
   clearTimeout(detailTimer);
+  wantGroup = null;
+  detail = null;
+  cards = [];
+  mfocus = 0;
+  cardsEl.replaceChildren(el("p", { class: "empty muted" }, "Memuat…"));
+}
+
+// The active group, but only once its detail is the one on screen; otherwise null + a toast.
+function readyGroup() {
+  const g = data.groups[focus];
+  if (g && detail && detail.id === g.id) return g;
+  if (g) toast("Masih memuat grup…");
+  return null;
+}
+
+function showActive() {
+  clearDetail();
+  const g = data.groups[focus];
   if (!g) {
-    wantGroup = null;
-    detail = null;
-    cards = [];
     metaEl.textContent = "";
     reasonEl.hidden = true;
     actionsEl.replaceChildren();
@@ -184,7 +201,6 @@ function showActive() {
   wantGroup = g.id;
   const cached = detailCache.get(g.id);
   if (cached) { renderDetail(cached); return; }
-  cardsEl.replaceChildren(el("p", { class: "empty muted" }, "Memuat…"));
   detailTimer = setTimeout(async () => {
     try {
       const d = await api("GET", `/api/review/group/${encodeURIComponent(g.id)}`);
@@ -273,6 +289,7 @@ function setMemberFocus(i) {
 
 function toggleZoom() {
   if (zoom) { destroyZoom(); return; }
+  if (!readyGroup()) return;
   const panes = cards.filter((c) => (c.m.media || {}).kind !== "video").map((c) => c.pane);
   if (!panes.length) { toast("Tidak ada foto untuk di-zoom."); return; }
   zoom = createZoom(panes);
@@ -281,49 +298,60 @@ function toggleZoom() {
 
 // --- decisions ---------------------------------------------------------------------------
 
-function afterDecision(idx = focus) {
-  if (data.groups[idx]) paintRow(idx);
-  if (idx === focus) cards.forEach((c) => c.paint());
+function afterDecision() {
   bar.refresh();
   reviewNav.refresh();
 }
 
-function record(g, c, decision) {
-  c.m.decision = decision;
-  const bm = g.members.find((x) => x.unit_id === c.m.unit_id);
+// Store a saved decision by id: the list and the detail may have been replaced while the
+// request was in flight, so never write into objects captured before the await.
+function record(gid, uid, decision) {
+  const details = new Set([detailCache.get(gid), detail && detail.id === gid ? detail : null]);
+  for (const d of details) {
+    const m = d && d.members.find((x) => x.unit_id === uid);
+    if (m) m.decision = decision;
+  }
+  const idx = data.groups.findIndex((x) => x.id === gid);
+  if (idx < 0) return; // group no longer listed: the server has it, nothing to paint
+  const bm = data.groups[idx].members.find((x) => x.unit_id === uid);
   if (bm) bm.decision = decision;
+  paintRow(idx);
+  if (idx === focus && detail && detail.id === gid) cards.forEach((c) => c.paint());
 }
 
 async function decide(i, decision) {
+  const g = readyGroup();
+  if (!g) return false;
   const c = cards[i];
-  const idx = focus;
-  const g = data.groups[idx];
-  if (!c || !g) return false;
+  if (!c || !detail.members.includes(c.m)) return false;
   if (locked(c.m)) { toast("Anggota ini sudah diproses, tidak bisa diubah."); return false; }
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return false; }
   if (busy) { toast("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return false; }
+  const gid = g.id;
+  const uid = c.m.unit_id;
   busy = true;
   try {
-    await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision });
-    record(g, c, decision);
-    afterDecision(idx);
+    await api("POST", "/api/review/decision", { unit_id: uid, decision });
+    record(gid, uid, decision);
+    afterDecision();
     return true;
   } catch (e) { fail(e); return false; } finally { busy = false; }
 }
 
 async function keepAll() {
-  const idx = focus;
-  const g = data.groups[idx];
-  if (!g || busy) return;
+  if (busy) return;
+  const g = readyGroup();
+  if (!g) return;
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
+  const gid = g.id;
+  const uids = cards.filter((c) => !locked(c.m) && c.m.decision !== "keep").map((c) => c.m.unit_id);
   busy = true;
   try {
-    for (const c of cards) {
-      if (locked(c.m) || c.m.decision === "keep") continue;
-      await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision: "keep" });
-      record(g, c, "keep");
+    for (const uid of uids) {
+      await api("POST", "/api/review/decision", { unit_id: uid, decision: "keep" });
+      record(gid, uid, "keep");
     }
-  } catch (e) { fail(e); } finally { busy = false; afterDecision(idx); }
+  } catch (e) { fail(e); } finally { busy = false; afterDecision(); }
 }
 
 async function acceptActive() {
@@ -336,6 +364,8 @@ async function acceptActive() {
     // the suggestion locally.
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
     detailCache.delete(g.id);
+    const at = data.groups.findIndex((x) => x.id === g.id); // the list may have moved meanwhile
+    if (at >= 0) focus = at;
     if (focus < data.groups.length - 1) focus += 1;
     else if (page < data.pages) { page += 1; focus = 0; }
     else toast("Itu grup terakhir di kategori ini.");
@@ -368,8 +398,9 @@ async function acceptAll() {
 // --- fullscreen compare ------------------------------------------------------------------
 
 function openFull() {
-  if (viewerOpen || !detail) return;
-  const members = detail.members;
+  if (viewerOpen || !readyGroup()) return;
+  const d = detail;
+  const members = d.members;
   const keeper = members.find((m) => m.is_keeper) || members[0];
   const others = members.filter((m) => m !== keeper);
   if (!others.length) return;
@@ -380,9 +411,10 @@ function openFull() {
     items: others.map((m) => [keeper, m]),
     index: start,
     onDecide: async (item, decision) => {
+      if (detail !== d) { toast("Masih memuat grup…"); return false; }
       const i = members.indexOf(item);
-      if (i < 0) return;
-      await decide(i, decision === "suggest" ? (item.is_keeper ? "keep" : "discard") : decision);
+      if (i < 0) return false;
+      return decide(i, decision === "suggest" ? (item.is_keeper ? "keep" : "discard") : decision);
     },
     onClose: () => {
       viewerOpen = false;

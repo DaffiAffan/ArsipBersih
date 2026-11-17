@@ -438,8 +438,8 @@ async function openFull(i) {
     items: vs.vitems,
     index: i,
     onDecide: async (card, decision) => {
-      if (bar.applying) return;
-      await decide(card.unit_id, decision === "suggest" ? null : decision);
+      if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return false; }
+      const ok = await decide(card.unit_id, decision === "suggest" ? null : decision);
       const it = byId.get(card.unit_id);
       if (it && viewerState === vs) {
         card.decision = it.decision;
@@ -447,6 +447,7 @@ async function openFull(i) {
         if (vi >= 0) vs.vitems[vi].decision = it.decision;
         if (vs.handle && vs.handle.index === vi) vs.handle.go(vi);
       }
+      return ok;
     },
     onIndex: (n) => {
       setFocus(n, false); // grid is behind the viewer: do not scroll it

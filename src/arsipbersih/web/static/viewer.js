@@ -69,13 +69,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
       box.append(body);
       side.append(box);
       renderInspector(body, it, {
-        onDecide: async (want) => {
-          if (!onDecide) return;
-          const at = i;
-          try { await onDecide(it, want === null ? "suggest" : want); }
-          catch (e) { toast(e && e.message ? e.message : "Keputusan gagal disimpan.", { kind: "error" }); }
-          if (!closed && i === at) renderSide();
-        },
+        onDecide: (want) => safeDecide(it, want === null ? "suggest" : want),
       });
     });
     if (had) {
@@ -102,6 +96,20 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     }
   }
 
+  // Every decision path (S/D/Enter and the inspector buttons) goes through here: wait for the
+  // owner's onDecide, and only advance (Enter) once it reports the decision as saved.
+  async function safeDecide(item, kind, advance = false) {
+    if (!onDecide) return false;
+    const at = i;
+    let ok = false;
+    try { ok = Boolean(await onDecide(item, kind)); }
+    catch (e) { toast(e && e.message ? e.message : "Keputusan gagal disimpan.", { kind: "error" }); }
+    if (closed || i !== at) return ok;
+    if (ok && advance && i + 1 < items.length) go(i + 1);
+    else renderSide();
+    return ok;
+  }
+
   function go(n) {
     if (n < 0 || n >= items.length) return;
     i = n;
@@ -112,9 +120,9 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const unbind = bindKeys({
     ArrowLeft: () => go(i - 1),
     ArrowRight: () => go(i + 1),
-    s: () => { if (onDecide) onDecide(current(), "keep"); },
-    d: () => { if (onDecide) onDecide(current(), "discard"); },
-    Enter: () => { if (onDecide) onDecide(current(), "suggest"); go(i + 1); },
+    s: () => { safeDecide(current(), "keep"); },
+    d: () => { safeDecide(current(), "discard"); },
+    Enter: () => { safeDecide(current(), "suggest", true); },
     Escape: () => close(),
     " ": (e) => {
       if (e && e.target && e.target.closest && e.target.closest("button")) return;
