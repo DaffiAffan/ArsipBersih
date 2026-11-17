@@ -412,6 +412,8 @@ def report(root: Path = _root_arg()) -> None:
     typer.echo(f"Non-media files left: {r.non_media_left}")
     typer.echo(f"Undated: {r.undated}")
     typer.echo(f"Cache size: {human_bytes(r.cache_bytes)}")
+    for w in r.clock_warnings:
+        typer.echo(f"Warning: {w}")
     typer.echo(f"Verify: {'OK' if v.ok else 'FAILED'} (database {v.db_count}, disk {v.disk_count})")
     for p in v.missing:
         typer.echo(f"  missing: {p}")

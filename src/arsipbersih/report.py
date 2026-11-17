@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from .dating.clock import device_warnings
 from .formats import IGNORED_NAMES, SKIP_DIRS, Kind, detect_kind
 from .layout import ARCHIVE_DIR, REVIEW_DIR, SOURCE_DIR, STATE_DIR, TRASH_DIR, long_path
 
@@ -24,6 +25,7 @@ class Report:
     non_media_left: int
     undated: int
     cache_bytes: int
+    clock_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -105,6 +107,7 @@ def build_report(conn: sqlite3.Connection, root: Path) -> Report:
         non_media_left=sum(1 for _ in _walk_files(root, SOURCE_DIR, media=False)),
         undated=undated,
         cache_bytes=_dir_bytes(cache) if cache.is_dir() else 0,
+        clock_warnings=device_warnings(conn),
     )
 
 

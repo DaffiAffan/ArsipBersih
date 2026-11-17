@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from ...cli import WINGET_HINTS
+from ...dating.clock import device_warnings
 from ...db import open_db
 from ...layout import SOURCE_DIR
 from ...lock import RootLocked, acquire_root_lock
@@ -69,6 +70,7 @@ def home_data(request: Request, conn=Depends(get_conn)):
         "by_location": by_location,
         "categories": category_counts(conn),
         "warnings": warnings,
+        "clock_warnings": device_warnings(conn),
         "steps": home_steps(conn, scanned=last is not None),
         "tools_ok": bool(t.exiftool and t.ffmpeg and t.ffprobe),
     }
