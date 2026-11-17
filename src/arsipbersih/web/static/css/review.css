@@ -38,17 +38,62 @@
 .rv-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .rv-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--color-text-muted); }
 
-/* grid review */
-.gr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.gcell { position: relative; aspect-ratio: 1; border-radius: var(--radius-control); overflow: hidden; background: var(--color-surface-2); border: 3px solid transparent; cursor: pointer; outline: none; }
-.gcell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gcell.focused { border-color: var(--color-accent); }
-.gcell.keep { border-color: var(--color-keep); }
-.gcell.keep.focused { box-shadow: 0 0 0 2px var(--color-accent); }
-.gcell.discard { border-bottom-color: var(--color-danger); }
-.gcell .score { position: absolute; right: 4px; top: 4px; background: rgba(0,0,0,.7); border-radius: 4px; padding: 0 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
-.gcell .gmark { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 12px; padding: 2px 0; background: rgba(0,0,0,.7); }
-.gcell.keep .gmark { background: var(--color-keep); color: var(--color-bg); font-weight: 700; }
-.gcell.discard .gmark { color: var(--color-danger); }
-.gcell .gnoprev { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 12px; padding: 2px 4px; background: rgba(0,0,0,.6); color: var(--color-text-muted); }
-.gr-more { text-align: center; padding: 16px 0; color: var(--color-text-muted); }
+/* Review grid (review-grid.js): foto tidak pernah diredupkan; penanda berupa titik dan label */
+.grid-root { padding-bottom: 96px; } /* ruang untuk bilah Apply melayang */
+.grid-toolbar {
+  position: sticky; top: calc(var(--space-6) * -1); z-index: 20; /* sticky ignores .content padding */
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-2) 0; background: var(--color-bg);
+}
+.grid-tabs { display: flex; gap: var(--space-2); }
+.grid-count { font-size: 13px; }
+.grid-spacer { flex: 1; }
+.grid-ctl { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
+.grid-ctl input[type=range] { width: 90px; accent-color: var(--color-accent); }
+.grid-select { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 4px 8px; font: inherit; font-size: 13px; }
+.grid-toolbar .btn[aria-pressed="true"] { background: var(--color-surface-2); color: var(--color-text); }
+.grid-hint { font-size: 12px; margin: 0 0 var(--space-3); }
+.grid-hint .kbd { font-size: 11px; }
+.grid-layout { display: flex; gap: var(--space-4); align-items: flex-start; }
+.grid-col { flex: 1; min-width: 0; }
+.photo-grid { --cell-min: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr)); gap: var(--space-2); }
+.photo-grid.is-dense { gap: var(--space-1); }
+.photo-cell.is-keep.is-focused { border-color: var(--color-keep); box-shadow: 0 0 0 2px var(--color-accent); }
+.photo-cell .seen-dot[hidden], .photo-cell .cell-mark[hidden] { display: none; }
+.photo-cell .cell-mark { position: absolute; left: 4px; top: 4px; font-size: 11px; padding: 0 6px; }
+.photo-grid.is-dense .cell-mark { font-size: 10px; padding: 0 4px; }
+.photo-cell .cell-caption {
+  position: absolute; left: 0; right: 0; bottom: 0; display: none;
+  padding: 2px 6px; font-size: 11px; background: rgba(0, 0, 0, .72); color: var(--color-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.photo-cell:hover .cell-caption, .photo-cell.is-focused .cell-caption { display: block; }
+.photo-cell .cell-noprev { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; font-size: 12px; color: var(--color-text-muted); }
+.photo-cell .cell-noprev[hidden] { display: none; }
+.grid-more { text-align: center; padding: var(--space-4) 0; color: var(--color-text-muted); }
+
+/* Panel info (inspector.js) */
+.grid-inspector { position: sticky; top: 32px; max-height: calc(100vh - 170px); border: 1px solid var(--color-border); border-radius: var(--radius-card); }
+.grid-inspector[hidden] { display: none; }
+.insp-preview { width: 100%; height: min(200px, 26vh); object-fit: contain; display: block; background: var(--color-bg); border-radius: var(--radius-control); }
+.insp-noprev { display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); }
+.insp-name { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); }
+.insp-name strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.insp-path { font-size: 12px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.insp-fullpath { margin-top: var(--space-1); }
+.insp-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: var(--space-3) 0; }
+.insp-facts dt { color: var(--color-text-muted); }
+.insp-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.insp-why { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); }
+.insp-why h4 { margin: 0 0 var(--space-2); font-size: 13px; }
+.insp-why ul { margin: 0; padding-left: var(--space-4); }
+.insp-effect { margin: var(--space-2) 0 0; color: var(--color-text-muted); }
+.insp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.insp-actions .btn { flex: 1; }
+.insp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
+.insp-actions .kbd { background: rgba(0, 0, 0, .2); color: inherit; border-color: rgba(0, 0, 0, .25); }
+
+/* Bilah Apply melayang (floatbar.js) */
+.floatbar-summary { font-size: 14px; white-space: nowrap; }
+.floatbar-keep { color: var(--color-keep); font-weight: 600; }
+.floatbar-trash { color: var(--color-danger); font-weight: 600; }

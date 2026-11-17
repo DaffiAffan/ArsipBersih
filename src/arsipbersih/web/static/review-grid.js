@@ -1,88 +1,80 @@
+// Review grid: tabs, density, inspector, floating Apply bar and dwell-based "seen" (D-032).
 import { api, el } from "/static/api.js";
 import { bindKeys } from "/static/keys.js";
-import { openViewer } from "/static/viewer.js";
-import { watchJob } from "/static/job.js";
+import { openViewer, CATEGORY_LABELS } from "/static/viewer.js";
+import { reviewNav } from "/static/nav.js";
+import { fmtNum, registerHelp, toast } from "/static/ui.js";
+import { createSeenQueue, createSeenTracker } from "/static/seen-dwell.js";
+import { createInspectorLoader } from "/static/inspector.js";
+import { mountFloatBar } from "/static/floatbar.js";
 
 const main = document.getElementById("rv-main");
 const root = document.getElementById("grid-root");
+const scroller = document.querySelector(".content");
 const category = main.dataset.category;
 const label = main.dataset.label || category;
 
+const PAGE = 120;
 const SEEN_CHUNK = 1000;
 const SEEN_DELAY_MS = 1000;
+const SIZES = [100, 150, 220]; // slider value -> minimum column width in px (0 = cepat, 2 = santai)
+const VIEWS = [["all", "Semua"], ["unseen", "Belum dilihat"], ["keep", "Keep"]];
+const EMPTY = { all: "Tidak ada item di kategori ini.", unseen: "Semua foto di sini sudah dilihat.", keep: "Belum ada yang di-Keep." };
+const PREF_KEY = `ab.grid.${category}`;
 
-let items = [];
-let total = 0;
+// --- preferences (view only; per category) -------------------------------------------
+
+function loadPrefs() {
+  const prefs = { size: 1, inspector: false };
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREF_KEY) || "null");
+    if (raw && SIZES[raw.size] !== undefined) prefs.size = raw.size;
+    if (raw && typeof raw.inspector === "boolean") prefs.inspector = raw.inspector;
+  } catch (_) { /* storage blocked or corrupt: defaults */ }
+  return prefs;
+}
+
+function savePrefs() {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (_) { /* best effort */ }
+}
+
+const prefs = loadPrefs();
+
+// --- state ---------------------------------------------------------------------------
+
+let view = "all";
 let sort = "score";
+let order = []; // unit ids of the current tab snapshot
+let next = 0; // index into `order` of the next id to fetch
+let items = [];
+const byId = new Map(); // unit_id -> item
+const cells = new Map(); // unit_id -> element
 let focus = 0;
-let pendingApply = 0;
-let message = "";
-let applying = false;
 let busy = false;
 let loading = false;
-let exhausted = false;
 let loadFailed = false;
 let generation = 0;
 let viewerState = null; // { vitems, loaded:Set, handle }
 
-// DOM pieces (built once in buildShell)
-let gridEl = null;
-let sentinel = null;
-let applyBtn = null;
-let msgEl = null;
-let countEl = null;
-let cellObserver = null;
-let moreObserver = null;
-const cells = new Map(); // unit_id -> element
+function fail(err) { toast(err && err.message ? err.message : String(err), { kind: "error" }); }
+function indexOfUnit(id) { const it = byId.get(id); return it ? it.idx : -1; }
+function focusedItem() { return items[focus]; }
 
-function setMessage(text) {
-  message = text || "";
-  if (msgEl) { msgEl.textContent = message; msgEl.hidden = !message; }
-}
+// --- seen tracking ---------------------------------------------------------------------
 
-function fail(err) { setMessage(err && err.message ? err.message : String(err)); }
-
-// --- sidebar & header counts ----------------------------------------------------------
-
-async function refreshChrome() {
-  try {
-    const cats = await api("GET", "/api/review/categories");
-    const byCat = new Map(cats.map((c) => [c.category, c]));
-    for (const a of document.querySelectorAll("#rv-cats a[data-cat]")) {
-      const c = byCat.get(a.dataset.cat);
-      a.hidden = !c && a.dataset.cat !== category;
-      const badge = a.querySelector(".rv-count");
-      if (badge) badge.textContent = c ? String(c.count) : "0";
-    }
-    const mine = byCat.get(category);
-    pendingApply = mine ? mine.pending_apply : 0;
-    updateHead();
-  } catch (_) { /* keep the previous numbers */ }
-}
-
-function updateHead() {
-  if (applyBtn) {
-    applyBtn.textContent = `Apply (${pendingApply})`;
-    applyBtn.disabled = pendingApply === 0 || applying;
-  }
-  if (countEl) countEl.textContent = `${items.length} dari ${total} item`;
-}
-
-// --- seen tracking --------------------------------------------------------------------
-
-const seenQueue = new Set();
-let seenTimer = null;
-let seenChain = Promise.resolve();
-let seenPaused = false;
-
-function scheduleSeen() {
-  if (!seenTimer) seenTimer = setTimeout(() => { seenTimer = null; flushSeen(); }, SEEN_DELAY_MS);
-}
+const localSeen = new Set(); // queued or sent this page: drawn with the dot right away
+let seenSent = false;
+const seenQ = createSeenQueue({
+  chunk: SEEN_CHUNK, delayMs: SEEN_DELAY_MS,
+  onSent: (ids) => { seenSent = true; for (const id of ids) { const it = byId.get(id); if (it) it.seen = true; } },
+});
 
 function queueSeen(item) {
-  if (!item || item.seen || seenQueue.has(item.unit_id)) return;
-  seenQueue.add(item.unit_id);
-  scheduleSeen();
+  if (!item || item.seen || !seenQ.add(item.unit_id)) return;
+  localSeen.add(item.unit_id);
+  const cell = cells.get(item.unit_id);
+  if (cell) tracker.unobserve(cell);
+  repaint(item);
 }
 
 // Grid-side actions (click, S/D/Enter) only count as "seen" when the owner actually saw the
@@ -92,154 +84,164 @@ function queueSeenIfShown(item) {
   if (item && item.thumbState === "ok") queueSeen(item);
 }
 
-async function sendSeen() {
-  while (seenQueue.size) {
-    const ids = [...seenQueue];
-    seenQueue.clear();
-    for (let i = 0; i < ids.length; i += SEEN_CHUNK) {
-      const part = ids.slice(i, i + SEEN_CHUNK);
-      try {
-        await api("POST", "/api/review/seen", { unit_ids: part });
-      } catch (_) {
-        for (const id of ids.slice(i)) seenQueue.add(id); // retry later
-        return false;
-      }
-      const set = new Set(part);
-      for (const it of items) if (set.has(it.unit_id)) it.seen = true;
-    }
-  }
-  return true;
-}
-
 // Resolves true only when every queued id reached the server.
 function flushSeen() {
-  if (seenTimer) { clearTimeout(seenTimer); seenTimer = null; }
-  const p = seenChain.then(sendSeen);
-  seenChain = p.catch(() => false);
-  return p.then((ok) => {
-    if (!ok) scheduleSeen();
-    refreshChrome();
+  return seenQ.flush().then((ok) => {
+    if (seenSent) { seenSent = false; bar.refresh(); reviewNav.refresh(); }
     return ok;
   });
 }
 
-function flushSeenOnLeave() {
-  const ids = [...seenQueue];
-  seenQueue.clear();
-  for (let i = 0; i < ids.length; i += SEEN_CHUNK) {
-    try {
-      fetch("/api/review/seen", {
-        method: "POST",
-        keepalive: true,
-        headers: { "X-ArsipBersih": "1", "Content-Type": "application/json" },
-        body: JSON.stringify({ unit_ids: ids.slice(i, i + SEEN_CHUNK) }),
-      }).catch(() => {});
-    } catch (_) { /* leaving anyway */ }
+const tracker = createSeenTracker({ root: scroller, onSeen: (id) => queueSeen(byId.get(id)) });
+
+// Dwell only counts while the grid itself is what the owner looks at.
+function cellReady(item) {
+  return () => item.thumbState === "ok" && !viewerState && !document.querySelector("dialog[open]");
+}
+
+// --- shell -----------------------------------------------------------------------------
+
+const countEl = el("span", { class: "grid-count muted" });
+const tabs = VIEWS.map(([v, text]) => el("button", {
+  type: "button", class: "pill", role: "tab", "data-view": v, onclick: () => { if (view !== v) { view = v; reload(); } },
+}, text));
+const sortSel = el("select", { class: "grid-select", "aria-label": "Urutan", onchange: (e) => { sort = e.target.value; reload(); } },
+  el("option", { value: "score" }, "Skor (terburuk dulu)"),
+  el("option", { value: "date" }, "Tanggal"));
+const sizeInput = el("input", { type: "range", min: "0", max: String(SIZES.length - 1), step: "1", "aria-label": "Ukuran thumbnail",
+  oninput: (e) => { prefs.size = Number(e.target.value); savePrefs(); applySize(); } });
+const infoBtn = el("button", { type: "button", class: "btn btn-ghost", onclick: () => toggleInspector() },
+  "Info ", el("kbd", { class: "kbd" }, "I"));
+const gridEl = el("div", { class: "photo-grid" });
+const sentinel = el("div", { class: "grid-more" });
+const inspEl = el("aside", { class: "inspector grid-inspector", "aria-label": "Info foto" });
+
+root.classList.add("grid-root");
+root.replaceChildren(
+  el("div", { class: "grid-toolbar" },
+    el("div", { class: "grid-tabs", role: "tablist", "aria-label": "Tampilan" }, ...tabs),
+    countEl,
+    el("span", { class: "grid-spacer" }),
+    el("label", { class: "grid-ctl" }, "Urutan ", sortSel),
+    el("label", { class: "grid-ctl" }, el("span", { "aria-hidden": "true" }, "▦"), sizeInput, el("span", { "aria-hidden": "true" }, "▢")),
+    infoBtn),
+  el("p", { class: "grid-hint muted" },
+    el("kbd", { class: "kbd" }, "S"), " keep · ", el("kbd", { class: "kbd" }, "D"), " delete · ",
+    el("kbd", { class: "kbd" }, "Spasi"), " layar penuh · ", el("kbd", { class: "kbd" }, "?"), " bantuan"),
+  el("div", { class: "grid-layout" }, el("div", { class: "grid-col" }, gridEl, sentinel), inspEl));
+const bar = mountFloatBar(root, {
+  category, mode: "grid", label,
+  beforeApply: async () => {
+    if (await flushSeen()) return true;
+    toast("Tidak bisa mengirim daftar item yang sudah dilihat. Coba lagi sebentar lagi.", { kind: "error" });
+    return false;
+  },
+  onApplied: () => { reload().catch(fail); },
+});
+
+function applySize() {
+  sizeInput.value = String(prefs.size);
+  gridEl.style.setProperty("--cell-min", `${SIZES[prefs.size]}px`);
+  gridEl.classList.toggle("is-dense", prefs.size === 0);
+}
+
+function toggleInspector(open = !prefs.inspector) {
+  prefs.inspector = open;
+  savePrefs();
+  inspEl.hidden = !open;
+  infoBtn.setAttribute("aria-pressed", String(open));
+  if (open) showInspector();
+}
+
+function paintToolbar() {
+  for (const t of tabs) {
+    const on = t.dataset.view === view;
+    t.classList.toggle("is-active", on);
+    t.setAttribute("aria-selected", String(on));
   }
+  countEl.textContent = `${fmtNum(order.length)} item`;
 }
 
-window.addEventListener("pagehide", flushSeenOnLeave);
+// --- inspector ---------------------------------------------------------------------------
 
-// Called only after the cell's real thumbnail fired "load" (see watchThumb).
-function observeSeen(cell, item) {
-  if (item.seen || !cellObserver) return;
-  cell.__item = item;
-  cellObserver.observe(cell);
+const insp = createInspectorLoader(inspEl, { onError: fail });
+
+function showInspector() {
+  if (!prefs.inspector) return;
+  const it = focusedItem();
+  insp.show(it ? it.unit_id : null, () => (it ? it.decision : null), (decision) => {
+    queueSeenIfShown(it);
+    decide(it.unit_id, decision);
+  });
 }
 
-// Re-fire the initial callback for still-unseen cells (after a pause ended).
-function resyncObserver() {
-  if (!cellObserver) return;
-  for (const cell of cells.values()) {
-    if (cell.__item && !cell.__item.seen && !seenQueue.has(cell.__item.unit_id)) {
-      cellObserver.unobserve(cell);
-      cellObserver.observe(cell);
-    }
-  }
-}
-
-function makeCellObserver() {
-  if (typeof IntersectionObserver === "undefined") return null;
-  return new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting || e.intersectionRatio < 0.5) continue;
-      if (seenPaused || viewerState) continue; // occluded by a dialog/viewer: stay observed
-      queueSeen(e.target.__item);
-      cellObserver.unobserve(e.target);
-    }
-  }, { threshold: 0.5 });
-}
-
-// --- grid rendering -------------------------------------------------------------------
+// --- cells -------------------------------------------------------------------------------
 
 function fmtScore(v) {
   const n = Number(v);
   return (Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(2)).replace(".", ",");
 }
 
-function indexOfUnit(id) { return items.findIndex((x) => x.unit_id === id); }
-
 function paintCell(cell, item, i) {
-  cell.className = "gcell" + (item.thumbState === "none" ? " noprev" : "") + (item.decision === "keep" ? " keep" : item.decision === "discard" ? " discard" : "")
-    + (i === focus ? " focused" : "");
-  const mark = cell.querySelector(".gmark");
-  if (mark) {
-    mark.textContent = item.decision === "keep" ? "✓ Keep" : item.decision === "discard" ? "Delete" : "";
-    mark.hidden = !item.decision;
-  }
-}
-
-// Placeholder detection: /media/thumb serves its placeholder SVG with a 1x1 intrinsic size
-// (plus an X-Placeholder header), so a loaded image with naturalWidth/Height <= 1 is the
-// placeholder. A failed load counts as "no preview" too. Only a real, loaded thumbnail
-// makes the cell eligible for scroll-based "seen".
-function watchThumb(cell, img, item) {
-  item.thumbState = "loading";
-  const noPreview = () => {
-    item.thumbState = "none";
-    cell.classList.add("noprev");
-    const lbl = cell.querySelector(".gnoprev");
-    if (lbl) lbl.hidden = false;
-  };
-  img.addEventListener("load", () => {
-    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) { noPreview(); return; }
-    item.thumbState = "ok";
-    observeSeen(cell, item);
-  }, { once: true });
-  img.addEventListener("error", noPreview, { once: true });
-  if (!item.thumb) noPreview();
-}
-
-function makeCell(item, i) {
-  const title = item.reason ? String(item.reason) : "";
-  const img = el("img", { src: item.thumb || "", alt: "", loading: "lazy", draggable: "false" });
-  const cell = el("div", { class: "gcell", tabindex: "-1", "data-id": item.unit_id, title },
-    img,
-    el("span", { class: "gnoprev", hidden: true }, "Pratinjau tidak tersedia"),
-    item.score != null ? el("span", { class: "score" }, fmtScore(item.score)) : null,
-    el("span", { class: "gmark", hidden: true }));
-  let clickTimer = null; // delay single-click so a double-click does not toggle first
-  cell.addEventListener("click", () => {
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(() => {
-      setFocus(indexOfUnit(item.unit_id), false);
-      toggleKeep(item.unit_id);
-    }, 250);
-  });
-  cell.addEventListener("dblclick", () => {
-    clearTimeout(clickTimer);
-    openFull(indexOfUnit(item.unit_id));
-  });
-  watchThumb(cell, img, item);
-  paintCell(cell, item, i);
-  cells.set(item.unit_id, cell);
-  return cell;
+  cell.classList.toggle("is-keep", item.decision === "keep");
+  cell.classList.toggle("is-discard", item.decision === "discard");
+  cell.classList.toggle("is-focused", i === focus);
+  cell.querySelector(".seen-dot").hidden = !(item.seen || localSeen.has(item.unit_id));
+  const mark = cell.querySelector(".cell-mark");
+  mark.className = `cell-mark badge ${item.decision === "keep" ? "badge-keep" : "badge-danger"}`;
+  mark.textContent = item.decision === "keep" ? "Keep" : item.decision === "discard" ? "Delete" : "";
+  mark.hidden = !item.decision;
 }
 
 function repaint(item) {
   const i = indexOfUnit(item.unit_id);
   const cell = cells.get(item.unit_id);
   if (cell && i >= 0) paintCell(cell, item, i);
+}
+
+// Placeholder detection: /media/thumb serves its placeholder SVG with a 1x1 intrinsic size,
+// so a loaded image with naturalWidth/Height <= 1 is the placeholder. A failed load counts as
+// "no preview" too. Only a real, loaded thumbnail makes the cell eligible for dwell "seen".
+function watchThumb(cell, img, item) {
+  item.thumbState = "loading";
+  const noPreview = () => {
+    item.thumbState = "none";
+    cell.classList.add("is-noprev");
+    cell.querySelector(".cell-noprev").hidden = false;
+  };
+  img.addEventListener("load", () => {
+    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) { noPreview(); return; }
+    item.thumbState = "ok";
+    if (!item.seen && !localSeen.has(item.unit_id)) tracker.observe(cell, item.unit_id, cellReady(item));
+  }, { once: true });
+  img.addEventListener("error", noPreview, { once: true });
+  if (!item.thumb) noPreview();
+}
+
+function makeCell(item, i) {
+  const extra = (item.badges || []).map((c) => CATEGORY_LABELS[c] || c);
+  const caption = [item.reason, item.score != null ? fmtScore(item.score) : null, ...extra].filter(Boolean).join(" · ");
+  const img = el("img", { src: item.thumb || "", alt: "", loading: "lazy", draggable: "false" });
+  const cell = el("div", { class: "photo-cell", tabindex: "-1", "data-id": item.unit_id, title: caption },
+    img,
+    el("span", { class: "cell-noprev", hidden: true }, "Pratinjau tidak tersedia"),
+    el("span", { class: "seen-dot", hidden: true, title: "Sudah dilihat" }),
+    el("span", { class: "cell-mark badge", hidden: true }),
+    caption ? el("span", { class: "cell-caption" }, caption) : null);
+  let clickTimer = null; // delay single-click so a double-click does not toggle first
+  cell.addEventListener("click", () => {
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { setFocus(indexOfUnit(item.unit_id), false); toggleKeep(item.unit_id); }, 250);
+  });
+  cell.addEventListener("dblclick", () => { clearTimeout(clickTimer); openFull(indexOfUnit(item.unit_id)); });
+  cells.set(item.unit_id, cell);
+  watchThumb(cell, img, item);
+  paintCell(cell, item, i);
+  return cell;
+}
+
+function columns() {
+  return Math.max(1, getComputedStyle(gridEl).gridTemplateColumns.split(" ").filter(Boolean).length);
 }
 
 function setFocus(i, scroll = true) {
@@ -250,120 +252,100 @@ function setFocus(i, scroll = true) {
   repaint(items[focus]);
   const cell = cells.get(items[focus].unit_id);
   if (scroll && cell && cell.scrollIntoView) cell.scrollIntoView({ block: "nearest" });
-  if (i >= items.length - 12) loadMore();
+  if (i >= items.length - 24) loadMore();
+  showInspector();
 }
 
-function buildShell() {
-  if (cellObserver) cellObserver.disconnect();
-  if (moreObserver) moreObserver.disconnect();
-  cells.clear();
-  cellObserver = makeCellObserver();
-  applyBtn = el("button", { type: "button", class: "primary", disabled: true, onclick: openApply }, "Apply (0)");
-  const sortSel = el("select", { "aria-label": "Urutan", onchange: (e) => { sort = e.target.value; reload(); } },
-    el("option", { value: "score" }, "Skor (terburuk dulu)"),
-    el("option", { value: "date" }, "Tanggal"));
-  sortSel.value = sort;
-  countEl = el("span", { class: "muted" });
-  msgEl = el("div", { class: "vw-error", hidden: true });
-  gridEl = el("div", { class: "gr-grid" });
-  sentinel = el("div", { class: "gr-more" });
-  root.replaceChildren(
-    el("div", { class: "rv-head" }, el("h1", {}, label), countEl, sortSel, applyBtn),
-    el("div", { class: "rv-hint" },
-      "Semua otomatis Delete, kecuali yang kamu Keep. Klik foto untuk Keep · ← → pindah · S keep · D delete · Enter ikuti saran · Spasi/klik ganda: layar penuh"),
-    msgEl, gridEl, sentinel);
-  if (typeof IntersectionObserver !== "undefined") {
-    moreObserver = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) loadMore();
-    }, { rootMargin: "600px" });
-    moreObserver.observe(sentinel);
-  }
-  setMessage(message);
-  updateHead();
-}
+// --- loading -----------------------------------------------------------------------------
 
 function showRetry(err) {
   fail(err);
-  sentinel.replaceChildren(el("button", { type: "button", onclick: () => {
+  sentinel.replaceChildren(el("button", { type: "button", class: "btn btn-secondary", onclick: () => {
     loadFailed = false;
-    setMessage("");
     sentinel.textContent = "Memuat…";
     loadMore();
   } }, "Coba lagi"));
 }
 
-function renderEmpty() {
-  sentinel.textContent = items.length ? "" : "Tidak ada item di kategori ini.";
-}
-
 async function loadMore() {
-  if (loading || exhausted || loadFailed) return;
+  if (loading || loadFailed || next >= order.length) return;
   loading = true;
   const gen = generation;
   try {
-    const data = await api("GET",
-      `/api/review/grid/${encodeURIComponent(category)}?sort=${sort}&offset=${items.length}`);
+    const ids = order.slice(next, next + PAGE);
+    const data = await api("POST", `/api/review/grid/${encodeURIComponent(category)}/items`, { unit_ids: ids });
     if (gen !== generation) return;
-    total = data.total;
-    const fresh = data.items;
-    if (!fresh.length || items.length + fresh.length >= total) exhausted = true;
+    next += ids.length;
     const base = items.length;
+    const fresh = data.items.filter((it) => !byId.has(it.unit_id));
     items.push(...fresh);
-    fresh.forEach((it, n) => gridEl.append(makeCell(it, base + n)));
-    if (viewerState) {
-      for (const it of fresh) viewerState.vitems.push(placeholder(it));
-    }
-    sentinel.textContent = exhausted ? "" : "Memuat…";
-    renderEmpty();
-    updateHead();
+    fresh.forEach((it, n) => { it.idx = base + n; byId.set(it.unit_id, it); gridEl.append(makeCell(it, it.idx)); });
+    if (viewerState) for (const it of fresh) viewerState.vitems.push(placeholder(it));
+    sentinel.textContent = next < order.length ? "Memuat…" : "";
+    if (!items.length && next >= order.length) sentinel.replaceChildren(el("p", { class: "empty" }, EMPTY[view]));
   } catch (e) {
     if (gen === generation) { loadFailed = true; showRetry(e); }
   } finally { if (gen === generation) loading = false; }
-  // keep filling if the sentinel is still on screen (observer will not re-fire by itself)
-  if (gen === generation && !exhausted && sentinel && sentinel.getBoundingClientRect
+  // keep filling while the sentinel is still near the screen (the observer will not re-fire)
+  if (gen === generation && next < order.length && !loadFailed
       && sentinel.getBoundingClientRect().top < window.innerHeight + 600) loadMore();
 }
 
 async function reload() {
   generation += 1;
-  items = [];
-  total = 0;
-  focus = 0;
-  exhausted = false;
-  loadFailed = false;
-  loading = false;
-  seenQueue.clear(); // ids not yet sent stay unseen; they will be re-observed
-  buildShell();
-  await refreshChrome();
+  const gen = generation;
+  for (const cell of cells.values()) tracker.unobserve(cell);
+  cells.clear();
+  byId.clear();
+  items = []; order = []; next = 0; focus = 0;
+  loading = false; loadFailed = false;
+  gridEl.replaceChildren();
+  sentinel.textContent = "Memuat…";
+  paintToolbar();
+  flushSeen(); // queued ids keep their dot and still reach the server
+  try {
+    const snap = await api("GET", `/api/review/grid/${encodeURIComponent(category)}/order?sort=${sort}&view=${view}`);
+    if (gen !== generation) return;
+    order = snap.unit_ids;
+  } catch (e) {
+    if (gen === generation) { loadFailed = true; showRetry(e); }
+    return;
+  }
+  paintToolbar();
   await loadMore();
-  if (items.length) setFocus(0, false);
+  if (gen === generation && items.length) setFocus(0, false);
+  else if (gen === generation) showInspector();
 }
 
-// --- decisions ------------------------------------------------------------------------
+if (typeof IntersectionObserver !== "undefined") {
+  new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting)) loadMore();
+  }, { root: scroller, rootMargin: "600px" }).observe(sentinel);
+}
+
+// --- decisions ---------------------------------------------------------------------------
 
 async function decide(unitId, decision) {
-  if (busy) { setMessage("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return false; }
-  const item = items[indexOfUnit(unitId)];
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return false; }
+  if (busy) { toast("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return false; }
+  const item = byId.get(unitId);
   if (!item) return false;
   busy = true;
   try {
     await api("POST", "/api/review/decision", { unit_id: unitId, decision });
     item.decision = decision;
     repaint(item);
-    setMessage("");
-    refreshChrome();
+    if (focusedItem() === item) showInspector();
+    bar.refresh();
+    reviewNav.refresh();
     return true;
   } catch (e) { fail(e); return false; } finally { busy = false; }
 }
 
 function toggleKeep(unitId) {
-  const item = items[indexOfUnit(unitId)];
-  if (!item) return Promise.resolve(false);
-  queueSeenIfShown(item);
-  return decide(unitId, item.decision === "keep" ? null : "keep");
+  const item = byId.get(unitId);
+  if (item) { queueSeenIfShown(item); decide(unitId, item.decision === "keep" ? null : "keep"); }
 }
-
-function focusedItem() { return items[focus]; }
 
 async function acceptFocused() {
   const it = focusedItem();
@@ -373,19 +355,34 @@ async function acceptFocused() {
   if (ok && focus < items.length - 1) setFocus(focus + 1);
 }
 
+function decideFocused(decision) {
+  const it = focusedItem();
+  if (it) { queueSeenIfShown(it); decide(it.unit_id, decision); }
+}
+
 const gridKeys = {
   ArrowLeft: () => setFocus(focus - 1),
   ArrowRight: () => setFocus(focus + 1),
-  s: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "keep"); } },
-  d: () => { const it = focusedItem(); if (it) { queueSeenIfShown(it); decide(it.unit_id, "discard"); } },
+  ArrowUp: () => setFocus(Math.max(0, focus - columns())),
+  ArrowDown: () => setFocus(Math.min(items.length - 1, focus + columns())),
+  s: () => decideFocused("keep"),
+  d: () => decideFocused("discard"),
   Enter: acceptFocused,
   " ": () => openFull(focus),
+  i: () => toggleInspector(),
 };
 let unbindGrid = bindKeys(gridKeys);
 window.addEventListener("pagehide", () => { unbindGrid(); unbindGrid = () => {}; });
 window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindGrid = bindKeys(gridKeys); });
 
-// --- fullscreen viewer ----------------------------------------------------------------
+registerHelp([
+  { title: "Review grid", keys: [["S", "Keep foto terpilih"], ["D", "Delete foto terpilih"],
+    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Spasi", "Layar penuh (juga klik ganda)"],
+    ["← → ↑ ↓", "Pindah foto"], ["I", "Buka/tutup panel info"], ["?", "Bantuan ini"]] },
+  { title: "Penanda", keys: [["●", "Titik biru = sudah dilihat. Yang sudah dilihat dan tidak di-Keep pindah ke _sampah saat Apply."]] },
+]);
+
+// --- fullscreen viewer -------------------------------------------------------------------
 
 function placeholder(it) {
   return {
@@ -430,11 +427,9 @@ async function openFull(i) {
     items: vs.vitems,
     index: i,
     onDecide: async (card, decision) => {
-      if (applying) return;
-      const idx = indexOfUnit(card.unit_id);
-      if (decision === "suggest") await decide(card.unit_id, null);
-      else await decide(card.unit_id, decision);
-      const it = items[idx];
+      if (bar.applying) return;
+      await decide(card.unit_id, decision === "suggest" ? null : decision);
+      const it = byId.get(card.unit_id);
       if (it && viewerState === vs) {
         card.decision = it.decision;
         const vi = vs.vitems.findIndex((c) => c.unit_id === card.unit_id);
@@ -453,10 +448,10 @@ async function openFull(i) {
     },
     onClose: () => {
       viewerState = null;
-      resyncObserver();
       const it = items[focus];
       const cell = it && cells.get(it.unit_id);
       if (cell && cell.scrollIntoView) cell.scrollIntoView({ block: "nearest" });
+      tracker.flush(); // a full, still second on the grid again before anything counts
       flushSeen();
     },
   });
@@ -465,90 +460,8 @@ async function openFull(i) {
   if (i >= items.length - 6) loadMore();
 }
 
-// --- apply dialog ---------------------------------------------------------------------
+// --- start -------------------------------------------------------------------------------
 
-function modal(title, ...body) {
-  const overlay = el("div", { class: "rv-modal", role: "dialog", "aria-modal": "true" },
-    el("div", { class: "rv-dialog" }, el("h2", {}, title), ...body));
-  document.body.append(overlay);
-  return overlay;
-}
-
-let applyOpen = false;
-
-async function openApply() {
-  if (applying || applyOpen) return;
-  applyOpen = true;
-  // Key layer first: while the dialog loads or is open, grid keys (s/d/Enter/arrows) stay inert.
-  let closeDialog = null;
-  const unbind = bindKeys({ Escape: () => { if (!applying && closeDialog) closeDialog(); } });
-  seenPaused = true; // the modal covers the grid: scrolling behind it must not count as seen
-  if (!(await flushSeen())) {
-    unbind();
-    applyOpen = false;
-    seenPaused = false;
-    resyncObserver();
-    fail(new Error("Tidak bisa mengirim daftar item yang sudah dilihat. Coba lagi sebentar lagi."));
-    return;
-  }
-  let preview;
-  try { preview = await api("GET", `/api/review/apply/${encodeURIComponent(category)}`); } catch (e) {
-    unbind(); applyOpen = false; seenPaused = false; resyncObserver(); fail(e); return;
-  }
-  const confirm = el("button", { type: "button", class: "primary", disabled: preview.keep + preview.discard === 0 }, "Apply");
-  const cancel = el("button", { type: "button" }, "Batal");
-  const actions = el("div", { class: "actions" }, cancel, confirm);
-  const box = modal(`Apply: ${label}`, el("p", {}, preview.text), el("p", { class: "muted" }, "File yang di-delete masuk _sampah dan masih bisa di-undo di Riwayat."), actions);
-  function close() { unbind(); box.remove(); applyOpen = false; seenPaused = false; resyncObserver(); }
-  closeDialog = close;
-  cancel.addEventListener("click", close);
-  confirm.addEventListener("click", async () => {
-    if (applying) return;
-    applying = true;
-    updateHead();
-    confirm.disabled = true;
-    cancel.disabled = true;
-    let started;
-    try { started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`, { keep: preview.keep, discard: preview.discard }); } catch (e) {
-      applying = false;
-      updateHead();
-      actions.before(el("p", { class: "vw-error" }, e.message));
-      cancel.disabled = false;
-      return;
-    }
-    actions.before(el("p", { class: "muted" }, "Memindahkan file…"));
-    let stop = () => {};
-    let finished = false;
-    stop = watchJob((st) => {
-      if (finished || st.id !== started.id || st.status === "running" || st.status === "idle") return;
-      finished = true;
-      setTimeout(() => stop(), 0);
-      applying = false;
-      if (box.isConnected) showApplyResult(st, close, box);
-      reload().catch(fail);
-    });
-  });
-}
-
-function count(v) { return Array.isArray(v) ? v.length : Number(v) || 0; }
-
-function showApplyResult(st, close, overlay) {
-  const box = overlay.querySelector(".rv-dialog");
-  const done = el("button", { type: "button", class: "primary", onclick: close }, "Tutup");
-  const parts = [el("h2", {}, "Hasil")];
-  if (st.status === "done" && st.result) {
-    const r = st.result;
-    parts.push(el("p", {}, `${count(r.moved_units)} dipindah · ${count(r.failed_units)} gagal · ${count(r.skipped_units)} dilewati`));
-    if (r.errors && r.errors.length) {
-      parts.push(el("details", {}, el("summary", {}, `Detail (${r.errors.length})`), el("pre", {}, r.errors.join("\n"))));
-    }
-  } else {
-    parts.push(el("p", { class: "vw-error" }, `Gagal: ${st.error || st.status}`));
-  }
-  parts.push(el("div", { class: "actions" }, done));
-  box.replaceChildren(...parts);
-}
-
-// --- start ----------------------------------------------------------------------------
-
+applySize();
+toggleInspector(prefs.inspector);
 reload().catch(fail);

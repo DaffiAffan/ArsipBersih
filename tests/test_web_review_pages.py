@@ -66,3 +66,18 @@ def test_review_page_has_no_second_category_column(web):
     assert 'id="rv-cats"' not in r.text
     assert 'id="nav-review"' in r.text
     assert "/static/nav.js" in r.text
+
+
+def test_grid_page_loads_new_modules(web):
+    import re
+    from pathlib import Path
+
+    r = web.get("/review/burem")
+    assert "/static/review-grid.js" in r.text
+    js = web.get("/static/review-grid.js").text
+    for mod in ("seen-dwell.js", "floatbar.js", "inspector.js"):
+        assert mod in js
+    css_dir = Path(__file__).parents[1] / "src" / "arsipbersih" / "web" / "static" / "css"
+    dimmed = re.compile(r"img[^{]*\{[^}]*(opacity|filter)")
+    for css in css_dir.glob("*.css"):
+        assert not dimmed.search(css.read_text(encoding="utf-8")), css.name
