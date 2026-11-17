@@ -215,3 +215,36 @@ def test_rapikan_source_unit_no_longer_document_goes_to_normal_archive(conn_with
     (m,) = plan_rapikan(conn, root)
     assert m.to_location == "archive"
     assert m.files[0].dst_rel == "Arsip/2021/2021-01/DOC_1.jpg"
+
+
+def _flag(conn, uid, category):
+    conn.execute(
+        "insert into flags(id, unit_id, category, score, reason) values(?,?,?,NULL,'test')",
+        (new_id(), uid, category),
+    )
+    conn.commit()
+
+
+def test_keep_grouped_member_with_document_flag_goes_to_dokumen(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "duplikat-persis", "2022-03-04T10:00:00")
+    _flag(conn, uid, "dokumen-kertas")
+    _flag(conn, uid, "dokumen-keuangan")  # keuangan outranks kertas
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/_Dokumen/Keuangan/2022/DOC_1.jpg"
+
+
+def test_keep_grouped_member_without_document_flag_goes_to_normal_archive(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "duplikat-persis", "2022-03-04T10:00:00")
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/2022/2022-03/DOC_1.jpg"
+
+
+def test_rapikan_source_review_folder_follows_current_category(conn_with, root):
+    conn = conn_with([dict(name="A_1.jpg", taken="2022-03-04T10:00:00", category="screenshot")])
+    uid = conn.execute("select id from units").fetchone()[0]
+    compute_plans(conn)
+    conn.execute("update units set primary_category='download-meme' where id=?", (uid,))
+    conn.commit()  # classify --head after the plans were computed
+    (m,) = plan_rapikan(conn, root)
+    assert m.to_location == "review"
+    assert m.files[0].dst_rel.startswith("_review/download-meme/")

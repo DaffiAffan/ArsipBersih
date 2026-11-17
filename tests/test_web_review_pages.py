@@ -145,3 +145,18 @@ def test_grid_js_has_change_group_and_doubt_sort(web):
         assert name in insp
     viewer = web.get("/static/viewer.js").text
     assert "onChangeGroup" in viewer
+
+
+def test_ui_polish_string_checks(web):
+    job = web.get("/static/job.js").text
+    assert "nodes.pause.hidden" in job and 'el("button", { type: "button", onclick' not in job.split("watchJob((st)")[1].split("nodes = {")[0]
+    viewer = web.get("/static/viewer.js").text
+    assert "pushHelp" in viewer and "Roda mouse" in viewer
+    grid = web.get("/static/review-grid.js").text
+    assert "if (vs.handle && vs.handle.index === vi) vs.handle.go(vi);" not in grid
+
+
+def test_hidden_attribute_beats_author_display_rules(web):
+    css = web.get("/static/css/base.css").text
+    assert "[hidden] { display: none !important; }" in css
+    assert "hasImage" in web.get("/static/viewer.js").text

@@ -45,21 +45,30 @@ export function mountJobBar(bar) {
   const live = el("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   bar.after(live);
   let lastState = "";
+  let nodes = null;
   watchJob((st) => {
     const state = `${st.kind}|${st.status}`;
     if (state !== lastState) { lastState = state; live.textContent = announceText(st); }
     if (st.status === "idle") { bar.hidden = true; return; }
     bar.hidden = false;
     const p = st.progress;
-    const parts = [el("strong", {}, st.label || "")];
+    // Update persistent nodes in place so the Pause button keeps keyboard focus.
+    if (!nodes) {
+      nodes = {
+        label: el("strong", {}, ""),
+        text: document.createTextNode(""),
+        pause: el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"),
+      };
+      bar.replaceChildren(nodes.label, nodes.text, " ", nodes.pause);
+    }
+    nodes.label.textContent = st.label || "";
+    let text = "";
     if (st.status === "running") {
-      if (p) parts.push(` · ${stageLabel(p.stage)} · ${p.done}${p.total != null ? "/" + p.total : ""}`, p.eta_s != null ? ` · ${eta(p.eta_s)}` : "");
-      if (st.kind === "scan") {
-        parts.push(" ", el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"));
-      }
-    } else if (st.status === "done") parts.push(" · selesai");
-    else if (st.status === "stopped") parts.push(" · di-pause");
-    else if (st.status === "failed") parts.push(` · gagal: ${st.error || ""}`);
-    bar.replaceChildren(...parts.filter((x) => x !== ""));
+      if (p) text = ` · ${stageLabel(p.stage)} · ${p.done}${p.total != null ? "/" + p.total : ""}${p.eta_s != null ? ` · ${eta(p.eta_s)}` : ""}`;
+    } else if (st.status === "done") text = " · selesai";
+    else if (st.status === "stopped") text = " · di-pause";
+    else if (st.status === "failed") text = ` · gagal: ${st.error || ""}`;
+    if (nodes.text.data !== text) nodes.text.data = text;
+    nodes.pause.hidden = !(st.status === "running" && st.kind === "scan");
   });
 }

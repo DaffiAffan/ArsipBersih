@@ -610,7 +610,8 @@ async function openFull(i) {
         card.decision = it.decision;
         const vi = vs.vitems.findIndex((c) => c.unit_id === card.unit_id);
         if (vi >= 0) vs.vitems[vi].decision = it.decision;
-        if (vs.handle && vs.handle.index === vi) vs.handle.go(vi);
+        // No go(): that re-renders the stage (zoom reset, video restart). The viewer
+        // repaints the info panel itself once onDecide resolves.
       }
       return ok;
     },
