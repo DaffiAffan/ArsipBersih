@@ -466,6 +466,22 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str) -> dict | None:
 # --- history -----------------------------------------------------------------------------
 
 
+def _batch_title(label: str, labels: dict[str, str]) -> str:
+    if label.startswith("apply "):
+        slug = label[len("apply "):]
+        return f"Apply · {CATEGORY_LABELS.get(slug, slug)}"
+    if label.startswith("rapikan"):
+        return "Rapikan ke Arsip"
+    if label == "undo all":
+        return "Undo semua"
+    if label.startswith("undo "):
+        target = labels.get(label[len("undo "):])
+        return f"Undo · {_batch_title(target, labels)}" if target else "Undo"
+    if label == "purge trash":
+        return "Kosongkan sampah"
+    return label
+
+
 def list_batches(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         "select b.id, b.kind, b.label, b.created_at,"
@@ -478,11 +494,13 @@ def list_batches(conn: sqlite3.Connection) -> list[dict]:
         " from batches b left join moves m on m.batch_id = b.id"
         " group by b.id order by b.rowid desc"
     ).fetchall()
+    labels = {r["id"]: r["label"] for r in rows}
     return [
         {
             "id": r["id"],
             "kind": r["kind"],
             "label": r["label"],
+            "title": _batch_title(r["label"], labels),
             "created_at": r["created_at"],
             "done": r["done"],
             "undone": r["undone"],

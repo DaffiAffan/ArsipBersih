@@ -142,3 +142,40 @@ def test_scan_refused_without_sumber(web, monkeypatch):
     assert called == {}
     d = web.get("/api/home").json()
     assert d["has_source"] is False and "Sumber" in d["source_missing_text"]
+
+
+def test_home_steps_follow_the_workflow(root):
+    from arsipbersih.db import open_db
+    from arsipbersih.web.home_state import home_steps
+    conn = open_db(root)
+    assert home_steps(conn, scanned=False)["current"] == 1
+    assert home_steps(conn, scanned=True)["current"] == 0
+    conn.close()
+
+
+def test_home_data_has_steps_and_tools_ok(web):
+    d = web.get("/api/home").json()
+    assert set(d["steps"]) == {"current", "totals"} and isinstance(d["tools_ok"], bool)
+
+
+def test_home_steps_source_units_is_step_two(conn_with):
+    from arsipbersih.web.home_state import home_steps
+    conn = conn_with([{"name": "a.jpg"}])
+    assert home_steps(conn, scanned=True)["current"] == 2
+
+
+def test_home_steps_review_category_is_step_three(conn_with):
+    from arsipbersih.web.home_state import home_steps
+    conn = conn_with([{"name": "a.jpg", "loc": "review", "path": "screenshot", "category": "screenshot"}])
+    s = home_steps(conn, scanned=True)
+    assert s["current"] == 3 and s["totals"]["review"] == 1
+
+
+def test_home_steps_trash_is_step_four(conn_with):
+    from arsipbersih.web.home_state import home_steps
+    conn = conn_with([{"name": "a.jpg"}])
+    conn.execute("update units set location='trash'")
+    conn.execute("update files set rel_path='_sampah/a.jpg'")
+    conn.commit()
+    s = home_steps(conn, scanned=True)
+    assert s["current"] == 4 and s["totals"]["trash_files"] == 1

@@ -224,3 +224,19 @@ def test_burst_reason_is_sharpest(conn_with):
     a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
     gid = _group(conn, "mirip-beruntun", a, [a, b])
     assert queries.group_detail(conn, gid)["reason"] == "Foto paling tajam di rangkaian ini"
+
+
+def test_batch_titles_are_readable(conn_with):
+    conn = conn_with([])
+    ids = {}
+    for kind, label in [("apply", "apply kiriman-chat"), ("rapikan", "rapikan 2026-11-16"),
+                        ("purge", "purge trash")]:
+        ids[label] = new_id()
+        conn.execute("insert into batches(id, kind, label, created_at) values(?,?,?,?)",
+                     (ids[label], kind, label, "2026-11-16T10:00:00"))
+    conn.execute("insert into batches(id, kind, label, created_at) values(?,?,?,?)",
+                 (new_id(), "undo", f"undo {ids['apply kiriman-chat']}", "2026-11-16T11:00:00"))
+    conn.commit()
+    titles = [b["title"] for b in queries.list_batches(conn)]
+    assert titles == ["Undo · Apply · Chat (WA/Telegram)", "Kosongkan sampah",
+                      "Rapikan ke Arsip", "Apply · Chat (WA/Telegram)"]
