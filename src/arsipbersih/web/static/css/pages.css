@@ -21,7 +21,8 @@
 .home-steps { list-style: none; margin: 0 0 var(--space-5); padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .step { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
 .step-now { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
-.step-later { opacity: .75; }
+.step-later h2, .step-later .step-text { color: var(--color-text-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
 .step-head { display: flex; align-items: center; gap: var(--space-2); }
 .step-head h2 { margin: 0; font-size: 16px; flex: 1; }
 .step-num { width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--color-surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }

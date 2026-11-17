@@ -47,15 +47,41 @@ function steps(d) {
   ];
 }
 
-function scanLive() {
+function liveText() {
   const p = job.progress;
-  const pct = p && p.total ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
-  return el("div", { class: "step-live" },
-    el("p", {}, p ? `${stageLabel(p.stage)} · ${fmtNum(p.done)}${p.total ? " / " + fmtNum(p.total) : ""}` : "Memulai…"),
-    el("span", { class: "progress", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": pct ?? undefined },
-      el("i", { style: `width:${pct ?? 100}%${pct == null ? ";opacity:.4" : ""}` })),
-    el("button", { type: "button", class: "btn btn-secondary", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"));
+  return p ? `${stageLabel(p.stage)} · ${fmtNum(p.done)}${p.total ? " / " + fmtNum(p.total) : ""}` : "Memulai…";
 }
+
+function livePct() {
+  const p = job.progress;
+  return p && p.total ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
+}
+
+function scanLive() {
+  const pct = livePct();
+  return el("div", { class: "step-live" },
+    el("p", { id: "scan-stage" }, liveText()),
+    el("span", { id: "scan-bar", class: "progress", role: "progressbar", "aria-label": "Progres scan", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": pct ?? undefined },
+      el("i", { style: `width:${pct ?? 100}%${pct == null ? ";opacity:.4" : ""}` })),
+    el("button", { id: "pause-btn", type: "button", class: "btn btn-secondary", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"));
+}
+
+// Patches the running Scan card in place so keyboard focus (Pause) survives every tick.
+function patchLive() {
+  const stage = $("scan-stage");
+  if (!stage) return false;
+  stage.textContent = liveText();
+  const bar = $("scan-bar");
+  const pct = livePct();
+  if (pct == null) bar.removeAttribute("aria-valuenow"); else bar.setAttribute("aria-valuenow", String(pct));
+  const i = bar.firstElementChild;
+  i.style.width = `${pct ?? 100}%`;
+  i.style.opacity = pct == null ? ".4" : "";
+  return true;
+}
+
+let announcedStage = null;
+function announce(text) { $("scan-announce").textContent = text; }
 
 function renderSteps() {
   const d = data;
@@ -118,6 +144,7 @@ async function startScan() {
   try {
     await api("POST", "/api/scan");
     job = { status: "running", kind: "scan" };
+    last = "running";
     renderSteps();
   } catch (e) {
     const w = $("source-warning");
@@ -132,7 +159,17 @@ watchJob((st) => {
   job = st;
   const was = prev.status === "running" && prev.kind === "scan";
   const is = st.status === "running" && st.kind === "scan";
-  if (last === "running" && st.status !== "running") load();
+  if (is) {
+    const stage = st.progress ? st.progress.stage : "";
+    if (stage !== announcedStage) { announcedStage = stage; announce(stage ? `Scan berjalan: ${stageLabel(stage)}` : "Scan dimulai"); }
+  }
+  if (last === "running" && st.status !== "running") {
+    if (st.kind === "scan") {
+      announcedStage = null;
+      announce(st.status === "done" ? "Scan selesai" : (st.status === "stopped" ? "Scan di-pause" : "Scan gagal"));
+    }
+    load();
+  } else if (data && is && was && patchLive()) { /* in-place update */ }
   else if (data && (was || is)) renderSteps();
   last = st.status;
 });
