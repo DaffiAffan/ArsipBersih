@@ -103,3 +103,31 @@ def test_files_gone_since_last_scan_are_warned(root, make_image):
     warnings = _inventory_warnings(r)
     assert "1 files are gone since the last scan" in warnings
     assert "gone: Sumber/HP/DCIM/IMG_1.jpg" in warnings
+
+
+def test_changed_primary_file_drops_its_ai_embedding_and_error(root, make_image):
+    import numpy as np
+
+    from arsipbersih.ai import store
+    from arsipbersih.ai.model import MODEL_NAME
+
+    p1 = make_image(root / "Sumber/HP/IMG_1.jpg", seed=1)
+    p2 = make_image(root / "Sumber/HP/IMG_2.jpg", seed=2)
+    conn = open_db(root)
+    run_inventory(conn, root)
+    f1, f2 = (conn.execute("select id from files where rel_path=?", (f"Sumber/HP/{n}",)).fetchone()[0]
+              for n in ("IMG_1.jpg", "IMG_2.jpg"))
+    for uid, fid in (("u1", f1), ("u2", f2)):
+        conn.execute("insert into units (id, primary_file_id, location) values (?, ?, 'source')", (uid, fid))
+        conn.execute("update files set unit_id=? where id=?", (uid, fid))
+    conn.commit()
+    store.save_embeddings(conn, MODEL_NAME, [("u1", np.ones(4, np.float32))])
+    store.record_error(conn, "u2", MODEL_NAME, "old error")
+    conn.commit()
+    assert store.units_missing_embedding(conn, MODEL_NAME) == []
+
+    for p, seed in ((p1, 7), (p2, 8)):
+        make_image(p, seed=seed, size=(800, 600))
+        os.utime(p, ns=(1_000_000_000, 1_000_000_000))
+    assert run_inventory(conn, root).updated == 2
+    assert sorted(store.units_missing_embedding(conn, MODEL_NAME)) == ["u1", "u2"]

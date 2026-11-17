@@ -73,7 +73,7 @@ def correct_group(conn: sqlite3.Connection, settings, unit_id: str, grp: str) ->
     An unapplied Keep stays. No file moves. Returns the new primary category.
     """
     from arsipbersih.ai.store import add_feedback
-    from arsipbersih.classify import reclassify_units
+    from arsipbersih.classify import reclassify_units, reset_review_state
 
     with conn:
         row = conn.execute("select primary_category from units where id=?", (unit_id,)).fetchone()
@@ -81,11 +81,7 @@ def correct_group(conn: sqlite3.Connection, settings, unit_id: str, grp: str) ->
         add_feedback(conn, unit_id, grp, "koreksi", commit=False)
         new = reclassify_units(conn, settings, [unit_id], commit=False).get(unit_id, old)
         if new != old:
-            conn.execute("update units set seen=0 where id=?", (unit_id,))
-            conn.execute(
-                "delete from decisions where unit_id=? and applied=0 and decision='discard'",
-                (unit_id,),
-            )
+            reset_review_state(conn, unit_id)
     return new
 
 

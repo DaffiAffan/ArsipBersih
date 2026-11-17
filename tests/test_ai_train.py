@@ -176,3 +176,27 @@ def test_cli_commands(tmp_path, prompts, monkeypatch):
     r = CliRunner().invoke(app, ["ai-report", str(tmp_path), "--head", "trained-v1"])
     assert r.exit_code == 0, r.output
     assert "Target" in r.output
+
+
+def test_ai_report_defaults_to_active_head(tmp_path, prompts):
+    from dataclasses import replace
+
+    from arsipbersih.config import load_settings, save_settings
+
+    conn, _ = make_collection(tmp_path, COUNTS)
+    res = run_train(conn, tmp_path, prompts, min_per_group=20)
+    ids, _ = store.load_embeddings(conn, MODEL_NAME)
+    store.save_labels(conn, "zeroshot", "v1", [(u, "lainnya", None, 0.9) for u in ids])
+
+    text = train.ai_report(conn, tmp_path)  # active head is still zeroshot
+    assert text.splitlines()[0] == "Laporan AI (head: zeroshot)"
+    assert f"data uji {res.version}" not in text  # trained holdout metrics belong to that head only
+    assert f"ai-report --head {res.version}" in text
+
+    save_settings(conn, replace(load_settings(conn), ai_head="zeroshot-v1"))  # older alias
+    assert train.ai_report(conn, tmp_path).splitlines()[0] == "Laporan AI (head: zeroshot)"
+
+    save_settings(conn, replace(load_settings(conn), ai_head=res.version))
+    text = train.ai_report(conn, tmp_path)
+    assert text.splitlines()[0] == f"Laporan AI (head: {res.version})"
+    assert f"data uji {res.version}" in text

@@ -20,6 +20,7 @@ from .heads import (
     TrainedHead,
     UnitFacts,
     ZeroShotHead,
+    canonical_head_name,
     trained_head_dir,
 )
 from .model import MODEL_NAME, text_embeddings
@@ -188,8 +189,11 @@ def _target_lines(metrics: dict) -> list[str]:
 
 
 def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> str:
+    """Report on ``head`` (default: the active head from the settings)."""
+    from ..config import load_settings
+
     latest = latest_trained_version(root)
-    head = head or latest or "zeroshot"
+    head = canonical_head_name(head or load_settings(conn).ai_head)
     labels = latest_labels(conn, head)
     out = [f"Laporan AI (head: {head})"]
     if not labels:
@@ -204,7 +208,8 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             n = sum(1 for v in labels.values() if lo <= v[2] < hi)
             out.append(f"  {lo:.2f} - {min(hi, 1.0):.2f}: {n}")
 
-    version = head if head.startswith("trained-v") else latest
+    # Holdout metrics belong to one trained head: never report them under another head.
+    version = head if head.startswith("trained-v") else None
     meta_path = trained_head_dir(root) / f"{version}.json" if version else None
     if meta_path is not None and meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -223,4 +228,6 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             out.append(f"Ketepatan dan daya tangkap terhadap {len(common)} koreksi/konfirmasi pemilik (bukan data uji):")
             out.extend("  " + ln for ln in format_metrics_table(metrics))
     out.extend(_target_lines(metrics))
+    if latest and latest != head:
+        out.append(f"Ada head terlatih {latest}; lihat hasilnya dengan: arsipbersih ai-report --head {latest}")
     return "\n".join(out)

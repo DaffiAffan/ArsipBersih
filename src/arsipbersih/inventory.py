@@ -149,6 +149,13 @@ def run_inventory(conn: sqlite3.Connection, root: Path) -> InventoryResult:
                     " missing=0, purged=0 where id=?",
                     (size, mtime_ns, kind.value, ext, row["id"]),
                 )
+                # The unit's image changed: its AI embedding / error describe the old bytes.
+                for table in ("ai_embeddings", "ai_errors"):
+                    conn.execute(
+                        f"delete from {table} where unit_id in"
+                        " (select id from units where primary_file_id=?)",
+                        (row["id"],),
+                    )
                 result.updated += 1
             else:
                 inserts.append(

@@ -211,10 +211,21 @@ def trained_head_dir(root: Path) -> Path:
     return Path(root) / HEAD_DIR
 
 
+# Accepted head names that store their labels under another name.
+HEAD_ALIASES = {"zeroshot-v1": "zeroshot"}
+
+
+def canonical_head_name(name: str | None) -> str:
+    """The name a head's labels are stored under (``zeroshot-v1`` -> ``zeroshot``)."""
+    name = name or "zeroshot"
+    return HEAD_ALIASES.get(name, name)
+
+
 def get_head(name: str, root: Path | None = None,
              text_emb_fn: Callable[[list[str]], np.ndarray] | None = None) -> Head:
     """Resolve a head by setting name: ``zeroshot`` or ``trained-vN`` (loaded from ``root``)."""
-    if name in ("zeroshot", "zeroshot-v1"):
+    name = canonical_head_name(name)
+    if name == "zeroshot":
         return ZeroShotHead(**({"text_emb_fn": text_emb_fn} if text_emb_fn else {}))
     if _TRAINED_RE.match(name):
         if root is None:
