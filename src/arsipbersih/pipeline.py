@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import threading
 import time
 from collections.abc import Callable
@@ -31,6 +32,7 @@ from .mover import (
     reconcile,
     reconcile_or_refuse,
     remove_empty_dirs,
+    remove_empty_parents,
 )
 from .pairing import build_units, confirm_live_photos
 from .planner import compute_plans, plan_rapikan
@@ -244,6 +246,9 @@ def rapikan(root: Path) -> BatchResult:
         check_space(root, moves)
         result = execute(conn, root, moves, "rapikan", label=f"rapikan {date.today().isoformat()}")
         remove_empty_dirs(root / SOURCE_DIR)
+        # Folders that redated moves left behind (Arsip/Tanpa-Tanggal/<label>, an old month).
+        for d in sorted({posixpath.dirname(fm.src_rel) for um in moves if um.reason for fm in um.files}):
+            remove_empty_parents(root, d)
         result.errors.extend(notes)
         write_dates_after_move(
             conn, root, [um.unit_id for um in moves if um.to_location == "archive"], result.errors
@@ -263,6 +268,9 @@ class RapikanSummary:
     space_ok: bool
     space_error: str | None
     scan_done: bool
+    # Archive units moved for another reason (e.g. a corrected date): reason -> (units, bytes).
+    # Not counted in archive_units, which are the units that newly enter Arsip.
+    by_reason: dict[str, tuple[int, int]] = field(default_factory=dict)
 
 
 def summarize_rapikan(conn, root: Path) -> RapikanSummary:
@@ -272,6 +280,7 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
     archive_units = archive_bytes = 0
     review_units: dict[str, int] = {}
     review_bytes: dict[str, int] = {}
+    by_reason: dict[str, list[int]] = {}
     for um in moves:
         size = 0
         for fm in um.files:
@@ -279,7 +288,11 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
                 size += os.stat(long_path(to_abs(root, fm.src_rel))).st_size
             except OSError:
                 pass
-        if um.to_location == "archive":
+        if um.reason:
+            acc = by_reason.setdefault(um.reason, [0, 0])
+            acc[0] += 1
+            acc[1] += size
+        elif um.to_location == "archive":
             archive_units += 1
             archive_bytes += size
         else:
@@ -301,4 +314,5 @@ def summarize_rapikan(conn, root: Path) -> RapikanSummary:
         space_error is None,
         space_error,
         scan_done,
+        {r: (n, b) for r, (n, b) in by_reason.items()},
     )
