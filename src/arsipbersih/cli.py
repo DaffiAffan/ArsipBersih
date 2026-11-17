@@ -516,7 +516,7 @@ def classify_cmd(
 @app.command("ai-report")
 def ai_report_cmd(
     root: Path = _root_arg(),
-    head: Optional[str] = typer.Option(None, "--head", help="Head name (default: newest trained head, else zeroshot)."),
+    head: Optional[str] = typer.Option(None, "--head", help="Head name (default: the active ai_head setting)."),
 ) -> None:
     """Show AI label counts and accuracy against the targets."""
     from .ai.train import ai_report
