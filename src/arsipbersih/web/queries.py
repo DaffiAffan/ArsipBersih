@@ -9,6 +9,7 @@ from typing import Literal
 
 from arsipbersih.classify import CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
 from arsipbersih.decisions import preview_apply
+from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
 
 GROUP_PAGE = 20
 GRID_PAGE = 120
@@ -22,6 +23,13 @@ _OPEN_GROUP = (
     " where m.group_id = g.id and (u.location = 'review' or (u.location = 'archive'"
     "  and m.unit_id is not g.suggested_keep_unit_id"
     "  and not exists (select 1 from decisions d where d.unit_id = u.id and d.applied = 1))))"
+)
+
+
+# A group is fully decided when every member has a decisions row.
+_GROUP_ALL_DECIDED = (
+    "not exists (select 1 from group_members m where m.group_id = g.id"
+    " and not exists (select 1 from decisions d where d.unit_id = m.unit_id))"
 )
 
 
@@ -62,6 +70,21 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             " and primary_category is not null group by primary_category"
         )
     }
+    grid_done = {
+        r[0]: r[1]
+        for r in conn.execute(
+            "select u.primary_category, count(*) from units u where u.location='review'"
+            " and u.primary_category is not null and (u.seen = 1 or exists"
+            " (select 1 from decisions d where d.unit_id = u.id)) group by u.primary_category"
+        )
+    }
+    group_done = {
+        r[0]: r[1]
+        for r in conn.execute(
+            f"select g.kind, count(*) from groups g where {_OPEN_GROUP}"
+            f" and {_GROUP_ALL_DECIDED} group by g.kind"
+        )
+    }
     out = []
     for cat in CATEGORY_PRIORITY:
         if cat in GROUP_CATEGORIES:
@@ -69,14 +92,24 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             count = conn.execute(
                 f"select count(*) from groups g where g.kind=? and {_OPEN_GROUP}", (cat,)
             ).fetchone()[0]
+            done = group_done.get(cat, 0)
         else:
             mode = "grid"
             count = grid.get(cat, 0)
+            done = grid_done.get(cat, 0)
         if count == 0:
             continue
         p = preview_apply(conn, cat)
         out.append(
-            {"category": cat, "mode": mode, "count": count, "pending_apply": p.keep + p.discard}
+            {
+                "category": cat,
+                "label": CATEGORY_LABELS.get(cat, cat),
+                "help": CATEGORY_HELP.get(cat, ""),
+                "mode": mode,
+                "count": count,
+                "done": done,
+                "pending_apply": p.keep + p.discard,
+            }
         )
     return out
 

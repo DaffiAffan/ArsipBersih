@@ -125,3 +125,27 @@ def test_batches_mark_undoable(conn_with):
     conn.execute("update files set purged=1 where id=?", (a["fid"],))
     conn.commit()
     assert not {x["kind"]: x for x in queries.list_batches(conn)}["rapikan"]["undoable"]
+
+
+def test_counts_report_label_help_and_seen_progress(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "review", "category": "burem"},
+        {"name": "b.jpg", "loc": "review", "category": "burem"},
+        {"name": "c.jpg", "loc": "review", "category": "burem"},
+    ])
+    conn.execute("update units set seen=1 where id=?", (_unit(conn, "a.jpg")["uid"],))
+    decisions.record(conn, _unit(conn, "b.jpg")["uid"], "keep")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "burem")
+    assert (row["count"], row["done"]) == (3, 2)
+    assert row["label"] == "Blur" and row["help"]
+
+
+def test_group_progress_counts_only_fully_decided_groups(conn_with):
+    conn = conn_with([{"name": n, "loc": "review"} for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")])
+    a, b, c, d = (_unit(conn, n)["uid"] for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"))
+    _group(conn, "duplikat-persis", a, [a, b])
+    _group(conn, "duplikat-persis", c, [c, d])
+    decisions.record(conn, a, "keep"); decisions.record(conn, b, "discard")
+    decisions.record(conn, c, "keep")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "duplikat-persis")
+    assert (row["count"], row["done"]) == (2, 1)

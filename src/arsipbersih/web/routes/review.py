@@ -15,6 +15,7 @@ from ...db import open_db
 from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import batch_result_dict
+from ..labels import CATEGORY_LABELS
 from ..messages import APPLY_MISMATCH_TEXT, UserError
 
 router = APIRouter(prefix="/api/review")
@@ -181,26 +182,8 @@ def apply(
 
 pages = APIRouter()
 
-CATEGORY_LABELS = {
-    "rusak": "Rusak (corrupt)",
-    "duplikat-persis": "Duplikat identik",
-    "duplikat-versi": "Duplikat beda versi",
-    "mirip-beruntun": "Burst / mirip",
-    "screenshot": "Screenshot",
-    "kiriman-chat": "Chat (WA/Telegram)",
-    "download-meme": "Download / meme",
-    "pendamping-gopro": "File GoPro (LRV/THM)",
-    "sampah-hp": "Trash HP",
-    "video-pendek-gelap": "Video pendek / gelap",
-    "kepencet": "Kepencet (tidak sengaja)",
-    "burem": "Blur",
-    "gelap-terang": "Terlalu gelap / terang",
-}
-
-
 def _sidebar(conn: sqlite3.Connection) -> list[dict]:
-    rows = queries.category_counts(conn)
-    return [{**r, "label": CATEGORY_LABELS.get(r["category"], r["category"])} for r in rows]
+    return queries.category_counts(conn)
 
 
 @pages.get("/review")
