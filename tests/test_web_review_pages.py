@@ -154,3 +154,9 @@ def test_ui_polish_string_checks(web):
     assert "pushHelp" in viewer and "Roda mouse" in viewer
     grid = web.get("/static/review-grid.js").text
     assert "if (vs.handle && vs.handle.index === vi) vs.handle.go(vi);" not in grid
+
+
+def test_hidden_attribute_beats_author_display_rules(web):
+    css = web.get("/static/css/base.css").text
+    assert "[hidden] { display: none !important; }" in css
+    assert "hasImage" in web.get("/static/viewer.js").text
