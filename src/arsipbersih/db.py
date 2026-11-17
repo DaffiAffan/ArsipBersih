@@ -207,29 +207,26 @@ create table if not exists xmp_writes (
 -- Dropped and recreated on every schema run so the definition can change across versions.
 drop view if exists unit_dates;
 create view unit_dates as
-with ranked as (
-    select o.unit_id, o.taken_at, o.source, o.precision,
-           row_number() over (
-               partition by o.unit_id
-               order by (o.decided_by = 'owner') desc, o.created_at desc, o.rowid desc
-           ) as rn
-    from date_overrides o
-    join units u on u.id = o.unit_id
-    where o.decided_by = 'owner'
-       or u.date_source is null
-       or u.date_source not in ('exif','quicktime')
-)
 select u.id as unit_id,
        coalesce(r.taken_at, u.taken_at) as taken_at,
-       case when r.unit_id is not null then r.source else u.date_source end as source,
+       case when r.id is not null then r.source else u.date_source end as source,
        case
-           when r.unit_id is not null then r.precision
+           when r.id is not null then r.precision
            when u.taken_at is null then null
            when u.date_source = 'filename' and time(u.taken_at) = '00:00:00' then 'day'
            else 'second'
        end as precision
 from units u
-left join ranked r on r.unit_id = u.id and r.rn = 1;
+left join date_overrides r on r.rowid = (
+    -- Winner per unit: owner beats auto, then newest. Camera dates (exif/quicktime) can
+    -- only be overridden by an explicit manual row. Correlated on the indexed unit_id so
+    -- filtering unit_dates by unit id never ranks the whole table.
+    select o.rowid from date_overrides o
+    where o.unit_id = u.id
+      and (u.date_source is null or u.date_source not in ('exif','quicktime') or o.source = 'manual')
+    order by (o.decided_by = 'owner') desc, o.created_at desc, o.rowid desc
+    limit 1
+);
 """
 
 

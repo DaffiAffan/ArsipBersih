@@ -100,3 +100,12 @@ def test_old_db_gets_date_tables(tmp_path):
     assert conn.execute("pragma user_version").fetchone()[0] >= 3
     # SCHEMA is re-runnable
     conn.executescript(SCHEMA)
+
+
+def test_owner_event_row_never_beats_exif(tmp_path):
+    conn = open_db(tmp_path)
+    _unit(conn, "u1", "2020-05-01T10:00:00", "exif")
+    store.set_override(conn, "u1", "2019-01-01T00:00:00", "day", "event", "ev", "owner")
+    assert store.effective_dates(conn)["u1"] == ("2020-05-01T10:00:00", "exif", "second")
+    store.set_override(conn, "u1", "2018-01-01T00:00:00", "day", "manual", None, "owner")
+    assert store.effective_dates(conn)["u1"][1] == "manual"
