@@ -30,7 +30,7 @@ from .mover import (
 from . import pipeline
 from .ai.model import ModelSetupError, model_status, setup_models
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
-from .planner import compute_plans
+from .planner import REDATED_REASON, compute_plans
 from .report import build_report, verify
 from .tools import check_tools
 
@@ -134,7 +134,8 @@ def _plan_summary(conn, root: Path) -> None:
     for cat, (units, size) in summary.review.items():
         typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
     for reason, (units, size) in summary.by_reason.items():
-        typer.echo(f"Within Arsip ({reason}): {units} units, {human_bytes(size)}")
+        label = "moved because the date was corrected" if reason == REDATED_REASON else reason
+        typer.echo(f"Within Arsip ({label}): {units} units, {human_bytes(size)}")
     typer.echo(f"Skipped units: {len(summary.skipped)}")
     for unit_id, reason in summary.skipped:
         typer.echo(f"  skipped {unit_id}: {reason}")
@@ -414,14 +415,14 @@ def report(root: Path = _root_arg()) -> None:
     typer.echo(f"Non-media files left: {r.non_media_left}")
     typer.echo(f"Undated: {r.undated}")
     if r.date_sources:
-        typer.echo("Sumber tanggal:")
+        typer.echo("By date source:")
         for src, n in sorted(r.date_sources.items()):
             typer.echo(f"  {src}: {n}")
-    typer.echo(f"Usulan tanggal acara yang belum diputuskan: {r.date_proposals}")
+    typer.echo(f"Event date proposals waiting: {r.date_proposals}")
     for folder, folder_month, month in r.event_month_mismatch:
         typer.echo(
-            f"Saran ganti nama: {folder} berbulan {folder_month}, "
-            f"tapi sebagian besar fotonya {month}"
+            f"Rename hint: {folder} is named {folder_month}, "
+            f"but most of its photos are from {month}"
         )
     typer.echo(f"Cache size: {human_bytes(r.cache_bytes)}")
     for w in r.clock_warnings:

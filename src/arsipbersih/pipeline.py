@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import threading
 import time
 from collections.abc import Callable
@@ -30,6 +31,7 @@ from .mover import (
     reconcile,
     reconcile_or_refuse,
     remove_empty_dirs,
+    remove_empty_parents,
 )
 from .pairing import build_units, confirm_live_photos
 from .planner import compute_plans, plan_rapikan
@@ -243,6 +245,9 @@ def rapikan(root: Path) -> BatchResult:
         check_space(root, moves)
         result = execute(conn, root, moves, "rapikan", label=f"rapikan {date.today().isoformat()}")
         remove_empty_dirs(root / SOURCE_DIR)
+        # Folders that redated moves left behind (Arsip/Tanpa-Tanggal/<label>, an old month).
+        for d in sorted({posixpath.dirname(fm.src_rel) for um in moves if um.reason for fm in um.files}):
+            remove_empty_parents(root, d)
         result.errors.extend(notes)
         result.skipped_units = len(skipped)
         return result

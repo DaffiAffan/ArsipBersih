@@ -811,6 +811,25 @@ def undo_all(conn: sqlite3.Connection, root: Path) -> BatchResult:
 # --- cleanup -----------------------------------------------------------------------------
 
 
+def remove_empty_parents(root: Path, rel_dir: str) -> int:
+    """Remove rel_dir and then its parents while they are empty, stopping below the top
+    folder (e.g. never `Arsip` itself). Same safety as remove_empty_dirs: os.rmdir refuses
+    a non-empty directory, and links/junctions are never removed."""
+    parts = [p for p in rel_dir.replace("\\", "/").split("/") if p]
+    removed = 0
+    while len(parts) > 1:
+        d = _norm(root) / "/".join(parts)
+        if d.is_symlink() or d.is_junction():
+            break
+        try:
+            os.rmdir(long_path(d))
+        except OSError:
+            break  # not empty (or gone/unremovable): its parents are not empty either
+        removed += 1
+        parts.pop()
+    return removed
+
+
 def remove_empty_dirs(base: Path) -> int:
     """Remove empty directories below base, bottom-up. Returns how many were removed.
 

@@ -360,11 +360,10 @@ def plan_rapikan(
             continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
-            # The current category is the authority for _Dokumen, never a stored plan.
+            # Computed at move time, never from planned_archive_dir: the category (for
+            # _Dokumen) and the effective date can change after compute_plans.
             dst_dir, loc = (
-                document_dir_for(cat, u["taken_at"])
-                or u["planned_archive_dir"]
-                or _archive_dir(u, months)
+                document_dir_for(cat, u["taken_at"]) or _archive_dir(u, months)
             ), "archive"
         else:
             # Like the archive dir: the category at move time is the authority, because
@@ -462,11 +461,11 @@ def plan_apply(
             continue
         if gone(uid):
             continue
-        # The category at move time decides _Dokumen; planned_archive_dir is the normal folder.
+        # Computed at move time: the category decides _Dokumen and the effective date
+        # (owner decisions since the last scan included) decides the normal folder.
         dst = (
             document_dir_for(u["primary_category"], u["taken_at"])
             or _flagged_document_dir(conn, u)
-            or u["planned_archive_dir"]
             or _archive_dir(u, months)
         )
         m = _try_build(conn, reserver, u, dst, "archive", skipped)

@@ -343,3 +343,75 @@ def test_summary_lists_date_corrected_moves_separately(conn_with, root):
     assert s.archive_units == 1
     assert list(s.by_reason) == ["pindah karena tanggal dikoreksi"]
     assert s.by_reason["pindah karena tanggal dikoreksi"][0] == 1
+
+
+def test_manual_date_after_compute_plans_decides_destination(conn_with, root):
+    from arsipbersih.pipeline import summarize_rapikan
+
+    conn = conn_with([dict(name="DSC_5.jpg")])
+    uid = _uid(conn, "DSC_5.jpg")
+    compute_plans(conn)
+    assert conn.execute("select planned_archive_dir from units").fetchone()[0] == "Arsip/Tanpa-Tanggal/HP"
+    _manual(conn, "DSC_5.jpg", "2017-09-01T12:00:00", "month")
+    (m,) = plan_rapikan(conn, root)
+    assert m.files[0].dst_rel == "Arsip/2017/2017-09/DSC_5.jpg"
+    assert summarize_rapikan(conn, root).archive_units == 1
+    conn.execute("update units set location='review', primary_category='burem' where id=?", (uid,))
+    conn.commit()
+    (root / "Sumber/HP/DCIM").mkdir(parents=True, exist_ok=True)
+    (root / "Sumber/HP/DCIM/DSC_5.jpg").write_bytes(b"x")
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/2017/2017-09/DSC_5.jpg"
+
+
+def test_redated_pass_skips_unit_with_missing_file(conn_with, root):
+    conn = conn_with([dict(name="DSC_1.jpg", path="Arsip/Tanpa-Tanggal/HP", loc="archive")])
+    _manual(conn, "DSC_1.jpg", "2019-05-01T12:00:00", "month")
+    conn.execute("update files set missing=1"); conn.commit()
+    skipped = []
+    assert plan_rapikan(conn, root, skipped) == []
+    assert skipped == [(_uid(conn, "DSC_1.jpg"), "file missing on disk: Arsip/Tanpa-Tanggal/HP/DSC_1.jpg")]
+
+
+def test_redated_move_gets_suffix_on_collision(conn_with, root):
+    conn = conn_with([
+        dict(name="DSC_1.jpg", path="Arsip/Tanpa-Tanggal/HP", loc="archive", src="HP"),
+        dict(name="DSC_1.jpg", path="Arsip/2019/2019-05", loc="archive", taken="2019-05-03T10:00:00"),
+    ])
+    uid = conn.execute(
+        "select unit_id from files where rel_path = 'Arsip/Tanpa-Tanggal/HP/DSC_1.jpg'"
+    ).fetchone()[0]
+    from arsipbersih.dating.store import set_override
+
+    set_override(conn, uid, "2019-05-01T12:00:00", "month", "manual", None, "owner")
+    (m,) = plan_rapikan(conn, root)
+    assert m.files[0].dst_rel == "Arsip/2019/2019-05/DSC_1__HP.jpg"
+
+
+def test_rapikan_removes_folders_emptied_by_redated_moves(conn_with, root):
+    import json
+
+    from arsipbersih.pipeline import SCAN_DONE_KEY, rapikan
+
+    conn = conn_with([
+        dict(name="DSC_1.jpg", path="Arsip/Tanpa-Tanggal/HP", loc="archive"),
+        dict(name="DSC_2.jpg", path="Arsip/Tanpa-Tanggal/HP-Lama", loc="archive"),  # stays
+        dict(name="IMG-1.jpg", path="Arsip/2024/2024-03", loc="archive",
+             taken="2024-03-02T00:00:00", date_source="filename"),
+    ])
+    for (r,) in conn.execute("select rel_path from files").fetchall():
+        (root / r).parent.mkdir(parents=True, exist_ok=True)
+        (root / r).write_bytes(b"x")
+    _manual(conn, "DSC_1.jpg", "2019-05-01T12:00:00", "month")
+    _manual(conn, "IMG-1.jpg", "2023-12-24T10:00:00")
+    conn.execute("insert into settings(key, value) values(?, ?)", (SCAN_DONE_KEY, json.dumps("x")))
+    conn.commit()
+    conn.close()
+    r = rapikan(root)
+    assert r.moved_units == 2
+    assert (root / "Arsip/2019/2019-05/DSC_1.jpg").exists()
+    assert (root / "Arsip/2023/2023-12/IMG-1.jpg").exists()
+    assert not (root / "Arsip/Tanpa-Tanggal/HP").exists()
+    assert (root / "Arsip/Tanpa-Tanggal/HP-Lama/DSC_2.jpg").exists()
+    assert not (root / "Arsip/2024").exists()
+    assert (root / "Arsip").is_dir()
