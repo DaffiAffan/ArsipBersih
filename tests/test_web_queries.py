@@ -125,3 +125,59 @@ def test_batches_mark_undoable(conn_with):
     conn.execute("update files set purged=1 where id=?", (a["fid"],))
     conn.commit()
     assert not {x["kind"]: x for x in queries.list_batches(conn)}["rapikan"]["undoable"]
+
+
+def test_counts_report_label_help_and_seen_progress(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "review", "category": "burem"},
+        {"name": "b.jpg", "loc": "review", "category": "burem"},
+        {"name": "c.jpg", "loc": "review", "category": "burem"},
+    ])
+    conn.execute("update units set seen=1 where id=?", (_unit(conn, "a.jpg")["uid"],))
+    decisions.record(conn, _unit(conn, "b.jpg")["uid"], "keep")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "burem")
+    assert (row["count"], row["done"]) == (3, 2)
+    assert row["label"] == "Blur" and row["help"]
+
+
+def test_group_progress_counts_only_fully_decided_groups(conn_with):
+    conn = conn_with([{"name": n, "loc": "review"} for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")])
+    a, b, c, d = (_unit(conn, n)["uid"] for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"))
+    _group(conn, "duplikat-persis", a, [a, b])
+    _group(conn, "duplikat-persis", c, [c, d])
+    decisions.record(conn, a, "keep"); decisions.record(conn, b, "discard")
+    decisions.record(conn, c, "keep")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "duplikat-persis")
+    assert (row["count"], row["done"]) == (2, 1)
+
+
+def test_group_with_archived_keeper_is_done_when_review_copy_decided(conn_with):
+    conn = conn_with([
+        {"name": "a.jpg", "loc": "archive"},
+        {"name": "b.jpg", "loc": "review"},
+    ])
+    a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
+    _group(conn, "duplikat-persis", a, [a, b])
+    decisions.record(conn, b, "discard")
+    row = next(r for r in queries.category_counts(conn) if r["category"] == "duplikat-persis")
+    assert (row["count"], row["done"]) == (1, 1)
+
+
+def test_every_category_has_label_and_help():
+    from arsipbersih.classify import CATEGORY_PRIORITY
+    from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+
+    for cat in CATEGORY_PRIORITY:
+        assert CATEGORY_LABELS.get(cat) and CATEGORY_HELP.get(cat), cat
+
+
+def test_grid_order_matches_grid_items_order(conn_with):
+    conn = conn_with([
+        {"name": n, "loc": "review", "category": "burem"} for n in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")
+    ])
+    for name, score in (("a.jpg", 40.0), ("b.jpg", 10.0), ("c.jpg", None), ("d.jpg", 10.0)):
+        conn.execute("update flags set score=? where unit_id=?", (score, _unit(conn, name)["uid"]))
+    conn.commit()
+    for sort in ("score", "date"):
+        expected = [i["unit_id"] for i in queries.grid_items(conn, "burem", sort, 0, 10_000)["items"]]
+        assert queries.grid_order(conn, "burem", sort, "all") == expected

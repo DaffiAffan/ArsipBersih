@@ -9,6 +9,7 @@ from typing import Literal
 
 from arsipbersih.classify import CATEGORY_PRIORITY, GRID_CATEGORIES, GROUP_CATEGORIES
 from arsipbersih.decisions import preview_apply
+from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
 
 GROUP_PAGE = 20
 GRID_PAGE = 120
@@ -22,6 +23,16 @@ _OPEN_GROUP = (
     " where m.group_id = g.id and (u.location = 'review' or (u.location = 'archive'"
     "  and m.unit_id is not g.suggested_keep_unit_id"
     "  and not exists (select 1 from decisions d where d.unit_id = u.id and d.applied = 1))))"
+)
+
+
+# A group is fully decided when every member that needs a decision has a decisions row.
+# Members needing none: an archived suggested keeper, and members already in the trash.
+_GROUP_ALL_DECIDED = (
+    "not exists (select 1 from group_members m join units mu on mu.id = m.unit_id"
+    " where m.group_id = g.id and mu.location != 'trash'"
+    " and not (mu.location = 'archive' and m.unit_id is g.suggested_keep_unit_id)"
+    " and not exists (select 1 from decisions d where d.unit_id = m.unit_id))"
 )
 
 
@@ -62,6 +73,21 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             " and primary_category is not null group by primary_category"
         )
     }
+    grid_done = {
+        r[0]: r[1]
+        for r in conn.execute(
+            "select u.primary_category, count(*) from units u where u.location='review'"
+            " and u.primary_category is not null and (u.seen = 1 or exists"
+            " (select 1 from decisions d where d.unit_id = u.id)) group by u.primary_category"
+        )
+    }
+    group_done = {
+        r[0]: r[1]
+        for r in conn.execute(
+            f"select g.kind, count(*) from groups g where {_OPEN_GROUP}"
+            f" and {_GROUP_ALL_DECIDED} group by g.kind"
+        )
+    }
     out = []
     for cat in CATEGORY_PRIORITY:
         if cat in GROUP_CATEGORIES:
@@ -69,14 +95,24 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             count = conn.execute(
                 f"select count(*) from groups g where g.kind=? and {_OPEN_GROUP}", (cat,)
             ).fetchone()[0]
+            done = group_done.get(cat, 0)
         else:
             mode = "grid"
             count = grid.get(cat, 0)
+            done = grid_done.get(cat, 0)
         if count == 0:
             continue
         p = preview_apply(conn, cat)
         out.append(
-            {"category": cat, "mode": mode, "count": count, "pending_apply": p.keep + p.discard}
+            {
+                "category": cat,
+                "label": CATEGORY_LABELS.get(cat, cat),
+                "help": CATEGORY_HELP.get(cat, ""),
+                "mode": mode,
+                "count": count,
+                "done": done,
+                "pending_apply": p.keep + p.discard,
+            }
         )
     return out
 
@@ -194,6 +230,69 @@ def group_detail(conn: sqlite3.Connection, group_id: str) -> dict | None:
 # --- grid --------------------------------------------------------------------------------
 
 
+def _grid_order_sql(sort: str) -> str:
+    if sort == "date":
+        return "(b.taken_at is null), b.taken_at, b.unit_id"
+    return "(fl.score is null), fl.score, (b.taken_at is null), b.taken_at, b.unit_id"
+
+
+_GRID_FROM = (
+    f"from ({_BRIEF_SQL}) b"
+    " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
+)
+
+
+def grid_order(
+    conn: sqlite3.Connection,
+    category: str,
+    sort: Literal["score", "date"] = "score",
+    view: Literal["all", "unseen", "keep"] = "all",
+) -> list[str]:
+    if category not in GRID_CATEGORIES:
+        return []
+    cond = ""
+    if view == "unseen":
+        cond = " and b.seen = 0 and b.decision is null"
+    elif view == "keep":
+        cond = " and b.decision = 'keep'"
+    rows = conn.execute(
+        f"select b.unit_id {_GRID_FROM}"
+        f" where b.location='review' and b.primary_category=?{cond} order by {_grid_order_sql(sort)}",
+        (category,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _grid_item(r: sqlite3.Row, badges: dict[str, list[str]]) -> dict:
+    item = _brief(r)
+    item.update(
+        {
+            "score": r["score"],
+            "reason": r["reason"],
+            "seen": bool(r["seen"]),
+            "taken_at": r["taken_at"],
+            "badges": badges.get(r["unit_id"], []),
+        }
+    )
+    return item
+
+
+def grid_items_by_ids(conn: sqlite3.Connection, category: str, unit_ids: list[str]) -> list[dict]:
+    if category not in GRID_CATEGORIES:
+        return []
+    rows: dict[str, sqlite3.Row] = {}
+    for part in _chunks(unit_ids):
+        marks = ",".join("?" * len(part))
+        for r in conn.execute(
+            f"select b.*, fl.score, fl.reason {_GRID_FROM}"
+            f" where b.location='review' and b.primary_category=? and b.unit_id in ({marks})",
+            (category, *part),
+        ):
+            rows[r["unit_id"]] = r
+    badges = _badges(conn, list(rows))
+    return [_grid_item(rows[u], badges) for u in unit_ids if u in rows]
+
+
 def grid_items(
     conn: sqlite3.Connection,
     category: str,
@@ -206,10 +305,7 @@ def grid_items(
     total = conn.execute(
         "select count(*) from units where location='review' and primary_category=?", (category,)
     ).fetchone()[0]
-    if sort == "date":
-        order = "(b.taken_at is null), b.taken_at, b.unit_id"
-    else:
-        order = "(fl.score is null), fl.score, (b.taken_at is null), b.taken_at, b.unit_id"
+    order = _grid_order_sql(sort)
     rows = conn.execute(
         f"select b.*, fl.score, fl.reason from ({_BRIEF_SQL}) b"
         " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
@@ -217,19 +313,7 @@ def grid_items(
         (category, limit, offset),
     ).fetchall()
     badges = _badges(conn, [r["unit_id"] for r in rows])
-    items = []
-    for r in rows:
-        item = _brief(r)
-        item.update(
-            {
-                "score": r["score"],
-                "reason": r["reason"],
-                "seen": bool(r["seen"]),
-                "taken_at": r["taken_at"],
-                "badges": badges.get(r["unit_id"], []),
-            }
-        )
-        items.append(item)
+    items = [_grid_item(r, badges) for r in rows]
     return {"items": items, "total": total}
 
 
