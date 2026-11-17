@@ -31,6 +31,15 @@ let detailTimer = null;
 let wantLast = false; // after a page change from the top edge: land on the last group
 const detailCache = new Map();
 
+// After a pointer click the button would keep focus, and keys.js ignores Enter/Space on buttons.
+// Drop focus for mouse clicks (detail > 0); keyboard activation (Tab + Enter/Space) keeps it.
+function pt(fn) {
+  return (ev) => {
+    if (ev && ev.detail > 0 && ev.currentTarget && ev.currentTarget.blur) ev.currentTarget.blur();
+    return fn();
+  };
+}
+
 function fail(err) { toast(err && err.message ? err.message : String(err), { kind: "error" }); }
 
 // A member can be decided unless its decision is already applied or it sits in the trash.
@@ -48,7 +57,7 @@ function statusOf(g) {
 // --- shell -----------------------------------------------------------------------------
 
 const countEl = el("span", { class: "grid-count muted" });
-const acceptAllBtn = el("button", { type: "button", class: "btn btn-secondary", onclick: () => acceptAll() }, "Ikuti saran semua di halaman ini");
+const acceptAllBtn = el("button", { type: "button", class: "btn btn-secondary", onclick: pt(() => acceptAll()) }, "Ikuti saran semua di halaman ini");
 const listEl = el("div", { class: "grp-list", role: "listbox", "aria-label": "Daftar grup" });
 const pagerEl = el("div", { class: "grp-pager" });
 const reasonEl = el("div", { class: "grp-reason", hidden: true });
@@ -94,7 +103,7 @@ function rowOf(g, i) {
   return el("button", {
     type: "button", class: "grp-row" + (i === focus ? " is-active" : ""), role: "option",
     "aria-selected": String(i === focus), "data-id": g.id, tabindex: "-1",
-    onclick: () => { if (i !== focus) selectGroup(i); },
+    onclick: pt(() => { if (i !== focus) selectGroup(i); }),
   },
   el("div", { class: "grp-thumbs" },
     ...shown.map((m) => el("img", { class: "grp-thumb" + (m.is_keeper ? " is-keeper" : ""), src: m.thumb || "", alt: "", loading: "lazy", draggable: "false" })),
@@ -111,9 +120,9 @@ function paintList() {
   countEl.textContent = `${fmtNum(data.total)} grup`;
   acceptAllBtn.disabled = !data.groups.length;
   pagerEl.replaceChildren(
-    el("button", { type: "button", class: "btn btn-ghost", disabled: page <= 1, onclick: () => goPage(page - 1) }, "‹ Sebelumnya"),
+    el("button", { type: "button", class: "btn btn-ghost", disabled: page <= 1, onclick: pt(() => goPage(page - 1)) }, "‹ Sebelumnya"),
     el("span", { class: "muted" }, `${data.page} / ${data.pages}`),
-    el("button", { type: "button", class: "btn btn-ghost", disabled: page >= data.pages, onclick: () => goPage(page + 1) }, "Berikutnya ›"));
+    el("button", { type: "button", class: "btn btn-ghost", disabled: page >= data.pages, onclick: pt(() => goPage(page + 1)) }, "Berikutnya ›"));
 }
 
 function paintRow(i) {
@@ -204,8 +213,8 @@ function makeCard(m, i) {
   const pane = el("div", { class: "cmp-img" },
     el("img", { src: src || "", alt: p.name || "", draggable: "false" }));
   const stateSlot = el("div", { class: "cmp-state" });
-  const keepBtn = el("button", { type: "button", class: "btn btn-keep", onclick: () => decide(i, "keep") }, "Keep ", el("kbd", { class: "kbd" }, "S"));
-  const delBtn = el("button", { type: "button", class: "btn btn-danger", onclick: () => decide(i, "discard") }, "Delete ", el("kbd", { class: "kbd" }, "D"));
+  const keepBtn = el("button", { type: "button", class: "btn btn-keep", onclick: pt(() => decide(i, "keep")) }, "Keep ", el("kbd", { class: "kbd" }, "S"));
+  const delBtn = el("button", { type: "button", class: "btn btn-danger", onclick: pt(() => decide(i, "discard")) }, "Delete ", el("kbd", { class: "kbd" }, "D"));
   const actions = el("div", { class: "cmp-actions" }, keepBtn, delBtn);
   const facts = [
     p.width && p.height ? `${p.width} × ${p.height}` : null,
@@ -248,10 +257,10 @@ function renderDetail(d) {
   reasonEl.hidden = !d.reason;
   reasonEl.replaceChildren(el("strong", {}, "Alasan saran: "), d.reason || "");
   actionsEl.replaceChildren(
-    el("button", { type: "button", class: "btn btn-primary", onclick: () => acceptActive() }, "Ikuti saran ", el("kbd", { class: "kbd" }, "↵")),
-    el("button", { type: "button", class: "btn btn-secondary", onclick: () => keepAll() }, "Keep semua"),
-    el("button", { type: "button", class: "btn btn-secondary", onclick: () => toggleZoom() }, "Zoom bareng ", el("kbd", { class: "kbd" }, "Z")),
-    el("button", { type: "button", class: "btn btn-ghost", onclick: () => openFull() }, "Layar penuh ", el("kbd", { class: "kbd" }, "Spasi")));
+    el("button", { type: "button", class: "btn btn-primary", onclick: pt(() => acceptActive()) }, "Ikuti saran ", el("kbd", { class: "kbd" }, "↵")),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: pt(() => keepAll()) }, "Keep semua"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: pt(() => toggleZoom()) }, "Zoom bareng ", el("kbd", { class: "kbd" }, "Z")),
+    el("button", { type: "button", class: "btn btn-ghost", onclick: pt(() => openFull()) }, "Layar penuh ", el("kbd", { class: "kbd" }, "Spasi")));
 }
 
 function setMemberFocus(i) {
@@ -272,10 +281,9 @@ function toggleZoom() {
 
 // --- decisions ---------------------------------------------------------------------------
 
-function afterDecision() {
-  const g = data.groups[focus];
-  if (g) paintRow(focus);
-  cards.forEach((c) => c.paint());
+function afterDecision(idx = focus) {
+  if (data.groups[idx]) paintRow(idx);
+  if (idx === focus) cards.forEach((c) => c.paint());
   bar.refresh();
   reviewNav.refresh();
 }
@@ -288,7 +296,8 @@ function record(g, c, decision) {
 
 async function decide(i, decision) {
   const c = cards[i];
-  const g = data.groups[focus];
+  const idx = focus;
+  const g = data.groups[idx];
   if (!c || !g) return false;
   if (locked(c.m)) { toast("Anggota ini sudah diproses, tidak bisa diubah."); return false; }
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return false; }
@@ -297,13 +306,14 @@ async function decide(i, decision) {
   try {
     await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision });
     record(g, c, decision);
-    afterDecision();
+    afterDecision(idx);
     return true;
   } catch (e) { fail(e); return false; } finally { busy = false; }
 }
 
 async function keepAll() {
-  const g = data.groups[focus];
+  const idx = focus;
+  const g = data.groups[idx];
   if (!g || busy) return;
   if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return; }
   busy = true;
@@ -313,7 +323,7 @@ async function keepAll() {
       await api("POST", "/api/review/decision", { unit_id: c.m.unit_id, decision: "keep" });
       record(g, c, "keep");
     }
-  } catch (e) { fail(e); } finally { busy = false; afterDecision(); }
+  } catch (e) { fail(e); } finally { busy = false; afterDecision(idx); }
 }
 
 async function acceptActive() {
@@ -327,6 +337,8 @@ async function acceptActive() {
     await api("POST", "/api/review/accept", { group_ids: [g.id] });
     detailCache.delete(g.id);
     if (focus < data.groups.length - 1) focus += 1;
+    else if (page < data.pages) { page += 1; focus = 0; }
+    else toast("Itu grup terakhir di kategori ini.");
     await loadList();
     bar.refresh();
     reviewNav.refresh();
