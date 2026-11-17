@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,13 +104,37 @@ _UNIT_SQL = (
 )
 
 
+_ARCHIVE_MONTH_RE = re.compile(r"^(\d{4}-\d{2}) ")
+
+
+def _archived_month(rel_path: str | None) -> str | None:
+    """YYYY-MM of an `Arsip/YYYY/YYYY-MM <Nama>[/...]` folder, or None for any other shape."""
+    parts = (rel_path or "").replace("\\", "/").split("/")
+    if len(parts) < 4 or parts[0] != ARCHIVE_DIR:
+        return None
+    m = _ARCHIVE_MONTH_RE.match(parts[2])
+    return m.group(1) if m and parts[1] == m.group(1)[:4] else None
+
+
 def _event_months(conn: sqlite3.Connection) -> dict[str, str]:
+    """Folder month per event: the earliest month of its existing Arsip folder if it has
+    archived units (so later, earlier-dated photos reuse it), else its earliest photo month."""
     rows = conn.execute(
         "select event_key, min(substr(taken_at,1,7)) m from units "
         "where event_key is not null and taken_at is not null and location != 'trash' "
         "group by event_key"
     ).fetchall()
-    return {r["event_key"]: r["m"] for r in rows if r["m"]}
+    months = {r["event_key"]: r["m"] for r in rows if r["m"]}
+    existing: dict[str, str] = {}
+    for r in conn.execute(
+        "select u.event_key, f.rel_path from units u join files f on f.id = u.primary_file_id "
+        "where u.event_key is not null and u.location = 'archive'"
+    ):
+        m = _archived_month(r["rel_path"])
+        if m and (r["event_key"] not in existing or m < existing[r["event_key"]]):
+            existing[r["event_key"]] = m
+    months.update(existing)
+    return months
 
 
 def _archive_dir(u: sqlite3.Row, months: dict[str, str]) -> str:

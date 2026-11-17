@@ -108,3 +108,35 @@ def test_plan_apply_skips_unit_whose_file_is_gone(root, conn_with):
     skipped = []
     assert plan_apply(conn, root, [], [uid], skipped) == []
     assert skipped == [(uid, "file missing on disk: _review/burem/HP/IMG_2.jpg")]
+
+
+def _set_event(conn, name, key="bali", event="Bali"):
+    conn.execute(
+        "update units set event_key=?, event_name=? where primary_file_id in "
+        "(select id from files where rel_path like ?)",
+        (key, event, f"%/{name}"),
+    )
+    conn.commit()
+
+
+def test_event_keeps_existing_archive_folder_month(conn_with, root):
+    conn = conn_with([
+        dict(name="OLD.jpg", path="Arsip/2024/2024-07 Bali", loc="archive", taken="2024-07-10T10:00:00"),
+        dict(name="NEW.jpg", taken="2024-06-30T10:00:00"),
+    ])
+    _set_event(conn, "OLD.jpg")
+    _set_event(conn, "NEW.jpg")
+    moves = plan_rapikan(conn, root)
+    assert moves[0].files[0].dst_rel == "Arsip/2024/2024-07 Bali/NEW.jpg"
+
+
+def test_event_without_archived_unit_uses_earliest_month(conn_with, root):
+    conn = conn_with([
+        dict(name="A.jpg", taken="2024-07-10T10:00:00"),
+        dict(name="B.jpg", taken="2024-06-30T10:00:00"),
+    ])
+    _set_event(conn, "A.jpg")
+    _set_event(conn, "B.jpg")
+    compute_plans(conn)
+    dirs = {r[0] for r in conn.execute("select planned_archive_dir from units")}
+    assert dirs == {"Arsip/2024/2024-06 Bali"}
