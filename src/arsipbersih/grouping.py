@@ -65,8 +65,8 @@ class GroupingResult:
     burst: int
 
 
-def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
-    rows = conn.execute(
+def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> list[UnitView]:
+    base = (
         "select u.id as unit_id, u.location, u.taken_at, u.date_source, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
         "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
@@ -75,8 +75,17 @@ def load_unit_views(conn: sqlite3.Connection) -> list[UnitView]:
         "left join media_info m on m.file_id = f.id "
         "left join (select unit_id, count(*) as n, coalesce(sum(size), 0) as bytes from files "
         "  where missing = 0 and purged = 0 group by unit_id) c on c.unit_id = u.id "
-        "where u.location != 'trash' and f.missing = 0 and f.purged = 0 order by u.id"
-    ).fetchall()
+        "where u.location != 'trash' and f.missing = 0 and f.purged = 0"
+    )
+    if unit_ids is None:
+        rows = conn.execute(base + " order by u.id").fetchall()
+    else:
+        rows = []
+        for i in range(0, len(unit_ids), 500):
+            part = unit_ids[i : i + 500]
+            marks = ",".join("?" * len(part))
+            rows += conn.execute(f"{base} and u.id in ({marks})", part).fetchall()
+        rows.sort(key=lambda r: r["unit_id"])
     views = []
     for r in rows:
         frames = json.loads(r["frame_phashes"]) if r["frame_phashes"] else None

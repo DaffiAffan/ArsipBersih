@@ -18,6 +18,7 @@ from ...tools import check_tools
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import RECONCILE_LABEL, JobBusy, reconcile_job
 from ..messages import UserError
+from ..home_state import home_steps
 from ..queries import category_counts
 
 router = APIRouter()
@@ -65,6 +66,8 @@ def home_data(request: Request, conn=Depends(get_conn)):
         "by_location": by_location,
         "categories": category_counts(conn),
         "warnings": warnings,
+        "steps": home_steps(conn, scanned=last is not None),
+        "tools_ok": bool(t.exiftool and t.ffmpeg and t.ffprobe),
     }
 
 
