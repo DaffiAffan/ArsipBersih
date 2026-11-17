@@ -8,12 +8,41 @@
 .plan-error { background: var(--color-surface-2); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 8px 12px; border-radius: var(--radius-control); margin-bottom: 12px; }
 .plan-error[hidden] { display: none; }
 
-/* Beranda */
-.row { display: flex; gap: 8px; }
-.row input { flex: 1; background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 7px 10px; font: inherit; }
-.stages { padding-left: 20px; color: var(--color-text-muted); }
-.stages li.active { color: var(--color-text); font-weight: 600; }
-.chip { display: inline-block; background: var(--color-surface-2); border-radius: var(--radius-pill); padding: 2px 10px; margin: 0 6px 6px 0; }
+/* ===== Beranda (home.js) ===== */
+.home-head { margin-bottom: var(--space-4); }
+.home-root { margin: 0 0 var(--space-1); font-size: 20px; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.home-sub { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.home-link { padding: 0 var(--space-1); color: var(--color-accent); text-decoration: underline; }
+.home-rootform { display: flex; gap: var(--space-2); margin-top: var(--space-3); max-width: 720px; }
+.home-rootform input { flex: 1; min-width: 0; background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 7px 10px; font: inherit; }
+.home-alert { background: var(--color-surface-2); border: 1px solid var(--color-danger); color: var(--color-danger); padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); }
+.home-alert[hidden], .home-rootform[hidden] { display: none; }
+.home-warnings { color: var(--color-text-muted); padding-left: var(--space-5); }
+.home-steps { list-style: none; margin: 0 0 var(--space-5); padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.step { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+.step-now { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+.step-later h2, .step-later .step-text { color: var(--color-text-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
+.step-head { display: flex; align-items: center; gap: var(--space-2); }
+.step-head h2 { margin: 0; font-size: 16px; flex: 1; }
+.step-num { width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--color-surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+.step-now .step-num { background: var(--color-accent); color: var(--color-on-accent); }
+.step-done .step-num { background: var(--color-keep); color: var(--color-bg); }
+.step-text { margin: 0; flex: 1; color: var(--color-text-muted); }
+.step .btn { align-self: flex-start; text-decoration: none; }
+.step-live { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.step-live p { margin: 0; }
+.step-live .progress { width: 100%; }
+.home-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-5); }
+.home-summary .stat { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column-reverse; }
+.home-summary dd { margin: 0; font-size: 22px; font-weight: 600; }
+.home-summary dt { color: var(--color-text-muted); font-size: 13px; }
+.home-status p { margin: 0 0 var(--space-1); }
+.tools-bad { color: var(--color-danger); }
+.home-status .hint { background: var(--color-surface-2); padding: 1px 6px; border-radius: var(--radius-control); }
+.home-versions { margin-top: var(--space-2); color: var(--color-text-muted); font-size: 13px; }
+@media (max-width: 900px) { .home-steps { grid-template-columns: 1fr; } .home-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* ===== end Beranda ===== */
 
 /* Pengaturan */
 .settings-form fieldset { border: 1px solid var(--color-border); border-radius: var(--radius-card); margin: 0 0 16px; padding: 12px 16px; max-width: 760px; }
