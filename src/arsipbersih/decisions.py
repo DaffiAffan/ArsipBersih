@@ -33,6 +33,10 @@ _TRASH_PREFIX_LEN = len(_TRASH_PREFIX)
 _CHUNK = 500  # ids per IN (...) list, far below SQLite's variable limit
 
 
+class ApplyContentChanged(Exception):
+    """The unit lists differ from the ones the owner confirmed."""
+
+
 class PurgeMismatch(Exception):
     """The trash no longer holds what the owner confirmed."""
 
@@ -247,11 +251,15 @@ def _locations(conn: sqlite3.Connection, ids: list[str]) -> dict[str, str]:
     return out
 
 
-def apply_category(conn: sqlite3.Connection, root: Path, category: str) -> BatchResult:
+def apply_category(
+    conn: sqlite3.Connection, root: Path, category: str, expected_fingerprint: str | None = None
+) -> BatchResult:
     """Move a category's decided units. Raises PendingMoves while the journal is unsettled."""
     journal_errors: list[str] = []
     reconcile_or_refuse(conn, root, journal_errors)
     keep, discard, _ = _lists(conn, category)
+    if expected_fingerprint is not None and apply_fingerprint(keep, discard) != expected_fingerprint:
+        raise ApplyContentChanged(category)
     skipped: list[tuple[str, str]] = []
     moves = plan_apply(conn, root, keep, discard, skipped)
     result = execute(conn, root, moves, "apply", f"apply {category}")

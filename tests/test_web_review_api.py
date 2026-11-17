@@ -423,3 +423,22 @@ def test_apply_proceeds_when_fingerprint_matches(web, root, review_units):
     assert r.status_code == 202
     assert web.app_ref.state.jobs.wait().status == "done"
     assert _db_row(root, a) == "archive" and _db_row(root, b) == "trash"
+
+
+def test_apply_category_rejects_changed_lists_before_moving(web, root, review_units):
+    from arsipbersih.decisions import ApplyContentChanged, apply_category, preview_apply
+
+    a, b = review_units(2, seen={0, 1})
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    conn = open_db(root)
+    try:
+        fp = preview_apply(conn, "burem").fingerprint
+        # Decision changes after the route check, before apply_category builds its lists.
+        web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"})
+        web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"})
+        with pytest.raises(ApplyContentChanged):
+            apply_category(conn, root, "burem", fp)
+    finally:
+        conn.close()
+    assert _db_row(root, a) == "review" and _db_row(root, b) == "review"
+    assert (root / "_review/burem/HP/IMG_0.jpg").exists()

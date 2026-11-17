@@ -18,6 +18,7 @@ from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import JobBusy, batch_result_dict
 from ..labels import CATEGORY_HELP, CATEGORY_LABELS
+from arsipbersih.decisions import ApplyContentChanged
 from ..messages import APPLY_CONTENT_CHANGED_TEXT, APPLY_MISMATCH_TEXT, UserError, explain
 
 router = APIRouter(prefix="/api/review")
@@ -50,10 +51,6 @@ class ApplyBody(BaseModel):
     discard: StrictInt = Field(ge=0)
     # Digest of the exact unit lists the owner saw; optional so count-only callers still work.
     fingerprint: str | None = None
-
-
-class ApplyContentChanged(Exception):
-    """The unit lists changed (even with equal counts) since the owner's summary."""
 
 
 class ApplyMismatch(Exception):
@@ -226,7 +223,10 @@ def apply_preview(category: str, conn: sqlite3.Connection = Depends(get_conn)):
         )
     else:
         text = f"{p.keep} keep, {p.discard} delete"
-    return {"keep": p.keep, "discard": p.discard, "unseen": p.unseen, "text": text, "fingerprint": p.fingerprint}
+    return {
+        "keep": p.keep, "discard": p.discard, "unseen": p.unseen,
+        "text": text, "fingerprint": p.fingerprint,
+    }
 
 
 def _apply_job(root: Path, category: str, keep: int, discard: int, fingerprint: str | None = None):
@@ -238,7 +238,7 @@ def _apply_job(root: Path, category: str, keep: int, discard: int, fingerprint: 
                 raise ApplyMismatch(category)
             if fingerprint is not None and p.fingerprint != fingerprint:
                 raise ApplyContentChanged(category)
-            return batch_result_dict(decisions.apply_category(conn, root, category))
+            return batch_result_dict(decisions.apply_category(conn, root, category, fingerprint))
         finally:
             conn.close()
 
