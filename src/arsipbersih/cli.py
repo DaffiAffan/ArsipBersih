@@ -28,6 +28,7 @@ from .mover import (
     undo_batch,
 )
 from . import pipeline
+from .ai.model import ModelSetupError, model_status, setup_models
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
 from .planner import compute_plans
 from .report import build_report, verify
@@ -148,6 +149,27 @@ def check_tools_cmd() -> None:
             typer.echo(f"  install with: {WINGET_HINTS[name]}")
     if missing:
         typer.echo("Some tools are missing; results will be degraded.")
+    ms = model_status()
+    typer.echo(f"model AI: {'siap' if ms.ready else 'belum (jalankan setup-models)'}")
+
+
+@app.command("setup-models")
+def setup_models_cmd() -> None:
+    """Download the MobileCLIP2-S0 model (one-time, needs internet, about 300 MB)."""
+    typer.echo("Mengunduh model AI (sekitar 300 MB) dari Hugging Face ...")
+    last = {"name": None}
+
+    def progress(name: str, done: int, total: int) -> None:
+        if last["name"] != name:
+            last["name"] = name
+            typer.echo(f"  {name}: {human_bytes(total) if total else '?'}")
+
+    try:
+        dest = setup_models(progress=progress)
+    except ModelSetupError as e:
+        typer.echo(f"{e}\nPeriksa koneksi internet, lalu jalankan setup-models lagi.", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Model siap di {dest}")
 
 
 @app.command()

@@ -18,6 +18,7 @@ DOC_SUBDIRS = {
     "dokumen-keuangan": "Keuangan",
     "dokumen-kertas": "Kertas",
 }
+MODELS_DIR = "tools/models"  # AI model files, relative to the repo root (gitignored)
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _LONG_PREFIX = "\\\\?\\"
