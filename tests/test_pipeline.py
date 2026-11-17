@@ -92,4 +92,4 @@ def test_stage_order_puts_ai_after_visual():
     from arsipbersih.pipeline import STAGES
 
     assert STAGES == ("inventory", "pairing", "hash", "metadata", "visual", "ai",
-                      "grouping", "classify", "events", "plan")
+                      "grouping", "classify", "events", "dates", "plan")
