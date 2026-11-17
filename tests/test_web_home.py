@@ -52,6 +52,11 @@ def test_home_data_and_page(web):
     assert web.get("/").status_code == 200
 
 
+def test_home_page_has_step_cards(web):
+    html = web.get("/").text
+    assert 'id="steps"' in html and 'id="stages"' not in html
+
+
 def test_root_switch_rejects_bad_paths(web, tmp_path):
     f = tmp_path / "berkas.txt"
     f.write_text("x")
