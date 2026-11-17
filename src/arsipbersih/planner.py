@@ -337,7 +337,9 @@ def plan_rapikan(
                 or _archive_dir(u, months)
             ), "archive"
         else:
-            dst_dir = u["planned_review_dir"] or _review_dir(u, REVIEW_DIR, cat)
+            # Like the archive dir: the category at move time is the authority, because
+            # it can change after compute_plans (classify --head, owner correction).
+            dst_dir = _review_dir(u, REVIEW_DIR, cat)
             loc = "review"
         m = _try_build(conn, reserver, u, dst_dir, loc, skipped)
         if m:

@@ -237,3 +237,14 @@ def test_keep_grouped_member_without_document_flag_goes_to_normal_archive(conn_w
     conn, uid = _doc_unit(conn_with, root, "duplikat-persis", "2022-03-04T10:00:00")
     (m,) = plan_apply(conn, root, [uid], [])
     assert m.files[0].dst_rel == "Arsip/2022/2022-03/DOC_1.jpg"
+
+
+def test_rapikan_source_review_folder_follows_current_category(conn_with, root):
+    conn = conn_with([dict(name="A_1.jpg", taken="2022-03-04T10:00:00", category="screenshot")])
+    uid = conn.execute("select id from units").fetchone()[0]
+    compute_plans(conn)
+    conn.execute("update units set primary_category='download-meme' where id=?", (uid,))
+    conn.commit()  # classify --head after the plans were computed
+    (m,) = plan_rapikan(conn, root)
+    assert m.to_location == "review"
+    assert m.files[0].dst_rel.startswith("_review/download-meme/")
