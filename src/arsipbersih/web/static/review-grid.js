@@ -201,12 +201,40 @@ function watchThumb(cell, img, item) {
     cell.querySelector(".cell-noprev").hidden = false;
   };
   img.addEventListener("load", () => {
+    if (!img.getAttribute("src")) return; // released meanwhile
     if (img.naturalWidth <= 1 && img.naturalHeight <= 1) { noPreview(); return; }
     item.thumbState = "ok";
-  }, { once: true });
-  img.addEventListener("error", noPreview, { once: true });
+  });
+  img.addEventListener("error", () => { if (img.getAttribute("src")) noPreview(); });
   if (!item.thumb) noPreview();
 }
+
+// Cells more than ~2 screens from the visible area drop their image (memory on 8 GB RAM) and
+// reload it when they come back. The cell keeps its size (aspect-ratio), so scrolling never jumps.
+// A released cell is not "thumbnail shown", so the bulk Delete never targets it.
+function releaseThumb(item, cell) {
+  const img = cell.querySelector("img");
+  if (!item.thumb || item.thumbState === "none" || !img.hasAttribute("src")) return;
+  img.removeAttribute("src");
+  item.thumbState = "released";
+}
+
+function restoreThumb(item, cell) {
+  const img = cell.querySelector("img");
+  if (!item.thumb || item.thumbState !== "released") return;
+  item.thumbState = "loading";
+  img.setAttribute("src", item.thumb);
+}
+
+const thumbObserver = typeof IntersectionObserver !== "undefined"
+  ? new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const item = byId.get(e.target.dataset.id);
+      if (!item) continue;
+      if (e.isIntersecting) restoreThumb(item, e.target); else releaseThumb(item, e.target);
+    }
+  }, { root: scroller, rootMargin: "200% 0px" })
+  : null;
 
 function makeCell(item, i) {
   const extra = (item.badges || []).map((c) => CATEGORY_LABELS[c] || c);
@@ -227,6 +255,7 @@ function makeCell(item, i) {
   cell.addEventListener("dblclick", () => { clearTimeout(clickTimer); openFull(indexOfUnit(item.unit_id)); });
   cells.set(item.unit_id, cell);
   watchThumb(cell, img, item);
+  if (thumbObserver) thumbObserver.observe(cell);
   paintCell(cell, item, i);
   return cell;
 }
@@ -285,6 +314,7 @@ async function loadMore() {
 async function reload() {
   generation += 1;
   const gen = generation;
+  if (thumbObserver) thumbObserver.disconnect();
   cells.clear();
   byId.clear();
   items = []; order = []; next = 0; focus = 0;

@@ -107,6 +107,14 @@ def test_grid_tab_and_viewer_follow_detail_only_seen(web):
     assert "loadedmetadata" in viewer
 
 
+def test_grid_releases_thumbnails_far_from_viewport(web):
+    js = web.get("/static/review-grid.js").text
+    assert "thumbObserver" in js
+    assert 'rootMargin: "200% 0px"' in js
+    assert 'removeAttribute("src")' in js
+    assert '"released"' in js
+
+
 def test_grid_help_no_longer_claims_unkept_is_deleted(web):
     from arsipbersih.web.labels import CATEGORY_HELP
 
