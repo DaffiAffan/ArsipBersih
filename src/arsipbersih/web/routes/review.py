@@ -10,13 +10,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field, StrictInt
 
 from ... import decisions
-from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES
+from ...ai.heads import GROUPS
+from ...ai.store import add_feedback
+from ...classify import GRID_CATEGORIES, GROUP_CATEGORIES, reclassify_units
+from ...config import load_settings
 from ...db import open_db
 from .. import queries
 from ..deps import get_conn, get_root, render, start_job
-from ..jobs import batch_result_dict
+from ..jobs import JobBusy, batch_result_dict
 from ..labels import CATEGORY_HELP, CATEGORY_LABELS
-from ..messages import APPLY_MISMATCH_TEXT, UserError
+from ..messages import APPLY_MISMATCH_TEXT, UserError, explain
 
 router = APIRouter(prefix="/api/review")
 
@@ -54,6 +57,11 @@ class ApplyMismatch(Exception):
 
 class AcceptBody(BaseModel):
     group_ids: list[str]
+
+
+class AiGroupBody(BaseModel):
+    unit_id: str
+    grp: str
 
 
 def _group_kind(kind: str) -> str:
@@ -118,7 +126,7 @@ def grid_order(
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     _grid_category(category)
-    if sort not in ("score", "date"):
+    if sort not in ("score", "date", "ai_doubt"):
         raise UserError("Urutan tidak dikenal", 400)
     if view not in ("all", "unseen", "keep"):
         raise UserError("Tampilan tidak dikenal", 400)
@@ -155,6 +163,30 @@ def decision(body: DecisionBody, conn: sqlite3.Connection = Depends(get_conn)):
     else:
         decisions.record(conn, body.unit_id, body.decision)
     return {"ok": True}
+
+
+@router.post("/ai-group")
+def ai_group(body: AiGroupBody, request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+    """Owner correction of the AI group: stored as feedback, the unit is reclassified in the
+    database only (it shows up under its new review category). No file is moved."""
+    if body.grp not in GROUPS:
+        raise UserError("Kelompok tidak dikenal", 400)
+    if conn.execute("select 1 from units where id=?", (body.unit_id,)).fetchone() is None:
+        raise UserError("Unit tidak ditemukan", 404)
+    try:
+        # No scan or apply may rewrite categories or move files while this one changes.
+        with request.app.state.jobs.exclusive():
+            add_feedback(conn, body.unit_id, body.grp, "koreksi")
+            settings = load_settings(conn)
+            reclassify_units(conn, settings, [body.unit_id])
+    except JobBusy as exc:
+        raise UserError(explain(exc), 409) from exc
+    row = conn.execute("select primary_category from units where id=?", (body.unit_id,)).fetchone()
+    return {
+        "primary_category": row[0],
+        "label": CATEGORY_LABELS.get(row[0]) if row[0] else None,
+        "ai": queries.ai_guess(conn, body.unit_id, settings.ai_head),
+    }
 
 
 @router.post("/decisions")

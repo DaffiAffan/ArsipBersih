@@ -67,36 +67,54 @@ EMPTY_REASON = "file kosong (0 byte)"
 ERROR_IN_REASON_MAX = 80
 
 
-def _broken_units(conn: sqlite3.Connection) -> dict[str, str]:
+def _rows(conn: sqlite3.Connection, sql: str, col: str, unit_ids: list[str] | None) -> list:
+    """Run ``sql`` (which already has a WHERE clause), limited to ``unit_ids`` when given."""
+    if unit_ids is None:
+        return conn.execute(sql).fetchall()
+    rows: list = []
+    for i in range(0, len(unit_ids), 500):
+        part = unit_ids[i : i + 500]
+        marks = ",".join("?" * len(part))
+        rows += conn.execute(f"{sql} and {col} in ({marks})", part).fetchall()
+    return rows
+
+
+def _broken_units(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict[str, str]:
     """{unit_id: reason} for units whose PRIMARY file failed to decode, or that hold an
     empty photo/raw/video file. A bad companion file never flags the whole unit, and
     decode_ok NULL (unknown, e.g. a RAW without an embedded preview) is not broken."""
     out: dict[str, str] = {}
-    rows = conn.execute(
+    rows = _rows(
+        conn,
         "select u.id, f.error from units u join files f on f.id = u.primary_file_id "
         "join media_info m on m.file_id = f.id "
-        "where f.missing = 0 and f.purged = 0 and m.decode_ok = 0"
-    ).fetchall()
+        "where f.missing = 0 and f.purged = 0 and m.decode_ok = 0",
+        "u.id", unit_ids,
+    )
     for unit_id, error in rows:
         out[unit_id] = f"{BROKEN_REASON}: {error[:ERROR_IN_REASON_MAX]}" if error else BROKEN_REASON
-    rows = conn.execute(
+    rows = _rows(
+        conn,
         "select f.unit_id, f.rel_path from files f "
         "where f.unit_id is not null and f.missing = 0 and f.purged = 0 "
-        "and f.size = 0 and f.kind in ('photo','raw','video')"
-    ).fetchall()
+        "and f.size = 0 and f.kind in ('photo','raw','video')",
+        "f.unit_id", unit_ids,
+    )
     for unit_id, rel_path in rows:
         name = rel_path.rsplit("/", 1)[-1]
         out.setdefault(unit_id, f"{EMPTY_REASON}: {name[:ERROR_IN_REASON_MAX]}")
     return out
 
 
-def _extras(conn: sqlite3.Connection) -> dict[str, dict]:
-    rows = conn.execute(
+def _extras(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict[str, dict]:
+    rows = _rows(
+        conn,
         "select u.id as unit_id, f.ext, m.luma_mean, m.luma_std, m.clipping, m.frame_lumas "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
-        "where f.missing = 0 and f.purged = 0"
-    ).fetchall()
+        "where f.missing = 0 and f.purged = 0",
+        "u.id", unit_ids,
+    )
     out = {}
     for r in rows:
         lumas = json.loads(r["frame_lumas"]) if r["frame_lumas"] else None
@@ -105,11 +123,13 @@ def _extras(conn: sqlite3.Connection) -> dict[str, dict]:
     return out
 
 
-def _group_flags(conn: sqlite3.Connection) -> dict[str, list[Flag]]:
-    rows = conn.execute(
+def _group_flags(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict[str, list[Flag]]:
+    rows = _rows(
+        conn,
         "select gm.unit_id, g.kind from group_members gm join groups g on g.id = gm.group_id "
-        "where g.suggested_keep_unit_id is not gm.unit_id"
-    ).fetchall()
+        "where g.suggested_keep_unit_id is not gm.unit_id",
+        "gm.unit_id", unit_ids,
+    )
     out: dict[str, list[Flag]] = defaultdict(list)
     for r in rows:
         if r["kind"] in GROUP_CATEGORIES:
@@ -199,13 +219,53 @@ def ai_flags_for(conn: sqlite3.Connection, head_name: str) -> dict[str, tuple[st
     return out
 
 
+class _Facts:
+    """Everything the per-unit rules need, loaded once (for all units or just some)."""
+
+    def __init__(self, conn: sqlite3.Connection, settings: Settings, unit_ids: list[str] | None = None):
+        self.settings = settings
+        self.extras = _extras(conn, unit_ids)
+        self.broken = _broken_units(conn, unit_ids)
+        self.group_flags = _group_flags(conn, unit_ids)
+        ai = ai_flags_for(conn, settings.ai_head)
+        if unit_ids is not None:
+            wanted = set(unit_ids)
+            ai = {k: v for k, v in ai.items() if k in wanted}
+        self.ai_flags = ai
+
+
+def _unit_flags(u: UnitView, facts: _Facts) -> list[Flag]:
+    flags = list(facts.group_flags.get(u.unit_id, []))
+    if u.location != "archive":
+        flags += _classify_unit(u, facts.extras[u.unit_id], facts.settings, facts.broken.get(u.unit_id))
+    if u.location != "archive" and u.kind != "video" and u.unit_id in facts.ai_flags:
+        cat, prob, reason = facts.ai_flags[u.unit_id]
+        if not any(f[0] == cat for f in flags):
+            flags.append((cat, prob, reason))
+    return flags
+
+
+def _write_unit(conn: sqlite3.Connection, unit_id: str, flags: list[Flag]) -> str | None:
+    """Replace the unit's flags and primary_category; return the new primary category."""
+    by_cat = {f[0]: f for f in flags}
+    conn.execute("delete from flags where unit_id = ?", (unit_id,))
+    for cat, score, reason in by_cat.values():
+        conn.execute(
+            "insert into flags(id, unit_id, category, score, reason) values(?,?,?,?,?)",
+            (new_id(), unit_id, cat, score, reason),
+        )
+    primary = next((c for c in CATEGORY_PRIORITY if c in by_cat), None)
+    conn.execute("update units set primary_category = ? where id = ?", (primary, unit_id))
+    return primary
+
+
+_CLASSIFIED_LOCATIONS = ("source", "review", "archive")
+
+
 def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]:
     """Rewrite flags and primary_category for source/review/archive units."""
-    views = [u for u in load_unit_views(conn) if u.location in ("source", "review", "archive")]
-    extras = _extras(conn)
-    broken = _broken_units(conn)
-    group_flags = _group_flags(conn)
-    ai_flags = ai_flags_for(conn, settings.ai_head)
+    views = [u for u in load_unit_views(conn) if u.location in _CLASSIFIED_LOCATIONS]
+    facts = _Facts(conn, settings)
     counts: dict[str, int] = {}
     with conn:
         # A unit whose primary file is gone keeps no stale category from an earlier scan.
@@ -219,22 +279,24 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
             " primary_file_id in (select id from files where missing = 1 or purged = 1)"
         )
         for u in views:
-            flags = list(group_flags.get(u.unit_id, []))
-            if u.location != "archive":
-                flags += _classify_unit(u, extras[u.unit_id], settings, broken.get(u.unit_id))
-            if u.location != "archive" and u.kind != "video" and u.unit_id in ai_flags:
-                cat, prob, reason = ai_flags[u.unit_id]
-                if not any(f[0] == cat for f in flags):
-                    flags.append((cat, prob, reason))
-            by_cat = {f[0]: f for f in flags}
-            conn.execute("delete from flags where unit_id = ?", (u.unit_id,))
-            for cat, score, reason in by_cat.values():
-                conn.execute(
-                    "insert into flags(id, unit_id, category, score, reason) values(?,?,?,?,?)",
-                    (new_id(), u.unit_id, cat, score, reason),
-                )
-            primary = next((c for c in CATEGORY_PRIORITY if c in by_cat), None)
-            conn.execute("update units set primary_category = ? where id = ?", (primary, u.unit_id))
+            primary = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
             if primary:
                 counts[primary] = counts.get(primary, 0) + 1
     return counts
+
+
+def reclassify_units(conn: sqlite3.Connection, settings: Settings, unit_ids: list[str]) -> dict[str, str | None]:
+    """Recompute flags and primary_category of just these units, exactly as run_classify would.
+
+    Every input is per unit (group flags are read from the stored groups, not recomputed),
+    so other units are never touched. Units run_classify skips (trash, primary file missing)
+    are left as they are. Returns {unit_id: primary_category} for the units rewritten.
+    """
+    ids = list(dict.fromkeys(unit_ids))
+    views = [u for u in load_unit_views(conn, ids) if u.location in _CLASSIFIED_LOCATIONS]
+    facts = _Facts(conn, settings, ids)
+    out: dict[str, str | None] = {}
+    with conn:
+        for u in views:
+            out[u.unit_id] = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
+    return out

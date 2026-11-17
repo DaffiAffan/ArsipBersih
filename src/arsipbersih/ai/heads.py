@@ -8,6 +8,7 @@ renormalized, so a hint can push a probability up to 1.0 or down without touchin
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 from collections.abc import Callable
@@ -147,6 +148,19 @@ def decide(gp: dict[str, float], subs: dict[str, str], thr: dict) -> tuple[str, 
     if winner != "lainnya" and (prob < thr["group_min"] or (winner == "identitas" and prob < thr["identitas_min"])):
         winner, prob = "lainnya", gp.get("lainnya", 0.0)
     return winner, subs.get(winner), prob
+
+
+@functools.cache
+def group_thresholds(config_path: Path | None = None) -> dict:
+    """The decision thresholds every head shares (from the zero-shot prompt file)."""
+    cfg = json.loads(Path(config_path or DEFAULT_PROMPTS).read_text(encoding="utf-8"))
+    return dict(cfg["thresholds"])
+
+
+def threshold_for(grp: str, thr: dict | None = None) -> float:
+    """The probability a label of ``grp`` had to reach (lainnya uses the plain group minimum)."""
+    thr = thr or group_thresholds()
+    return thr["identitas_min"] if grp == "identitas" else thr["group_min"]
 
 
 HEAD_DIR = Path(STATE_DIR) / "ai" / "heads"

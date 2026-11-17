@@ -22,6 +22,11 @@ const SIZES = [100, 150, 220]; // slider value -> minimum column width in px (0 
 const VIEWS = [["all", "Semua"], ["unseen", "Belum diputuskan"], ["keep", "Keep"]]; // "unseen": undecided, never opened in detail
 const EMPTY = { all: "Tidak ada item di kategori ini.", unseen: "Semua foto di sini sudah diputuskan atau sudah dibuka di detail.", keep: "Belum ada yang di-Keep." };
 const PREF_KEY = `ab.grid.${category}`;
+// Categories the AI fills: the grid offers "most uncertain guess first" (spec 12.3).
+const AI_SORT_CATEGORIES = new Set(["dokumen-identitas", "dokumen-keuangan", "dokumen-kertas", "download-meme", "screenshot"]);
+// Identity guesses are checked one by one: no bulk Delete here (spec 7.7).
+const NO_BULK = category === "dokumen-identitas";
+const NO_BULK_TEXT = "Delete massal dimatikan di kategori Identitas. Cek tebakan satu per satu, lalu tekan D per foto.";
 
 // --- preferences (view only; per category) -------------------------------------------
 
@@ -94,13 +99,15 @@ const tabs = VIEWS.map(([v, text]) => el("button", {
 }, text));
 const sortSel = el("select", { class: "grid-select", "aria-label": "Urutan", onchange: (e) => { sort = e.target.value; reload(); } },
   el("option", { value: "score" }, "Skor (terburuk dulu)"),
-  el("option", { value: "date" }, "Tanggal"));
+  el("option", { value: "date" }, "Tanggal"),
+  AI_SORT_CATEGORIES.has(category) ? el("option", { value: "ai_doubt" }, "Paling ragu dulu") : null);
 const sizeInput = el("input", { type: "range", min: "0", max: String(SIZES.length - 1), step: "1", "aria-label": "Ukuran thumbnail",
   oninput: (e) => { prefs.size = Number(e.target.value); savePrefs(); applySize(); } });
 const infoBtn = el("button", { type: "button", class: "btn btn-ghost", onclick: () => toggleInspector() },
   "Info ", el("kbd", { class: "kbd" }, "I"));
 const BULK_LABEL = "Delete yang belum di-Keep di layar ini";
-const bulkBtn = el("button", { type: "button", class: "btn btn-ghost grid-bulk", title: `${BULK_LABEL} (Shift+D)`,
+const bulkBtn = el("button", { type: "button", class: "btn btn-ghost grid-bulk", title: NO_BULK ? NO_BULK_TEXT : `${BULK_LABEL} (Shift+D)`,
+  "aria-disabled": NO_BULK ? "true" : null,
   onclick: () => { bulkDeleteOnScreen().catch(fail); } },
   BULK_LABEL, " ", el("kbd", { class: "kbd" }, "Shift D"));
 const gridEl = el("div", { class: "photo-grid" });
@@ -120,7 +127,7 @@ root.replaceChildren(
   toolbarEl,
   el("p", { class: "grid-hint muted" },
     el("kbd", { class: "kbd" }, "S"), " keep · ", el("kbd", { class: "kbd" }, "D"), " delete · ",
-    el("kbd", { class: "kbd" }, "Shift D"), " delete yang tampil · ",
+    ...(NO_BULK ? [] : [el("kbd", { class: "kbd" }, "Shift D"), " delete yang tampil · "]),
     el("kbd", { class: "kbd" }, "Spasi"), " layar penuh · ", el("kbd", { class: "kbd" }, "?"), " bantuan"),
   el("div", { class: "grid-layout" }, el("div", { class: "grid-col" }, gridEl, sentinel), inspEl));
 const bar = mountFloatBar(root, {
@@ -163,7 +170,8 @@ const insp = createInspectorLoader(inspEl, { onError: fail });
 function showInspector() {
   if (!prefs.inspector) return;
   const it = focusedItem();
-  insp.show(it ? it.unit_id : null, () => (it ? it.decision : null), (decision) => decide(it.unit_id, decision));
+  insp.show(it ? it.unit_id : null, () => (it ? it.decision : null), (decision) => decide(it.unit_id, decision),
+    (grp) => changeGroup(it.unit_id, grp));
 }
 
 // --- cells -------------------------------------------------------------------------------
@@ -379,6 +387,73 @@ function decideFocused(decision) {
   if (it) decide(it.unit_id, decision);
 }
 
+// --- AI group correction ("Ubah kelompok") -------------------------------------------------
+
+// Drops a unit that left this category from every list of the page (grid, order, viewer).
+function removeItem(unitId) {
+  const i = indexOfUnit(unitId);
+  if (i < 0) return;
+  const cell = cells.get(unitId);
+  if (cell) { if (thumbObserver) thumbObserver.unobserve(cell); cell.remove(); }
+  cells.delete(unitId);
+  byId.delete(unitId);
+  items.splice(i, 1);
+  items.forEach((it, n) => { it.idx = n; });
+  const oi = order.indexOf(unitId);
+  if (oi >= 0) { order.splice(oi, 1); if (oi < next) next -= 1; }
+  paintToolbar();
+  const vs = viewerState;
+  if (vs) {
+    vs.vitems.splice(i, 1);
+    vs.loaded.delete(unitId);
+  }
+  if (!items.length) {
+    focus = 0;
+    if (next >= order.length) sentinel.replaceChildren(el("p", { class: "empty" }, EMPTY[view]));
+    if (vs && vs.handle) vs.handle.close();
+    showInspector();
+    loadMore();
+    return;
+  }
+  if (focus > i) focus -= 1;
+  setFocus(Math.min(focus, items.length - 1), false);
+  if (vs && vs.handle) {
+    const at = Math.min(vs.handle.index > i ? vs.handle.index - 1 : vs.handle.index, items.length - 1);
+    vs.handle.go(at);
+  }
+}
+
+const LEFT_REVIEW_TEXT = "Tidak masuk kategori review mana pun lagi. Foto ini pindah ke Arsip saat Rapikan berikutnya.";
+
+// Saves the owner's correction; the unit is reclassified on the server (no file moves).
+// Resolves to the server reply, or null when nothing was saved.
+async function changeGroup(unitId, grp) {
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return null; }
+  if (busy) { toast("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return null; }
+  if (!byId.has(unitId)) return null;
+  busy = true;
+  let res = null;
+  try {
+    res = await api("POST", "/api/review/ai-group", { unit_id: unitId, grp });
+  } catch (e) { fail(e); return null; } finally { busy = false; }
+  insp.forget(unitId);
+  const vs = viewerState;
+  if (res.primary_category !== category) {
+    removeItem(unitId);
+    toast(res.primary_category ? `Dipindah ke ${CATEGORY_LABELS[res.primary_category] || res.label || res.primary_category}` : LEFT_REVIEW_TEXT);
+  } else {
+    toast(`Kelompok diubah: ${res.ai ? res.ai.label : grp}. Tetap di kategori ini.`);
+    if (focusedItem() && focusedItem().unit_id === unitId) showInspector();
+    if (vs) { // reload the fullscreen card so its info panel shows the correction
+      vs.loaded.delete(unitId);
+      ensureCard(indexOfUnit(unitId));
+    }
+  }
+  bar.refresh();
+  reviewNav.refresh();
+  return res;
+}
+
 // --- bulk Delete for the cells on screen (D-033) -----------------------------------------
 
 // The visible band of the grid: below the sticky toolbar, above the floating Apply bar.
@@ -428,7 +503,9 @@ function bulkBlocked() {
 }
 
 async function bulkDeleteOnScreen() {
-  if (viewerState || document.querySelector("dialog[open]") || bulkBlocked()) return;
+  if (viewerState || document.querySelector("dialog[open]")) return;
+  if (NO_BULK) { toast(NO_BULK_TEXT); return; }
+  if (bulkBlocked()) return;
   const targets = onScreenTargets().slice(0, BULK_MAX);
   if (!targets.length) { toast("Tidak ada foto di layar yang bisa di-Delete."); return; }
   const n = fmtNum(targets.length);
@@ -477,7 +554,7 @@ window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindGrid = bin
 
 registerHelp([
   { title: "Review grid", keys: [["S", "Keep foto terpilih"], ["D", "Delete foto terpilih"],
-    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Shift+D", BULK_LABEL],
+    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Shift+D", NO_BULK ? NO_BULK_TEXT : BULK_LABEL],
     ["Spasi", "Layar penuh (juga klik ganda)"],
     ["← → ↑ ↓", "Pindah foto"], ["I", "Buka/tutup panel info"], ["?", "Bantuan ini"]] },
   { title: "Penanda", keys: [["●", "Titik biru = sudah dibuka di detail. Saat Apply, yang dibuang hanya yang di-Delete atau sudah dibuka dan tidak di-Keep; sisanya tetap di review."]] },
@@ -548,6 +625,7 @@ async function openFull(i) {
       queueSeen(byId.get(card.unit_id));
       flushSeen();
     },
+    onChangeGroup: (card, grp) => changeGroup(card.unit_id, grp),
     onClose: () => {
       viewerState = null;
       const it = items[focus];

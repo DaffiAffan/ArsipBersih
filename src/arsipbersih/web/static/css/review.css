@@ -96,6 +96,16 @@
 .insp-why h4 { margin: 0 0 var(--space-2); font-size: 13px; }
 .insp-why ul { margin: 0; padding-left: var(--space-4); }
 .insp-effect { margin: var(--space-2) 0 0; color: var(--color-text-muted); }
+.insp-ai { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.insp-ai-guess { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.insp-ai-ctl { position: relative; }
+.insp-ai-btn { border-color: var(--color-border); }
+.insp-ai-menu { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 5; min-width: 180px; display: flex; flex-direction: column; padding: var(--space-1); background: var(--color-surface); border-radius: var(--radius-control); box-shadow: var(--shadow-float); }
+.insp-ai-menu[hidden] { display: none; }
+.insp-ai-item { text-align: left; padding: var(--space-2) var(--space-3); background: transparent; border: 0; border-radius: var(--radius-control); color: var(--color-text); font: inherit; cursor: pointer; }
+.insp-ai-item:hover, .insp-ai-item:focus-visible { background: var(--color-surface-2); }
+.insp-ai-item[aria-checked="true"] { color: var(--color-accent); font-weight: 600; }
+.grid-bulk[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .insp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 .insp-actions .btn { flex: 1; }
 .insp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }

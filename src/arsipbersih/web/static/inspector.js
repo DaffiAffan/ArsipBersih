@@ -6,6 +6,9 @@ import { CATEGORY_LABELS } from "/static/labels.js";
 const DATE_SOURCES = { filename: "dari nama file", exif: "EXIF", quicktime: "QuickTime" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 export const DISCARD_EFFECT = "Kalau tidak di-Keep, file pindah ke _sampah saat Apply (bisa di-Undo)";
+// Same names as AI_GROUP_NAMES in classify.py; the order is the menu order.
+export const AI_GROUPS = [["identitas", "Identitas"], ["keuangan", "Keuangan"], ["kertas", "Kertas & catatan"],
+  ["grafis", "Grafis"], ["layar", "Layar"], ["lainnya", "Foto biasa"]];
 
 function fmtTaken(iso) {
   if (!iso) return "Tidak diketahui";
@@ -26,12 +29,59 @@ function row(label, ...value) {
   return [el("dt", {}, label), el("dd", {}, ...value)];
 }
 
+// "Tebakan AI: Keuangan · struk (91%)", or "Dikoreksi: Keuangan" after an owner correction.
+export function aiGuessText(ai) {
+  if (!ai) return "Tebakan AI: belum ada";
+  if (ai.source === "koreksi") return `Dikoreksi: ${ai.label}`;
+  const sub = ai.sub ? ` · ${ai.sub}` : "";
+  const pct = ai.prob != null ? ` (${Math.round(ai.prob * 100)}%)` : "";
+  return `Tebakan AI: ${ai.label}${sub}${pct}`;
+}
+
+// AI guess + "Ubah kelompok" menu. The button shows only when the caller can save a
+// correction, and never for videos (the AI does not look at videos yet).
+function aiSection(unit, onChangeGroup) {
+  const canChange = Boolean(onChangeGroup) && (unit.media || {}).kind !== "video";
+  if (!unit.ai && !canChange) return null;
+  const box = el("section", { class: "insp-ai" }, el("p", { class: "insp-ai-guess" }, aiGuessText(unit.ai)));
+  if (!canChange) return box;
+  const current = unit.ai && unit.ai.source === "koreksi" ? unit.ai.grp : null;
+  const menu = el("div", { class: "insp-ai-menu", role: "menu", "aria-label": "Pilih kelompok", hidden: true });
+  const toggle = el("button", { type: "button", class: "btn btn-ghost insp-ai-btn", "aria-haspopup": "menu", "aria-expanded": "false",
+    onclick: () => {
+      menu.hidden = !menu.hidden;
+      toggle.setAttribute("aria-expanded", String(!menu.hidden));
+      if (!menu.hidden) { const first = menu.querySelector("button"); if (first) first.focus(); }
+    } }, "Ubah kelompok");
+  let saving = false;
+  for (const [grp, name] of AI_GROUPS) {
+    menu.append(el("button", { type: "button", class: "insp-ai-item", role: "menuitemradio", "aria-checked": String(grp === current),
+      onclick: async () => {
+        if (saving) return;
+        saving = true;
+        menu.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.disabled = true;
+        try { await onChangeGroup(grp); } finally { saving = false; toggle.disabled = false; }
+      } }, name));
+  }
+  menu.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    ev.stopPropagation(); // close the menu only, not the fullscreen viewer
+    menu.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.focus();
+  });
+  box.append(el("div", { class: "insp-ai-ctl" }, toggle, menu));
+  return box;
+}
+
 function folderOf(path) {
   const i = path ? path.lastIndexOf("/") : -1;
   return i > 0 ? path.slice(0, i) : "";
 }
 
-export function renderInspector(node, unit, { onDecide } = {}) {
+export function renderInspector(node, unit, { onDecide, onChangeGroup } = {}) {
   if (!unit) {
     node.replaceChildren(el("p", { class: "empty" }, "Pilih foto untuk melihat infonya."));
     return;
@@ -80,6 +130,7 @@ export function renderInspector(node, unit, { onDecide } = {}) {
     el("div", { class: "insp-name" }, el("strong", { title: name }, name), status),
     path ? el("div", { class: "mono insp-path insp-fullpath" }, path) : null,
     facts,
+    aiSection(unit, onChangeGroup),
     why,
     el("div", { class: "insp-actions" }, keepBtn, delBtn),
   );
@@ -87,17 +138,17 @@ export function renderInspector(node, unit, { onDecide } = {}) {
 
 // Shows the card of one unit in `node`, fetched from GET /api/review/unit/{id}. Arrow-key
 // bursts fetch only where the selection rests; recent cards are cached. `getDecision` reads
-// the caller's (freshest) decision at render time.
+// the caller's (freshest) decision at render time. `forget(id)` drops a cached card that changed.
 export function createInspectorLoader(node, { delayMs = 120, cacheSize = 60, onError } = {}) {
   const cache = new Map();
   let timer = null;
   let wanted = null;
 
-  function show(unitId, getDecision, onDecide) {
+  function show(unitId, getDecision, onDecide, onChangeGroup) {
     clearTimeout(timer);
     wanted = unitId;
     if (!unitId) { renderInspector(node, null); return; }
-    const render = (card) => renderInspector(node, { ...card, decision: getDecision() }, { onDecide });
+    const render = (card) => renderInspector(node, { ...card, decision: getDecision() }, { onDecide, onChangeGroup });
     if (cache.has(unitId)) { render(cache.get(unitId)); return; }
     timer = setTimeout(async () => {
       try {
@@ -109,5 +160,7 @@ export function createInspectorLoader(node, { delayMs = 120, cacheSize = 60, onE
     }, delayMs);
   }
 
-  return { show };
+  function forget(unitId) { cache.delete(unitId); }
+
+  return { show, forget };
 }

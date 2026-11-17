@@ -245,3 +245,115 @@ def test_grid_items_carry_the_primary_file_name(web, review_units):
     assert [i["name"] for i in items] == ["IMG_0.jpg", "IMG_1.jpg"]
     page = web.get("/api/review/grid/burem").json()["items"]
     assert sorted(i["name"] for i in page) == ["IMG_0.jpg", "IMG_1.jpg"]
+
+
+# --- AI guesses (Fase 1.5) ---------------------------------------------------------------
+
+
+def _label(root, uid, grp, sub, prob, head="zeroshot"):
+    from arsipbersih.ai.store import save_labels
+
+    conn = open_db(root)
+    try:
+        save_labels(conn, head, "v1", [(uid, grp, sub, prob)])
+    finally:
+        conn.close()
+
+
+def _feedback(root):
+    conn = open_db(root)
+    try:
+        return [tuple(r) for r in conn.execute("select unit_id, grp, source from ai_feedback order by rowid")]
+    finally:
+        conn.close()
+
+
+def test_ai_group_correction_moves_unit_category(web, root, review_units):
+    a, other = review_units(2, category="download-meme")
+    conn = open_db(root)
+    conn.execute(
+        "insert into flags(id, unit_id, category, score, reason) values(?,?,?,?,?)",
+        (new_id(), other, "download-meme", None, "berasal dari folder unduhan"),
+    )
+    conn.commit()
+    conn.close()
+    _label(root, a, "grafis", None, 0.8)
+    r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "keuangan"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["primary_category"] == "dokumen-keuangan"
+    assert body["ai"]["source"] == "koreksi" and body["ai"]["grp"] == "keuangan"
+    assert _feedback(root) == [(a, "keuangan", "koreksi")]
+    assert web.get("/api/review/grid/download-meme/order").json()["unit_ids"] == [other]
+    assert web.get("/api/review/grid/dokumen-keuangan/order").json()["unit_ids"] == [a]
+    # no file moved, the other unit untouched
+    assert (root / "_review/download-meme/HP/IMG_0.jpg").exists()
+    assert _db_row(root, a) == "review"
+    conn = open_db(root)
+    try:
+        assert conn.execute("select primary_category from units where id=?", (other,)).fetchone()[0] == "download-meme"
+        assert [tuple(x) for x in conn.execute("select category, reason from flags where unit_id=?", (other,))] == [
+            ("download-meme", "berasal dari folder unduhan")]
+    finally:
+        conn.close()
+    # "Foto biasa" removes the AI flag; nothing else flags the unit
+    r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "lainnya"})
+    assert r.status_code == 200
+    assert r.json()["primary_category"] is None
+
+
+def test_ai_group_rejects_unknown_group(web, root, review_units):
+    (a,) = review_units(1, category="screenshot")
+    assert web.post("/api/review/ai-group", json={"unit_id": a, "grp": "kucing"}).status_code == 400
+    assert web.post("/api/review/ai-group", json={"unit_id": "nope", "grp": "layar"}).status_code == 404
+    assert web.post("/api/review/ai-group", json={"unit_id": a, "grp": "layar"},
+                    headers={"X-ArsipBersih": ""}).status_code == 403
+    assert _feedback(root) == []
+    gate = threading.Event()
+    web.app_ref.state.jobs.start("scan", "Scan", lambda report, stop: gate.wait(10))
+    try:
+        r = web.post("/api/review/ai-group", json={"unit_id": a, "grp": "layar"})
+        assert r.status_code == 409
+    finally:
+        gate.set()
+        web.app_ref.state.jobs.wait()
+    assert _feedback(root) == []
+
+
+def test_keep_in_document_category_records_confirmation(web, root, review_units):
+    doc, doc2 = review_units(2, category="dokumen-keuangan")
+    (blur,) = review_units(1, category="burem")
+    assert web.post("/api/review/decision", json={"unit_id": doc, "decision": "keep"}).status_code == 200
+    assert web.post("/api/review/decision", json={"unit_id": doc2, "decision": "discard"}).status_code == 200
+    assert web.post("/api/review/decision", json={"unit_id": blur, "decision": "keep"}).status_code == 200
+    assert _feedback(root) == [(doc, "keuangan", "konfirmasi")]
+
+
+def test_grid_order_ai_doubt(web, root, review_units):
+    a, b, c, d = review_units(4, category="dokumen-keuangan")
+    _label(root, a, "keuangan", "struk", 0.95)  # 0.25 from 0.7
+    _label(root, b, "keuangan", "struk", 0.72)  # 0.02 from 0.7
+    _label(root, c, "identitas", "KTP", 0.96)  # 0.01 from 0.95
+    r = web.get("/api/review/grid/dokumen-keuangan/order?sort=ai_doubt")
+    assert r.status_code == 200
+    assert r.json()["unit_ids"] == [c, b, a, d]
+    assert web.get("/api/review/grid/dokumen-keuangan/order?sort=ragu").status_code == 400
+
+
+def test_unit_detail_has_ai_guess(web, root, review_units):
+    a, b = review_units(2, category="dokumen-keuangan")
+    _label(root, a, "keuangan", "struk", 0.91)
+    ai = web.get(f"/api/review/unit/{a}").json()["ai"]
+    assert ai == {"grp": "keuangan", "sub": "struk", "prob": 0.91, "source": "ai", "label": "Keuangan"}
+    assert web.get(f"/api/review/unit/{b}").json()["ai"] is None
+    web.post("/api/review/ai-group", json={"unit_id": a, "grp": "kertas"})
+    ai = web.get(f"/api/review/unit/{a}").json()["ai"]
+    assert ai == {"grp": "kertas", "sub": None, "prob": None, "source": "koreksi", "label": "Kertas & catatan"}
+
+
+def test_bulk_discard_skips_identity_documents(web, root, review_units):
+    (ident,) = review_units(1, category="dokumen-identitas")
+    (money,) = review_units(1, category="dokumen-keuangan")
+    r = web.post("/api/review/decisions", json={"unit_ids": [ident, money], "decision": "discard"})
+    assert r.json() == {"recorded": 1}
+    assert _decisions(root) == {money: "discard"}
