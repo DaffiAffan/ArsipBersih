@@ -31,11 +31,11 @@ let blurValue = null;
 
 function say(text, ok = true) {
   msg.textContent = text;
-  msg.style.color = ok ? "" : "var(--danger)";
+  msg.style.color = ok ? "" : "var(--color-danger)";
 }
 
 function numField([name, label, claude]) {
-  const input = el("input", { type: "number", step: "any", name });
+  const input = el("input", { type: "number", step: "any", name, class: "input" });
   inputs[name] = input;
   return el("label", { class: "field" }, el("span", {}, label),
     input, claude ? el("small", { class: "muted" }, NOTE) : null);
@@ -73,12 +73,12 @@ function buildBlur() {
     sliderVal.textContent = slider.value;
     scheduleExamples();
   });
-  const clearBtn = el("button", { type: "button", onclick: () => {
+  const clearBtn = el("button", { type: "button", class: "btn btn-secondary", onclick: () => {
     blurValue = null;
     sliderVal.textContent = "otomatis";
     scheduleExamples();
   } }, "Pakai ambang cadangan");
-  const suggest = el("button", { type: "button", onclick: async () => {
+  const suggest = el("button", { type: "button", class: "btn btn-secondary", onclick: async () => {
     try {
       const d = await api("POST", "/api/settings/calibrate");
       slider.value = d.suggested;
@@ -87,7 +87,7 @@ function buildBlur() {
     } catch (e) { say(e.message, false); }
   } }, "Sarankan dari foto saya");
   examplesBox = el("div", { class: "blur-examples" });
-  return el("fieldset", {}, el("legend", {}, "Ambang burem"),
+  return el("fieldset", { class: "card" }, el("legend", {}, "Ambang burem"),
     el("small", { class: "muted" }, `Ambang ini ${NOTE}.`),
     el("div", { class: "blur-controls" }, slider, sliderVal, clearBtn, suggest), examplesBox);
 }
@@ -95,17 +95,17 @@ function buildBlur() {
 function build() {
   const blur = buildBlur();
   const first = GROUPS[0];
-  form.append(el("fieldset", {}, el("legend", {}, first.title), first.fields.map(numField)));
+  form.append(el("fieldset", { class: "card" }, el("legend", {}, first.title), first.fields.map(numField)));
   form.append(blur);
   for (const g of GROUPS.slice(1)) {
-    form.append(el("fieldset", {}, el("legend", {}, g.title), g.fields.map(numField)));
+    form.append(el("fieldset", { class: "card" }, el("legend", {}, g.title), g.fields.map(numField)));
   }
-  folders = el("textarea", { rows: 10, name: "generic_folders" });
-  form.append(el("fieldset", {}, el("legend", {}, "Acara"),
+  folders = el("textarea", { rows: 10, name: "generic_folders", class: "input" });
+  form.append(el("fieldset", { class: "card" }, el("legend", {}, "Acara"),
     el("label", { class: "field" }, el("span", {}, "Folder bawaan (satu nama per baris)"), folders)));
-  tz = el("input", { type: "text", name: "timezone" });
-  workers = el("input", { type: "number", min: 1, max: 8, step: 1, name: "workers" });
-  form.append(el("fieldset", {}, el("legend", {}, "Umum"),
+  tz = el("input", { type: "text", name: "timezone", class: "input" });
+  workers = el("input", { type: "number", min: 1, max: 8, step: 1, name: "workers", class: "input" });
+  form.append(el("fieldset", { class: "card" }, el("legend", {}, "Umum"),
     el("label", { class: "field" }, el("span", {}, "Zona waktu"), tz),
     el("label", { class: "field" }, el("span", {}, "Jumlah worker (1-8)"), workers)));
 }
