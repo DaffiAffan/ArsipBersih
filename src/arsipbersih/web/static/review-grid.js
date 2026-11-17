@@ -1,10 +1,10 @@
-// Review grid: tabs, density, inspector, floating Apply bar and dwell-based "seen" (D-032).
+// Review grid: tabs, density, inspector, floating Apply bar; "seen" only from the viewer (D-033).
 import { api, el } from "/static/api.js";
 import { bindKeys } from "/static/keys.js";
 import { openViewer, CATEGORY_LABELS } from "/static/viewer.js";
 import { reviewNav } from "/static/nav.js";
-import { fmtNum, registerHelp, toast } from "/static/ui.js";
-import { createSeenQueue, createSeenTracker } from "/static/seen-dwell.js";
+import { confirmDialog, fmtNum, registerHelp, toast } from "/static/ui.js";
+import { createSeenQueue } from "/static/seen-dwell.js";
 import { createInspectorLoader } from "/static/inspector.js";
 import { mountFloatBar } from "/static/floatbar.js";
 
@@ -17,6 +17,7 @@ const label = main.dataset.label || category;
 const PAGE = 120;
 const SEEN_CHUNK = 1000;
 const SEEN_DELAY_MS = 1000;
+const BULK_MAX = 500; // POST /api/review/decisions limit
 const SIZES = [100, 150, 220]; // slider value -> minimum column width in px (0 = cepat, 2 = santai)
 const VIEWS = [["all", "Semua"], ["unseen", "Belum dilihat"], ["keep", "Keep"]];
 const EMPTY = { all: "Tidak ada item di kategori ini.", unseen: "Semua foto di sini sudah dilihat.", keep: "Belum ada yang di-Keep." };
@@ -60,7 +61,9 @@ function fail(err) { toast(err && err.message ? err.message : String(err), { kin
 function indexOfUnit(id) { const it = byId.get(id); return it ? it.idx : -1; }
 function focusedItem() { return items[focus]; }
 
-// --- seen tracking ---------------------------------------------------------------------
+// --- seen tracking (D-033) -------------------------------------------------------------
+// A unit counts as seen only when it is shown in the fullscreen viewer (openFull/onIndex).
+// Thumbnails in the grid and S/D/Enter/click never mark anything seen.
 
 const localSeen = new Set(); // queued or sent this page: drawn with the dot right away
 let seenSent = false;
@@ -72,16 +75,7 @@ const seenQ = createSeenQueue({
 function queueSeen(item) {
   if (!item || item.seen || !seenQ.add(item.unit_id)) return;
   localSeen.add(item.unit_id);
-  const cell = cells.get(item.unit_id);
-  if (cell) tracker.unobserve(cell);
   repaint(item);
-}
-
-// Grid-side actions (click, S/D/Enter) only count as "seen" when the owner actually saw the
-// real thumbnail. A cell still loading or showing the placeholder becomes seen only by being
-// opened in fullscreen (openFull/onIndex call queueSeen directly).
-function queueSeenIfShown(item) {
-  if (item && item.thumbState === "ok") queueSeen(item);
 }
 
 // Resolves true only when every queued id reached the server.
@@ -90,22 +84,6 @@ function flushSeen() {
     if (seenSent) { seenSent = false; bar.refresh(); reviewNav.refresh(); }
     return ok;
   });
-}
-
-// Cells under the sticky toolbar or the floating Apply bar are not "on screen" for dwell.
-const tracker = createSeenTracker({
-  root: scroller,
-  onSeen: (id) => queueSeen(byId.get(id)),
-  insets: () => {
-    const fb = root.querySelector(".floatbar");
-    const bottom = scroller && fb ? scroller.getBoundingClientRect().bottom - fb.getBoundingClientRect().top : 0;
-    return { top: toolbarEl.offsetHeight, bottom: bottom + 8 };
-  },
-});
-
-// Dwell only counts while the grid itself is what the owner looks at.
-function cellReady(item) {
-  return () => item.thumbState === "ok" && !viewerState && !document.querySelector("dialog[open]");
 }
 
 // --- shell -----------------------------------------------------------------------------
@@ -121,6 +99,10 @@ const sizeInput = el("input", { type: "range", min: "0", max: String(SIZES.lengt
   oninput: (e) => { prefs.size = Number(e.target.value); savePrefs(); applySize(); } });
 const infoBtn = el("button", { type: "button", class: "btn btn-ghost", onclick: () => toggleInspector() },
   "Info ", el("kbd", { class: "kbd" }, "I"));
+const BULK_LABEL = "Delete yang belum di-Keep di layar ini";
+const bulkBtn = el("button", { type: "button", class: "btn btn-ghost grid-bulk", title: `${BULK_LABEL} (Shift+D)`,
+  onclick: () => { bulkDeleteOnScreen().catch(fail); } },
+  BULK_LABEL, " ", el("kbd", { class: "kbd" }, "Shift D"));
 const gridEl = el("div", { class: "photo-grid" });
 const sentinel = el("div", { class: "grid-more" });
 const inspEl = el("aside", { class: "inspector grid-inspector", "aria-label": "Info foto" });
@@ -132,11 +114,13 @@ const toolbarEl = el("div", { class: "grid-toolbar" },
     el("span", { class: "grid-spacer" }),
     el("label", { class: "grid-ctl" }, "Urutan ", sortSel),
     el("label", { class: "grid-ctl" }, el("span", { "aria-hidden": "true" }, "▦"), sizeInput, el("span", { "aria-hidden": "true" }, "▢")),
+    bulkBtn,
     infoBtn);
 root.replaceChildren(
   toolbarEl,
   el("p", { class: "grid-hint muted" },
     el("kbd", { class: "kbd" }, "S"), " keep · ", el("kbd", { class: "kbd" }, "D"), " delete · ",
+    el("kbd", { class: "kbd" }, "Shift D"), " delete yang tampil · ",
     el("kbd", { class: "kbd" }, "Spasi"), " layar penuh · ", el("kbd", { class: "kbd" }, "?"), " bantuan"),
   el("div", { class: "grid-layout" }, el("div", { class: "grid-col" }, gridEl, sentinel), inspEl));
 const bar = mountFloatBar(root, {
@@ -179,10 +163,7 @@ const insp = createInspectorLoader(inspEl, { onError: fail });
 function showInspector() {
   if (!prefs.inspector) return;
   const it = focusedItem();
-  insp.show(it ? it.unit_id : null, () => (it ? it.decision : null), (decision) => {
-    queueSeenIfShown(it);
-    decide(it.unit_id, decision);
-  });
+  insp.show(it ? it.unit_id : null, () => (it ? it.decision : null), (decision) => decide(it.unit_id, decision));
 }
 
 // --- cells -------------------------------------------------------------------------------
@@ -211,7 +192,7 @@ function repaint(item) {
 
 // Placeholder detection: /media/thumb serves its placeholder SVG with a 1x1 intrinsic size,
 // so a loaded image with naturalWidth/Height <= 1 is the placeholder. A failed load counts as
-// "no preview" too. Only a real, loaded thumbnail makes the cell eligible for dwell "seen".
+// "no preview" too. Only a real, loaded thumbnail makes the cell a target of the bulk Delete.
 function watchThumb(cell, img, item) {
   item.thumbState = "loading";
   const noPreview = () => {
@@ -222,7 +203,6 @@ function watchThumb(cell, img, item) {
   img.addEventListener("load", () => {
     if (img.naturalWidth <= 1 && img.naturalHeight <= 1) { noPreview(); return; }
     item.thumbState = "ok";
-    if (!item.seen && !localSeen.has(item.unit_id)) tracker.observe(cell, item.unit_id, cellReady(item));
   }, { once: true });
   img.addEventListener("error", noPreview, { once: true });
   if (!item.thumb) noPreview();
@@ -236,7 +216,7 @@ function makeCell(item, i) {
   const cell = el("div", { class: "photo-cell", tabindex: "-1", "data-id": item.unit_id, title: [item.name, why].filter(Boolean).join(" · ") },
     img,
     el("span", { class: "cell-noprev", hidden: true }, "Pratinjau tidak tersedia"),
-    el("span", { class: "seen-dot", hidden: true, title: "Sudah dilihat" }),
+    el("span", { class: "seen-dot", hidden: true, title: "Sudah dibuka di detail" }),
     el("span", { class: "cell-mark badge", hidden: true }),
     caption ? el("span", { class: "cell-caption" }, caption) : null);
   let clickTimer = null; // delay single-click so a double-click does not toggle first
@@ -305,7 +285,6 @@ async function loadMore() {
 async function reload() {
   generation += 1;
   const gen = generation;
-  for (const cell of cells.values()) tracker.unobserve(cell);
   cells.clear();
   byId.clear();
   items = []; order = []; next = 0; focus = 0;
@@ -355,20 +334,100 @@ async function decide(unitId, decision) {
 
 function toggleKeep(unitId) {
   const item = byId.get(unitId);
-  if (item) { queueSeenIfShown(item); decide(unitId, item.decision === "keep" ? null : "keep"); }
+  if (item) decide(unitId, item.decision === "keep" ? null : "keep");
 }
 
 async function acceptFocused() {
   const it = focusedItem();
   if (!it) return;
-  queueSeenIfShown(it);
   const ok = await decide(it.unit_id, null);
   if (ok && focus < items.length - 1) setFocus(focus + 1);
 }
 
 function decideFocused(decision) {
   const it = focusedItem();
-  if (it) { queueSeenIfShown(it); decide(it.unit_id, decision); }
+  if (it) decide(it.unit_id, decision);
+}
+
+// --- bulk Delete for the cells on screen (D-033) -----------------------------------------
+
+// The visible band of the grid: below the sticky toolbar, above the floating Apply bar.
+function visibleBand() {
+  const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  const top = Math.max(box.top, toolbarEl.getBoundingClientRect().bottom);
+  let bottom = Math.min(box.bottom, window.innerHeight);
+  const fb = root.querySelector(".floatbar");
+  if (fb && !fb.hidden && getComputedStyle(fb).display !== "none") { // fixed: no offsetParent
+    const r = fb.getBoundingClientRect();
+    if (r.height > 0) bottom = Math.min(bottom, r.top);
+  }
+  return { top, bottom };
+}
+
+// Undecided units whose real thumbnail is loaded and at least half visible in the band.
+function onScreenTargets() {
+  const band = visibleBand();
+  const out = [];
+  for (const it of items) {
+    if (it.decision || it.thumbState !== "ok") continue;
+    const cell = cells.get(it.unit_id);
+    if (!cell) continue;
+    const r = cell.getBoundingClientRect();
+    if (r.height <= 0) continue;
+    const shown = Math.min(r.bottom, band.bottom) - Math.max(r.top, band.top);
+    if (shown >= r.height / 2) out.push(it);
+  }
+  return out;
+}
+
+// The server skips units decided elsewhere meanwhile: read back what it actually stored.
+async function refreshDecisions(ids) {
+  for (let i = 0; i < ids.length; i += BULK_MAX) {
+    const data = await api("POST", `/api/review/grid/${encodeURIComponent(category)}/items`, { unit_ids: ids.slice(i, i + BULK_MAX) });
+    for (const fresh of data.items) {
+      const it = byId.get(fresh.unit_id);
+      if (it) { it.decision = fresh.decision; repaint(it); }
+    }
+  }
+}
+
+function bulkBlocked() {
+  if (bar.applying) { toast("Apply sedang berjalan, tunggu sampai selesai."); return true; }
+  if (busy) { toast("Masih menyimpan keputusan sebelumnya, coba lagi sebentar."); return true; }
+  return false;
+}
+
+async function bulkDeleteOnScreen() {
+  if (viewerState || document.querySelector("dialog[open]") || bulkBlocked()) return;
+  const targets = onScreenTargets().slice(0, BULK_MAX);
+  if (!targets.length) { toast("Tidak ada foto di layar yang bisa di-Delete."); return; }
+  const n = fmtNum(targets.length);
+  const ok = await confirmDialog({
+    title: BULK_LABEL,
+    body: `Delete ${n} foto yang tampil di layar? Yang sudah di-Keep tidak berubah. Semua bisa di-Undo setelah Apply.`,
+    okLabel: `Delete ${n} foto`,
+    danger: true,
+  });
+  if (!ok || bulkBlocked()) return;
+  busy = true;
+  const gen = generation;
+  const ids = targets.map((it) => it.unit_id);
+  try {
+    const res = await api("POST", "/api/review/decisions", { unit_ids: ids, decision: "discard" });
+    if (gen !== generation) return;
+    try {
+      await refreshDecisions(ids);
+    } catch (_) {
+      if (res.recorded === ids.length) for (const it of targets) { it.decision = "discard"; repaint(it); }
+    }
+    if (gen !== generation) return;
+    showInspector();
+    toast(`${fmtNum(res.recorded)} foto ditandai Delete`);
+  } finally {
+    busy = false;
+    bar.refresh();
+    reviewNav.refresh();
+  }
 }
 
 const gridKeys = {
@@ -377,7 +436,7 @@ const gridKeys = {
   ArrowUp: () => setFocus(Math.max(0, focus - columns())),
   ArrowDown: () => setFocus(Math.min(items.length - 1, focus + columns())),
   s: () => decideFocused("keep"),
-  d: () => decideFocused("discard"),
+  d: (ev) => { if (ev && ev.shiftKey) bulkDeleteOnScreen().catch(fail); else decideFocused("discard"); },
   Enter: acceptFocused,
   " ": () => openFull(focus),
   i: () => toggleInspector(),
@@ -388,9 +447,10 @@ window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindGrid = bin
 
 registerHelp([
   { title: "Review grid", keys: [["S", "Keep foto terpilih"], ["D", "Delete foto terpilih"],
-    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Spasi", "Layar penuh (juga klik ganda)"],
+    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Shift+D", BULK_LABEL],
+    ["Spasi", "Layar penuh (juga klik ganda)"],
     ["← → ↑ ↓", "Pindah foto"], ["I", "Buka/tutup panel info"], ["?", "Bantuan ini"]] },
-  { title: "Penanda", keys: [["●", "Titik biru = sudah dilihat. Yang sudah dilihat dan tidak di-Keep pindah ke _sampah saat Apply."]] },
+  { title: "Penanda", keys: [["●", "Titik biru = sudah dibuka di detail. Saat Apply, yang dibuang hanya yang di-Delete atau sudah dibuka dan tidak di-Keep; sisanya tetap di review."]] },
 ]);
 
 // --- fullscreen viewer -------------------------------------------------------------------
@@ -463,7 +523,6 @@ async function openFull(i) {
       const it = items[focus];
       const cell = it && cells.get(it.unit_id);
       if (cell && cell.scrollIntoView) cell.scrollIntoView({ block: "nearest" });
-      tracker.flush(); // a full, still second on the grid again before anything counts
       flushSeen();
     },
   });

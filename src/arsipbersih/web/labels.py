@@ -18,7 +18,10 @@ CATEGORY_LABELS = {
     "gelap-terang": "Terlalu gelap / terang",
 }
 
-_GRID_TAIL = "Yang tidak kamu Keep pindah ke _sampah saat Apply."
+_GRID_TAIL = (
+    "Saat Apply, yang pindah ke _sampah hanya yang di-Delete atau sudah dibuka di detail"
+    " dan tidak di-Keep; sisanya tetap di review."
+)
 _GROUP_TAIL = "Saran kami: Keep satu, sisanya pindah ke _sampah saat Apply."
 
 CATEGORY_HELP = {

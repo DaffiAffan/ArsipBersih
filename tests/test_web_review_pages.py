@@ -83,6 +83,25 @@ def test_grid_page_loads_new_modules(web):
         assert not dimmed.search(css.read_text(encoding="utf-8")), css.name
 
 
+def test_grid_counts_seen_only_in_the_viewer(web):
+    js = web.get("/static/review-grid.js").text
+    assert "createSeenTracker" not in js
+    assert "queueSeenIfShown" not in js
+    assert "createSeenQueue" in js
+    assert "Delete yang belum di-Keep di layar ini" in js
+    assert "/api/review/decisions" in js
+    assert "Shift+D" in js
+    assert "Titik biru = sudah dibuka di detail." in js
+    dwell = web.get("/static/seen-dwell.js").text
+    assert "createSeenTracker" not in dwell
+
+
+def test_grid_help_no_longer_claims_unkept_is_deleted(web):
+    from arsipbersih.web.labels import CATEGORY_HELP
+
+    assert not any("Yang tidak kamu Keep pindah" in v for v in CATEGORY_HELP.values())
+
+
 def test_group_page_loads_new_modules(web, root):
     _make_group(root)
     r = web.get("/review/duplikat-persis")

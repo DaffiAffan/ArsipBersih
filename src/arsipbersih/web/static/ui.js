@@ -43,8 +43,7 @@ export function confirmDialog({ title, body, okLabel, danger = false, typeToConf
     // Empty key layer: page shortcuts (S/D/arrows…) stay inert under the dialog; the dialog
     // itself still gets Esc (cancel), Enter on its buttons and typing.
     const unbindKeys = bindKeys({});
-    // Removed on its own "close" event, so the event still reaches document listeners
-    // (seen-dwell.js restarts its countdowns on it).
+    // Removed on its own "close" event, so the event still reaches document listeners.
     dlg.addEventListener("close", () => dlg.remove());
     const done = (v) => { unbindKeys(); dlg.close(); resolve(v); };
     ok.addEventListener("click", () => { if (!ok.disabled) done(true); });
