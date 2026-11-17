@@ -262,12 +262,43 @@ def _write_unit(conn: sqlite3.Connection, unit_id: str, flags: list[Flag]) -> st
 _CLASSIFIED_LOCATIONS = ("source", "review", "archive")
 
 
+def reset_review_state(conn: sqlite3.Connection, unit_id: str) -> None:
+    """Forget what a unit carried from its old review category (call inside a transaction).
+
+    Apply treats a seen grid unit without a decision, and any unapplied Delete, as a discard;
+    neither may follow the unit into a category where the owner never checked it (spec 7.7).
+    `seen` is reset and an unapplied Delete is removed. An unapplied Keep and applied
+    decisions stay: this only ever makes Apply more conservative.
+    """
+    conn.execute("update units set seen=0 where id=?", (unit_id,))
+    conn.execute(
+        "delete from decisions where unit_id=? and applied=0 and decision='discard'", (unit_id,)
+    )
+
+
+def _review_categories(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict[str, str | None]:
+    """{unit_id: primary_category} of review units (all of them, or just ``unit_ids``)."""
+    rows = _rows(conn, "select id, primary_category from units where location='review'",
+                 "id", unit_ids)
+    return {r[0]: r[1] for r in rows}
+
+
+def _reset_moved(conn: sqlite3.Connection, before: dict[str, str | None],
+                 unit_ids: list[str] | None = None) -> None:
+    """Reset the review state of every review unit whose primary category changed."""
+    after = _review_categories(conn, unit_ids)
+    for unit_id, old in before.items():
+        if unit_id in after and after[unit_id] != old:
+            reset_review_state(conn, unit_id)
+
+
 def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]:
     """Rewrite flags and primary_category for source/review/archive units."""
     views = [u for u in load_unit_views(conn) if u.location in _CLASSIFIED_LOCATIONS]
     facts = _Facts(conn, settings)
     counts: dict[str, int] = {}
     with conn:
+        before = _review_categories(conn)
         # A unit whose primary file is gone keeps no stale category from an earlier scan.
         conn.execute(
             "delete from flags where unit_id in (select u.id from units u"
@@ -282,6 +313,7 @@ def run_classify(conn: sqlite3.Connection, settings: Settings) -> dict[str, int]
             primary = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
             if primary:
                 counts[primary] = counts.get(primary, 0) + 1
+        _reset_moved(conn, before)
     return counts
 
 
@@ -292,18 +324,24 @@ def reclassify_units(
 
     Every input is per unit (group flags are read from the stored groups, not recomputed),
     so other units are never touched. Units run_classify skips (trash, primary file missing)
-    are left as they are. Returns {unit_id: primary_category} for the units rewritten.
+    are left as they are. A review unit that changes category loses its review state
+    (see reset_review_state). Returns {unit_id: primary_category} for the units rewritten.
     With ``commit=False`` the writes join the caller's open transaction.
     """
     ids = list(dict.fromkeys(unit_ids))
     views = [u for u in load_unit_views(conn, ids) if u.location in _CLASSIFIED_LOCATIONS]
     facts = _Facts(conn, settings, ids)
     out: dict[str, str | None] = {}
-    if not commit:
+
+    def write() -> None:
+        before = _review_categories(conn, ids)
         for u in views:
             out[u.unit_id] = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
+        _reset_moved(conn, before, ids)
+
+    if not commit:
+        write()
         return out
     with conn:
-        for u in views:
-            out[u.unit_id] = _write_unit(conn, u.unit_id, _unit_flags(u, facts))
+        write()
     return out

@@ -234,3 +234,70 @@ def test_reclassify_units_matches_run_classify_and_leaves_others(conn_with):
     run_classify(conn, Settings())
     assert sorted(tuple(r) for r in conn.execute("select category, score, reason from flags where unit_id=?", (a,))) == got
     assert {c for c, _, _ in got} == {"dokumen-keuangan", "kiriman-chat", "burem"}
+
+
+# --- review state follows the category, never across it (spec 7.7) ------------------------
+
+def _chat_review_units(conn_with, n):
+    rows = [dict(name=f"IMG-20230812-WA000{i}.jpg", path="_review/kiriman-chat/HP/WhatsApp", loc="review",
+                 make="samsung", sharp=80, luma=120, std=50) for i in range(n)]
+    conn = conn_with(rows)
+    run_classify(conn, Settings())
+    ids = [r[0] for r in conn.execute("select u.id from units u join files f on f.id = u.primary_file_id"
+                                      " order by f.rel_path")]
+    assert {r[0] for r in conn.execute("select primary_category from units")} == {"kiriman-chat"}
+    return conn, ids
+
+
+def _state(conn, uid):
+    seen = conn.execute("select seen from units where id=?", (uid,)).fetchone()[0]
+    dec = conn.execute("select decision from decisions where unit_id=?", (uid,)).fetchone()
+    return seen, dec[0] if dec else None
+
+
+def test_run_classify_drops_seen_and_pending_discard_when_category_changes(conn_with):
+    from arsipbersih import decisions
+
+    conn, (moved, stays, kept) = _chat_review_units(conn_with, 3)
+    decisions.mark_seen(conn, [moved, stays, kept])
+    assert decisions.record_bulk_discard(conn, [moved, stays]) == 2
+    decisions.record(conn, kept, "keep")
+    _put_label(conn, moved, "identitas", 0.97, sub="ktp")
+    _put_label(conn, kept, "keuangan", 0.9)
+    run_classify(conn, Settings())
+
+    assert decisions.preview_apply(conn, "dokumen-identitas").discard == 0
+    assert _state(conn, moved) == (0, None)
+    # an unapplied Keep is never dropped; only the implicit/explicit discard is
+    assert _state(conn, kept) == (0, "keep")
+    assert decisions.preview_apply(conn, "dokumen-keuangan").keep == 1
+    # a unit that keeps its category keeps its review state
+    assert _state(conn, stays) == (1, "discard")
+    assert decisions.preview_apply(conn, "kiriman-chat").discard == 1
+
+
+def test_reclassify_units_drops_seen_and_pending_discard_when_category_changes(conn_with):
+    from arsipbersih import decisions
+    from arsipbersih.classify import reclassify_units
+
+    conn, (moved, stays) = _chat_review_units(conn_with, 2)
+    decisions.mark_seen(conn, [moved, stays])
+    decisions.record_bulk_discard(conn, [moved, stays])
+    _put_label(conn, moved, "kertas", 0.9)
+    _put_label(conn, stays, "lainnya", 0.9, sub=None)
+    reclassify_units(conn, Settings(), [moved, stays])
+    assert _state(conn, moved) == (0, None)
+    assert _state(conn, stays) == (1, "discard")
+    assert decisions.preview_apply(conn, "dokumen-kertas").discard == 0
+
+
+def test_applied_decision_is_never_touched_by_reclassify(conn_with):
+    from arsipbersih.classify import reset_review_state
+
+    conn, (uid,) = _chat_review_units(conn_with, 1)
+    conn.execute("insert into decisions (unit_id, decision, decided_at, applied)"
+                 " values (?, 'discard', 'x', 1)", (uid,))
+    conn.commit()
+    with conn:
+        reset_review_state(conn, uid)
+    assert _state(conn, uid) == (0, "discard")
