@@ -59,3 +59,10 @@ def test_review_grid_category_renders_grid_root(web):
     assert 'id="grid-root"' in r.text
     assert "/static/review-grid.js" in r.text
     assert "/static/review-groups.js" not in r.text
+
+
+def test_review_page_has_no_second_category_column(web):
+    r = web.get("/review/burem")  # grid category pages render even when empty
+    assert 'id="rv-cats"' not in r.text
+    assert 'id="nav-review"' in r.text
+    assert "/static/nav.js" in r.text

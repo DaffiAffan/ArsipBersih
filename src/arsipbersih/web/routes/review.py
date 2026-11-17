@@ -15,7 +15,7 @@ from ...db import open_db
 from .. import queries
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import batch_result_dict
-from ..labels import CATEGORY_LABELS
+from ..labels import CATEGORY_HELP, CATEGORY_LABELS
 from ..messages import APPLY_MISMATCH_TEXT, UserError
 
 router = APIRouter(prefix="/api/review")
@@ -223,7 +223,7 @@ def review_index(request: Request, conn: sqlite3.Connection = Depends(get_conn))
     if cats:
         return RedirectResponse(f"/review/{cats[0]['category']}", status_code=307)
     return render(
-        request, "review.html", active="review", categories=[], category=None, mode=None, label=None
+        request, "review.html", active="review", categories=[], category=None, mode=None, label=None, help=None
     )
 
 
@@ -248,4 +248,5 @@ def review_category(category: str, request: Request, conn: sqlite3.Connection = 
         category=category,
         mode=mode,
         label=CATEGORY_LABELS.get(category, category),
+        help=CATEGORY_HELP.get(category),
     )

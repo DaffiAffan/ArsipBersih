@@ -2,15 +2,12 @@
 {% block title %}Review - ArsipBersih{% endblock %}
 {% block content %}
 <div class="rv-layout">
-  <nav class="rv-cats" id="rv-cats" aria-label="Kategori review">
-    {% for c in categories %}
-    <a href="/review/{{ c.category }}" data-cat="{{ c.category }}"{% if c.category == category %} class="active" aria-current="page"{% endif %}>
-      <span>{{ c.label }}</span><span class="rv-count">{{ c.count }}</span>
-    </a>
-    {% endfor %}
-  </nav>
   {% if category %}
   <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}">
+    <header class="rv-page-head">
+      <h1>{{ label }}</h1>
+      {% if help %}<p class="muted">{{ help }}</p>{% endif %}
+    </header>
     {% if mode == "grid" %}<div id="grid-root"></div>{% else %}<div id="group-root"></div>{% endif %}
   </section>
   {% else %}

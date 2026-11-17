@@ -102,3 +102,13 @@ button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   border-radius: var(--radius-pill); padding: var(--space-2) var(--space-4); box-shadow: var(--shadow-float);
 }
+
+/* Dialog: input konfirmasi, daftar pintasan; toast berjenis */
+dialog .input { width: 100%; margin-top: var(--space-3); padding: 6px 8px; background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); font: inherit; }
+dialog h3 { margin: 0 0 var(--space-3); }
+.help-dialog { min-width: 320px; }
+.help-section h4 { margin: var(--space-3) 0 var(--space-2); font-size: 13px; color: var(--color-text-muted); }
+.help-list { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0; align-items: center; }
+.help-list dd { margin: 0; }
+.toast-ok { border-color: var(--color-keep); }
+.toast-error { border-color: var(--color-danger); }

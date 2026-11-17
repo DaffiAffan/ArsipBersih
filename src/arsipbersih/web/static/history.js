@@ -1,5 +1,6 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
+import { confirmDialog, fmtTime } from "/static/ui.js";
 
 const KIND = { rapikan: "Rapikan", apply: "Apply", undo: "Undo", purge: "Kosongkan sampah" };
 const $ = (id) => document.getElementById(id);
@@ -16,30 +17,6 @@ function say(text, errors) {
   box.replaceChildren(...parts);
 }
 
-// Resolves true when the owner confirms. `extra` is an optional input placed in the body.
-function confirmDialog({ title, body, okLabel, danger, validate, extra }) {
-  return new Promise((resolve) => {
-    const dlg = el("dialog", { class: "hist-dialog" });
-    const ok = el("button", { type: "button", class: danger ? "danger" : "primary" }, okLabel);
-    const cancel = el("button", { type: "button" }, "Batal");
-    if (validate) ok.disabled = !validate();
-    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
-    ok.addEventListener("click", () => done(true));
-    cancel.addEventListener("click", () => done(false));
-    dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(false); });
-    const bodyNodes = [].concat(body).map((t) => el("p", {}, t));
-    dlg.append(el("h3", {}, title), ...bodyNodes);
-    if (extra) {
-      dlg.append(extra);
-      extra.addEventListener("input", () => { ok.disabled = !validate(); });
-    }
-    dlg.append(el("div", { class: "actions" }, cancel, ok));
-    document.body.append(dlg);
-    dlg.showModal();
-    if (extra) extra.focus();
-  });
-}
-
 async function post(url, body) {
   say("");
   try {
@@ -49,8 +26,6 @@ async function post(url, body) {
     await reload();
   }
 }
-
-function fmtTime(s) { return (s || "").replace("T", " ").slice(0, 19); }
 
 function renderBatches() {
   const rows = data.batches.map((b) => el("tr", {},
@@ -139,16 +114,14 @@ async function purge() {
     danger: true,
   });
   if (!first) return;
-  const input = el("input", { type: "text", autocomplete: "off", "aria-label": "Ketik HAPUS" });
   const second = await confirmDialog({
     title: "Konfirmasi terakhir",
     body: `Ketik HAPUS untuk menghapus permanen ${files} file.`,
     okLabel: "Hapus permanen",
     danger: true,
-    extra: input,
-    validate: () => input.value === "HAPUS",
+    typeToConfirm: "HAPUS",
   });
-  if (second) await post("/api/trash/purge", { expected_files: files, expected_bytes: bytes, confirm: input.value });
+  if (second) await post("/api/trash/purge", { expected_files: files, expected_bytes: bytes, confirm: "HAPUS" });
 }
 
 async function reload() {
