@@ -120,7 +120,7 @@ function render() {
   const w = $("source-warning");
   w.hidden = d.has_source;
   w.textContent = d.has_source ? "" : d.source_missing_text;
-  $("warnings").replaceChildren(...d.warnings.map((x) => el("li", {}, x)));
+  $("warnings").replaceChildren(...[...d.warnings, ...(d.clock_warnings || [])].map((x) => el("li", {}, x)));
   const t = d.steps.totals;
   $("summary").replaceChildren(...[
     ["Sumber", t.source], ["Arsip", t.archive], ["Menunggu review", Math.max(t.review - t.review_done, 0)], ["Sampah", t.trash_files],
