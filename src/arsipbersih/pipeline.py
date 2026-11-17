@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from .ai import stage as ai_stage
 from .classify import run_classify
 from .config import load_settings
 from .db import open_db
@@ -34,7 +35,10 @@ from .planner import compute_plans, plan_rapikan
 from .tools import ToolStatus, check_tools
 from .visual import run_visual
 
-STAGES = ("inventory", "pairing", "hash", "metadata", "visual", "grouping", "classify", "events", "plan")
+STAGES = (
+    "inventory", "pairing", "hash", "metadata", "visual", "ai",
+    "grouping", "classify", "events", "plan",
+)
 
 
 SCAN_DONE_KEY = "last_scan_completed_at"
@@ -158,7 +162,30 @@ def run_scan(
             return summary
         confirm_live_photos(conn, settings)
 
-        run_visual(conn, root, settings, begin("visual"), stop)
+        # One encoder for the whole scan; None when the model is missing or will not load.
+        encoder, ai_warning = ai_stage.load_encoder(settings)
+        collector = (
+            ai_stage.AiCollector(encoder, conn, ai_stage.MODEL_NAME, batch=settings.ai_batch)
+            if encoder is not None else None
+        )
+        try:
+            run_visual(conn, root, settings, begin("visual"), stop,
+                       ai_sink=collector.add if collector is not None else None)
+        finally:
+            if collector is not None:
+                collector.flush()  # also on pause: crops already decoded are not lost
+        if collector is not None and collector.error:
+            summary.warnings.append(f"Model AI gagal menghitung embedding ({collector.error})")
+        if stopped():
+            return summary
+
+        ai_progress = begin("ai")
+        if encoder is None:
+            summary.warnings.append(ai_warning)  # the scan still finishes without AI labels
+        else:
+            ai = ai_stage.run_ai(conn, root, settings, ai_progress, stop,
+                                 encoder_factory=lambda *a, **k: encoder)
+            summary.warnings.extend(ai.warnings)
         if stopped():
             return summary
 

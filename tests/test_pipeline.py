@@ -86,3 +86,10 @@ def test_summarize_rapikan_matches_plan(root, conn_with):
     assert s.review == {"burem": (1, 1_000_000)}
     assert s.skipped == [] and s.space_ok and not s.scan_done
     conn.close()
+
+
+def test_stage_order_puts_ai_after_visual():
+    from arsipbersih.pipeline import STAGES
+
+    assert STAGES == ("inventory", "pairing", "hash", "metadata", "visual", "ai",
+                      "grouping", "classify", "events", "plan")
