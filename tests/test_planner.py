@@ -1,4 +1,5 @@
 import pytest
+from arsipbersih.db import new_id
 
 from arsipbersih.planner import (
     NameReserver,
@@ -140,3 +141,56 @@ def test_event_without_archived_unit_uses_earliest_month(conn_with, root):
     compute_plans(conn)
     dirs = {r[0] for r in conn.execute("select planned_archive_dir from units")}
     assert dirs == {"Arsip/2024/2024-06 Bali"}
+
+
+def _doc_unit(conn_with, root, category, taken, names=("DOC_1.jpg",)):
+    conn = conn_with([dict(name=names[0], loc="review", path="_review/" + category + "/HP",
+                           taken=taken, category=category)])
+    uid, fid = conn.execute("select id, primary_file_id from units").fetchone()
+    rel = conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0]
+    for extra in names[1:]:
+        ext = extra.rsplit(".", 1)[-1].lower()
+        conn.execute(
+            "insert into files(id, unit_id, rel_path, orig_rel_path, size, kind, ext, source_label)"
+            " values(?,?,?,?,?,?,?,?)",
+            (new_id(), uid, rel.rsplit("/", 1)[0] + "/" + extra, rel.rsplit("/", 1)[0] + "/" + extra,
+             10, "photo", ext, "HP"),
+        )
+    conn.commit()
+    for (r,) in conn.execute("select rel_path from files").fetchall():
+        (root / r).parent.mkdir(parents=True, exist_ok=True)
+        (root / r).write_bytes(b"x")
+    compute_plans(conn)
+    return conn, uid
+
+
+def test_keep_document_goes_to_dokumen_year(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "dokumen-identitas", "2022-03-04T10:00:00")
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/_Dokumen/Identitas/2022/DOC_1.jpg"
+
+
+def test_keep_document_without_date_goes_to_tanpa_tanggal(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "dokumen-keuangan", None)
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/_Dokumen/Keuangan/Tanpa-Tanggal/DOC_1.jpg"
+
+
+def test_keep_document_moves_whole_pair(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "dokumen-kertas", "2021-01-02T10:00:00",
+                          names=("DOC_1.jpg", "DOC_1.dng"))
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert sorted(f.dst_rel for f in m.files) == [
+        "Arsip/_Dokumen/Kertas/2021/DOC_1.dng", "Arsip/_Dokumen/Kertas/2021/DOC_1.jpg"]
+
+
+def test_keep_screenshot_unchanged_destination(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "screenshot", "2022-03-04T10:00:00")
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/2022/2022-03/DOC_1.jpg"
+
+
+def test_compute_plans_previews_document_dir(conn_with, root):
+    conn, uid = _doc_unit(conn_with, root, "dokumen-identitas", "2022-03-04T10:00:00")
+    assert conn.execute("select planned_archive_dir from units").fetchone()[0] == \
+        "Arsip/_Dokumen/Identitas/2022"

@@ -13,6 +13,8 @@ from .classify import CATEGORY_PRIORITY, GROUP_CATEGORIES
 from .formats import GOPRO_AUX_EXTS, PHOTO_EXTS, RAW_EXTS, SIDECAR_EXTS, VIDEO_EXTS
 from .layout import (
     ARCHIVE_DIR,
+    DOC_SUBDIRS,
+    DOCS_DIR,
     REVIEW_DIR,
     SOURCE_DIR,
     TRASH_DIR,
@@ -63,6 +65,15 @@ def archive_dir_for(
     if taken_at and len(taken_at) >= 7:
         return _join(ARCHIVE_DIR, taken_at[:4], taken_at[:7])
     return _join(ARCHIVE_DIR, UNDATED_DIR, sanitize_component(source_label or "_"))
+
+
+def document_dir_for(category: str | None, taken_at: str | None) -> str | None:
+    """Keep destination for document photos: Arsip/_Dokumen/<Sub>/<YYYY|Tanpa-Tanggal>."""
+    sub = DOC_SUBDIRS.get(category or "")
+    if sub is None:
+        return None
+    year = taken_at[:4] if taken_at and re.fullmatch(r"\d{4}", taken_at[:4]) else UNDATED_DIR
+    return _join(ARCHIVE_DIR, DOCS_DIR, sub, year)
 
 
 def _split_orig(orig_rel_path: str) -> tuple[str, list[str]]:
@@ -138,6 +149,9 @@ def _event_months(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def _archive_dir(u: sqlite3.Row, months: dict[str, str]) -> str:
+    doc = document_dir_for(u["primary_category"], u["taken_at"])
+    if doc:
+        return doc
     month = months.get(u["event_key"]) if u["event_key"] else None
     label = _label_of(u["orig"] or u["prim_rel"], u["label"])
     return archive_dir_for(u["event_name"], u["event_subpath"], month, u["taken_at"], label)
@@ -316,7 +330,11 @@ def plan_rapikan(
             continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
-            dst_dir, loc = (u["planned_archive_dir"] or _archive_dir(u, months)), "archive"
+            dst_dir, loc = (
+                document_dir_for(cat, u["taken_at"])
+                or u["planned_archive_dir"]
+                or _archive_dir(u, months)
+            ), "archive"
         else:
             dst_dir = u["planned_review_dir"] or _review_dir(u, REVIEW_DIR, cat)
             loc = "review"
@@ -383,7 +401,9 @@ def plan_apply(
             continue
         if gone(uid):
             continue
-        dst = u["planned_archive_dir"] or _archive_dir(u, months)
+        dst = document_dir_for(u["primary_category"], u["taken_at"]) or (
+            u["planned_archive_dir"] or _archive_dir(u, months)
+        )
         m = _try_build(conn, reserver, u, dst, "archive", skipped)
         if m:
             moves.append(m)
