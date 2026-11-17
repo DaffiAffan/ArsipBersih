@@ -48,6 +48,13 @@ def test_report_exit_code_reflects_verify(root, mini_collection):
 
 
 @requires_exiftool
+def test_root_with_trailing_dot_is_normalised(root, mini_collection):
+    # "D:\TESTING." opens the DB fine, but \\?\ long paths keep the dot and miss every file.
+    runner.invoke(app, ["scan", str(root)])
+    assert runner.invoke(app, ["report", str(root) + "."]).exit_code == 0
+
+
+@requires_exiftool
 def test_tidy_refuses_after_stopped_scan(root, mini_collection):
     ev = threading.Event()
     run_scan(root, progress=lambda p: ev.set() if p.stage == "visual" else None, stop=ev)

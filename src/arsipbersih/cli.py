@@ -85,7 +85,12 @@ def _write_crash_log(root: Path, exc: BaseException) -> Optional[Path]:
 
 
 def _root_arg() -> Path:
-    return typer.Argument(..., exists=True, file_okay=False, help="Collection root (contains Sumber/).")
+    # resolve_path: Windows drops a trailing "." or space ("D:\TESTING.") for normal calls,
+    # but \\?\ long paths keep it, so every file lookup would miss.
+    return typer.Argument(
+        ..., exists=True, file_okay=False, resolve_path=True,
+        help="Collection root (contains Sumber/).",
+    )
 
 
 def human_bytes(n: float) -> str:
