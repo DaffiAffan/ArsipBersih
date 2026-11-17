@@ -190,7 +190,28 @@ def test_keep_screenshot_unchanged_destination(conn_with, root):
     assert m.files[0].dst_rel == "Arsip/2022/2022-03/DOC_1.jpg"
 
 
-def test_compute_plans_previews_document_dir(conn_with, root):
+def test_compute_plans_stores_normal_archive_dir_for_documents(conn_with, root):
+    # The document folder is chosen at move time from the current category, never stored.
     conn, uid = _doc_unit(conn_with, root, "dokumen-identitas", "2022-03-04T10:00:00")
-    assert conn.execute("select planned_archive_dir from units").fetchone()[0] == \
-        "Arsip/_Dokumen/Identitas/2022"
+    assert conn.execute("select planned_archive_dir from units").fetchone()[0] == "Arsip/2022/2022-03"
+
+
+@pytest.mark.parametrize("new_category", ["download-meme", None])
+def test_keep_after_category_leaves_documents_goes_to_normal_archive(conn_with, root, new_category):
+    # e.g. a correction dokumen-kertas -> Grafis / Foto biasa after the plans were computed
+    conn, uid = _doc_unit(conn_with, root, "dokumen-kertas", "2021-01-02T10:00:00")
+    conn.execute("update units set primary_category=? where id=?", (new_category, uid))
+    conn.commit()
+    (m,) = plan_apply(conn, root, [uid], [])
+    assert m.files[0].dst_rel == "Arsip/2021/2021-01/DOC_1.jpg"
+
+
+def test_rapikan_source_unit_no_longer_document_goes_to_normal_archive(conn_with, root):
+    conn = conn_with([dict(name="DOC_1.jpg", taken="2021-01-02T10:00:00", category="dokumen-kertas")])
+    uid = conn.execute("select id from units").fetchone()[0]
+    compute_plans(conn)
+    conn.execute("update units set primary_category=null where id=?", (uid,))  # classify --head
+    conn.commit()
+    (m,) = plan_rapikan(conn, root)
+    assert m.to_location == "archive"
+    assert m.files[0].dst_rel == "Arsip/2021/2021-01/DOC_1.jpg"

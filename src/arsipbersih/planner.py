@@ -149,9 +149,9 @@ def _event_months(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def _archive_dir(u: sqlite3.Row, months: dict[str, str]) -> str:
-    doc = document_dir_for(u["primary_category"], u["taken_at"])
-    if doc:
-        return doc
+    """The normal Arsip folder. Never the document folder: a category can change after
+    compute_plans (owner correction, `classify --head`), so the move-time category decides
+    whether a Keep goes to Arsip/_Dokumen (see document_dir_for in plan_rapikan/plan_apply)."""
     month = months.get(u["event_key"]) if u["event_key"] else None
     label = _label_of(u["orig"] or u["prim_rel"], u["label"])
     return archive_dir_for(u["event_name"], u["event_subpath"], month, u["taken_at"], label)
@@ -330,6 +330,7 @@ def plan_rapikan(
             continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
+            # The current category is the authority for _Dokumen, never a stored plan.
             dst_dir, loc = (
                 document_dir_for(cat, u["taken_at"])
                 or u["planned_archive_dir"]
@@ -401,6 +402,7 @@ def plan_apply(
             continue
         if gone(uid):
             continue
+        # The category at move time decides _Dokumen; planned_archive_dir is the normal folder.
         dst = document_dir_for(u["primary_category"], u["taken_at"]) or (
             u["planned_archive_dir"] or _archive_dir(u, months)
         )
