@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .layout import STATE_DIR, long_path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
@@ -170,6 +170,63 @@ create table if not exists ai_feedback (
     created_at text
 );
 create index if not exists idx_ai_feedback_unit on ai_feedback(unit_id);
+
+create table if not exists date_overrides (
+    id text primary key,
+    unit_id text not null references units(id),
+    taken_at text not null,
+    precision text not null check (precision in ('month','day','second')),
+    source text not null check (source in ('borrowed','event','manual')),
+    ref text,
+    decided_by text not null check (decided_by in ('auto','owner')),
+    created_at text
+);
+create index if not exists idx_date_overrides_unit on date_overrides(unit_id);
+
+create table if not exists event_date_decisions (
+    id text primary key,
+    event_key text not null,
+    decision text not null check (decision in ('approved','ignored')),
+    range_start text,
+    range_end text,
+    camera_start text,
+    camera_end text,
+    created_at text
+);
+create index if not exists idx_event_date_decisions_key on event_date_decisions(event_key);
+
+create table if not exists xmp_writes (
+    id text primary key,
+    file_id text not null references files(id),
+    xmp_rel_path text not null,
+    taken_at text,
+    sha256 text,
+    created_at text
+);
+
+-- Dropped and recreated on every schema run so the definition can change across versions.
+drop view if exists unit_dates;
+create view unit_dates as
+select u.id as unit_id,
+       coalesce(r.taken_at, u.taken_at) as taken_at,
+       case when r.id is not null then r.source else u.date_source end as source,
+       case
+           when r.id is not null then r.precision
+           when u.taken_at is null then null
+           when u.date_source = 'filename' and time(u.taken_at) = '00:00:00' then 'day'
+           else 'second'
+       end as precision
+from units u
+left join date_overrides r on r.rowid = (
+    -- Winner per unit: owner beats auto, then newest. Camera dates (exif/quicktime) can
+    -- only be overridden by an explicit manual row. Correlated on the indexed unit_id so
+    -- filtering unit_dates by unit id never ranks the whole table.
+    select o.rowid from date_overrides o
+    where o.unit_id = u.id
+      and (u.date_source is null or u.date_source not in ('exif','quicktime') or o.source = 'manual')
+    order by (o.decided_by = 'owner') desc, o.created_at desc, o.rowid desc
+    limit 1
+);
 """
 
 
