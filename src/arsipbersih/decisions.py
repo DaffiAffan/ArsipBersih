@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from arsipbersih.classify import GRID_CATEGORIES, GROUP_CATEGORIES
+from arsipbersih.dating.xmp import write_dates_after_move
 from arsipbersih.db import new_id
 from arsipbersih.layout import TRASH_DIR, long_path
 from arsipbersih.mover import (
@@ -270,6 +271,9 @@ def apply_category(
         _settle(conn, keep, discard)
     except Exception as e:  # noqa: BLE001 - the files already moved; never lose the result
         result.errors.append(f"could not record applied decisions: {type(e).__name__}: {e}")
+    write_dates_after_move(
+        conn, root, [um.unit_id for um in moves if um.to_location == "archive"], result.errors
+    )
     return result
 
 

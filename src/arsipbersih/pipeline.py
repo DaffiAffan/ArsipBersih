@@ -15,6 +15,7 @@ from .ai import stage as ai_stage
 from .classify import run_classify
 from .config import load_settings
 from .dating.infer import DatesResult, run_dates
+from .dating.xmp import write_dates_after_move
 from .db import open_db
 from .events import EventSummary, run_events
 from .grouping import run_grouping
@@ -244,6 +245,9 @@ def rapikan(root: Path) -> BatchResult:
         result = execute(conn, root, moves, "rapikan", label=f"rapikan {date.today().isoformat()}")
         remove_empty_dirs(root / SOURCE_DIR)
         result.errors.extend(notes)
+        write_dates_after_move(
+            conn, root, [um.unit_id for um in moves if um.to_location == "archive"], result.errors
+        )
         result.skipped_units = len(skipped)
         return result
     finally:
