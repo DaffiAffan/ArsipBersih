@@ -45,6 +45,8 @@ class Settings:
     dark_video_luma_max: float = 15.0    # [Claude]
     generic_folders: tuple[str, ...] = DEFAULT_GENERIC_FOLDERS
     ai_head: str = "zeroshot"  # AI classification head: "zeroshot" or "trained-vN"
+    ai_threads: int = 4  # onnxruntime intra-op threads for the vision encoder
+    ai_batch: int = 16  # crops per embedding batch
 
 
 def load_settings(conn: sqlite3.Connection) -> Settings:

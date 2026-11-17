@@ -50,6 +50,17 @@ def _is_screen_aspect(w: int | None, h: int | None) -> bool:
     return any(abs(ratio - r) <= SCREEN_RATIO_TOLERANCE for r in SCREEN_RATIOS)
 
 
+def download_reason(u: UnitView, segs: list[str], ext: str) -> str | None:
+    """Why the unit looks downloaded (download-meme rule), or None. Shared with the AI facts."""
+    if is_download(segs):
+        return "berasal dari folder unduhan"
+    if u.kind == "photo" and not (u.make or u.model) and (
+        ext in MEME_EXTS or (u.width and u.height and max(u.width, u.height) < MEME_LONG_SIDE)
+    ):
+        return "tanpa data kamera, format/ukuran khas unduhan"
+    return None
+
+
 BROKEN_REASON = "file rusak / tidak bisa dibuka"
 EMPTY_REASON = "file kosong (0 byte)"
 ERROR_IN_REASON_MAX = 80
@@ -118,13 +129,9 @@ def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: str | None) -> li
         flags.append(("screenshot", None, "PNG tanpa data kamera, rasio layar HP"))
     if is_chat(segs, u.filename):
         flags.append(("kiriman-chat", None, "kiriman WhatsApp/Telegram"))
-    if is_download(segs):
-        flags.append(("download-meme", None, "berasal dari folder unduhan"))
-    elif is_photo and no_cam and (
-        ex["ext"] in MEME_EXTS
-        or (u.width and u.height and max(u.width, u.height) < MEME_LONG_SIDE)
-    ):
-        flags.append(("download-meme", None, "tanpa data kamera, format/ukuran khas unduhan"))
+    download = download_reason(u, segs, ex["ext"])
+    if download:
+        flags.append(("download-meme", None, download))
     if u.kind == "gopro_aux":
         flags.append(("pendamping-gopro", None, "file pendamping GoPro"))
     if is_trash(segs, u.filename):
