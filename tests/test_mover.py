@@ -460,3 +460,60 @@ def test_reconcile_rejoins_split_undo_puts_our_xmp_back(root):
     assert (root / _OUR_XMP).is_file() and (root / _WA_ARSIP).is_file()
     assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_OUR_XMP, uid)
     assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
+
+
+def test_undo_all_chained_batches_send_our_xmp_to_sampah_once(root):
+    from arsipbersih.config import Settings
+    from arsipbersih.dating.xmp import write_dates
+    from arsipbersih.report import verify
+
+    conn, uid, fid, xid, bid_a = _archived_with_our_xmp(root)
+    # A second unit with our xmp, in its own batch A2.
+    wa2 = "Sumber/HP/WhatsApp/IMG-20230602-WA0002.jpg"
+    wa2_arsip = "Arsip/2023/2023-06/IMG-20230602-WA0002.jpg"
+    uid2, fid2 = _one_unit(conn, root, wa2)
+    conn.execute("update units set taken_at='2023-06-02T00:00:00', date_source='filename' where id=?", (uid2,))
+    conn.commit()
+    execute(conn, root, [UnitMove(uid2, "archive", [FileMove(fid2, wa2, wa2_arsip)])], "rapikan", "t")
+    assert write_dates(conn, root, Settings(), [uid2]).written == 1
+    # Batch B moves the first unit, with our xmp, to another month.
+    moved = "Arsip/2023/2023-08/IMG-20230601-WA0001.jpg"
+    execute(conn, root, [UnitMove(uid, "archive", [
+        FileMove(fid, _WA_ARSIP, moved), FileMove(xid, _OUR_XMP, moved + ".xmp"),
+    ])], "rapikan", "t")
+
+    res = undo_all(conn, root)
+
+    assert res.failed_units == 0 and res.errors == [], res.errors
+    assert (root / _WA).is_file() and (root / wa2).is_file()
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_XMP_TRASH, None)
+    assert (root / _XMP_TRASH).is_file()
+    assert (root / "_sampah/_xmp-arsipbersih" / (wa2_arsip + ".xmp")).is_file()
+    assert not (root / "Arsip").exists() or not any(p.is_file() for p in (root / "Arsip").rglob("*"))
+    assert conn.execute("select count(*) from units where location='source' and id in (?,?)", (uid, uid2)).fetchone()[0] == 2
+    v = verify(conn, root)
+    assert v.ok, (v.missing, v.unexpected)
+
+
+def test_undo_fails_whole_unit_when_our_xmp_cannot_move(root, monkeypatch):
+    import arsipbersih.mover as mover_mod
+
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    real = mover_mod._move_file
+
+    def locked_xmp(src, dst):
+        if str(src).endswith(".xmp"):
+            raise PermissionError(f"locked: {src}")
+        return real(src, dst)
+
+    monkeypatch.setattr(mover_mod, "_move_file", locked_xmp)
+    res = undo_batch(conn, root, bid)
+    assert res.failed_units == 1 and res.moved_units == 0 and res.errors
+    assert (root / _WA_ARSIP).is_file() and not (root / _WA).exists()
+    assert (root / _OUR_XMP).is_file()
+    statuses = {r[0] for r in conn.execute(
+        "select m.status from moves m join batches b on b.id=m.batch_id where b.kind='undo'")}
+    assert statuses == {"failed"}
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_OUR_XMP, uid)
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
+    assert conn.execute("select status from moves where batch_id=?", (bid,)).fetchone()[0] == "done"

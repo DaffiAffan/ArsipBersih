@@ -757,12 +757,20 @@ def _xmp_trash_rel(conn, root: Path, rel: str, taken: set[str]) -> str:
 
 
 def _our_xmp_moves(
-    conn, root: Path, unit_id: str | None, covered: set[str], planned: set[str], taken: set[str]
+    conn,
+    root: Path,
+    unit_id: str | None,
+    covered: set[str],
+    planned: set[str],
+    taken: set[str],
+    predicted: dict[str, str],
 ) -> list[FileMove]:
     """Moves sending the unit's ArsipBersih sidecars to _sampah/_xmp-arsipbersih/.
 
     Only sidecars recorded in xmp_writes and not already reversed by the batch rows
     (`covered`); owner sidecars are never touched. One missing on disk is skipped quietly.
+    A sidecar that a newer batch of the same undo already moves back starts from that
+    predicted path (`predicted`, file_id -> rel), so it is planned once, from the right place.
     """
     if unit_id is None:
         return []
@@ -775,12 +783,13 @@ def _our_xmp_moves(
         if file_id in covered or file_id in planned or _is_xmp_trash(rel):
             continue
         try:
-            if not _exists(_abs(root, rel)):
+            if not _exists(_abs(root, rel)):  # where it is now, before this undo runs
                 continue
         except ValueError:
             continue
+        src = predicted.get(file_id, rel)
         planned.add(file_id)
-        out.append(FileMove(file_id, rel, _xmp_trash_rel(conn, root, rel, taken)))
+        out.append(FileMove(file_id, src, _xmp_trash_rel(conn, root, src, taken)))
     return out
 
 
@@ -790,6 +799,8 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
     notes: list[str] = []
     xmp_planned: set[str] = set()
     xmp_taken: set[str] = set()
+    # Where each file will be once the units planned so far (newer batches first) are back.
+    predicted: dict[str, str] = {}
     for batch_id in batch_ids:
         rows = conn.execute(
             "select m.id, m.file_id, m.src_rel, m.dst_rel, coalesce(f.unit_id, m.unit_id),"
@@ -811,10 +822,12 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
             files = [fm for _, fm, _ in items]
             originals: list[str | None] = [row_id for row_id, _, _ in items]
             xmps = _our_xmp_moves(
-                conn, root, unit_id, {fm.file_id for fm in files}, xmp_planned, xmp_taken
+                conn, root, unit_id, {fm.file_id for fm in files}, xmp_planned, xmp_taken,
+                predicted,
             )
             files += xmps
             originals += [None] * len(xmps)
+            predicted.update((fm.file_id, fm.dst_rel) for fm in files)
             plan.append((UnitMove(unit_id, back_to, files), originals))
     result = _run_batch(
         conn, root, "undo", label, plan,
@@ -856,7 +869,11 @@ def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResu
     file has moved on since, is skipped and reported in `errors`. With no done rows left,
     no batch row is written and `batch_id` is empty. Our date sidecars (xmp_writes) of a
     restored unit go to `_sampah/_xmp-arsipbersih/<their rel>` in the same batch, detached
-    from the unit, instead of following it back (spec 11.1).
+    from the unit, instead of following it back (spec 11.1). That holds for a sidecar of
+    ours that someone has edited too: it is moved, never deleted, so nothing is lost. The
+    sidecar's move is part of its unit, all-or-nothing: when it cannot be moved (e.g. a
+    locked file), the media stays where it is, the unit's rows are failed and reported, and
+    the owner can retry; a sidecar missing on disk is skipped quietly.
     """
     row = conn.execute("select kind from batches where id=?", (batch_id,)).fetchone()
     if row is None:
@@ -867,7 +884,12 @@ def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResu
 
 
 def undo_all(conn: sqlite3.Connection, root: Path) -> BatchResult:
-    """Undo every rapikan/apply batch that still has done rows, newest first, as one batch."""
+    """Undo every rapikan/apply batch that still has done rows, newest first, as one batch.
+
+    Our date sidecars follow the same rules as in `undo_batch` (to _sampah/_xmp-arsipbersih/,
+    all-or-nothing with their unit); a sidecar moved by several batches is planned from the
+    path the newer batches leave it at.
+    """
     batch_ids = [
         r[0]
         for r in conn.execute(
