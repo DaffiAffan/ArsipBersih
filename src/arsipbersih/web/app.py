@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import signal
+import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -53,6 +57,42 @@ ROUTERS.append(_history_routes.router)
 ROUTERS.append(_history_routes.pages)
 
 
+def _drain_jobs(jobs: JobRunner) -> None:
+    """Wait for a running job before shutdown. Scan is asked to stop (it resumes later);
+    move jobs run to the end. A second Ctrl+C forces exit; the journal reconciles next start."""
+    st = jobs.status()
+    if st.status != "running":
+        return
+    if st.kind == "scan":
+        jobs.stop()
+    print(
+        f"Menunggu proses '{st.label}' selesai… (tekan Ctrl+C sekali lagi untuk paksa keluar; "
+        "jurnal akan merapikan saat dibuka lagi)",
+        file=sys.stderr,
+        flush=True,
+    )
+    prev = None
+    installed = False
+    if threading.current_thread() is threading.main_thread():
+        def _force_exit(signum, frame):
+            print(
+                "Memaksa keluar. Jurnal akan merapikan perpindahan yang terputus "
+                "saat ArsipBersih dibuka lagi.",
+                file=sys.stderr,
+                flush=True,
+            )
+            os._exit(130)  # no KeyboardInterrupt: uvicorn would swallow it and free the lock
+
+        prev = signal.signal(signal.SIGINT, _force_exit)
+        installed = True
+    try:
+        while jobs.status().status == "running":
+            jobs.wait(0.5)  # short slices so signals are delivered on Windows
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, prev)
+
+
 def create_app(
     root: Path,
     *,
@@ -72,11 +112,12 @@ def create_app(
     app.state.start_jobs = start_jobs
     app.state.root_lock = root_lock
 
-    def _release_root_lock() -> None:
+    def _on_shutdown() -> None:
+        _drain_jobs(app.state.jobs)  # before the lock goes: a move must not outlive it
         if app.state.root_lock is not None:
             app.state.root_lock.release()
 
-    app.router.add_event_handler("shutdown", _release_root_lock)
+    app.router.add_event_handler("shutdown", _on_shutdown)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):

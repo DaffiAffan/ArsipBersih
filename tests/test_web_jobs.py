@@ -81,3 +81,82 @@ def test_get_conn_survives_parallel_requests(web):
         codes = [r.status_code for r in rs]
 
     assert codes == [200] * 20
+
+
+def _run_shutdown(app):
+    done = threading.Event()
+
+    def go():
+        for h in app.router.on_shutdown:
+            h()
+        done.set()
+
+    threading.Thread(target=go, daemon=True).start()
+    return done
+
+
+class _Lock:
+    def __init__(self):
+        self.released = threading.Event()
+
+    def release(self):
+        self.released.set()
+
+
+def test_shutdown_waits_for_move_job_before_releasing_lock(root, capsys):
+    from arsipbersih.web.app import create_app
+
+    lock = _Lock()
+    app = create_app(root, start_jobs=False, root_lock=lock)
+    gate = threading.Event()
+    app.state.jobs.start("apply", "Apply burem", lambda r, s: (gate.wait(10), {})[1])
+    done = _run_shutdown(app)
+    assert not done.wait(0.5)
+    assert not lock.released.is_set()
+    gate.set()
+    assert done.wait(5)
+    assert lock.released.is_set()
+    assert "Apply burem" in capsys.readouterr().err
+
+
+def test_shutdown_stops_scan_then_waits(root):
+    from arsipbersih.web.app import create_app
+
+    lock = _Lock()
+    app = create_app(root, start_jobs=False, root_lock=lock)
+    seen = threading.Event()
+
+    def scan(r, s):
+        s.wait(10)
+        seen.set()
+        return {}
+
+    app.state.jobs.start("scan", "Scan", scan)
+    done = _run_shutdown(app)
+    assert done.wait(5)
+    assert seen.is_set() and lock.released.is_set()
+    assert app.state.jobs.status().status == "stopped"
+
+
+def test_drain_installs_sigint_handler_during_wait_and_restores(monkeypatch):
+    import signal
+
+    from arsipbersih.web import app as appmod
+
+    calls = []
+    sentinel = object()
+    monkeypatch.setattr(
+        appmod.signal, "signal", lambda sig, h: (calls.append((sig, h)), sentinel)[1]
+    )
+    exits = []
+    monkeypatch.setattr(appmod.os, "_exit", lambda c: exits.append(c))
+    jr = JobRunner()
+    gate = threading.Event()
+    jr.start("apply", "Apply", lambda r, s: (gate.wait(10), {})[1])
+    t = threading.Thread(target=lambda: (gate.wait(0.3), gate.set()), daemon=True)
+    t.start()
+    appmod._drain_jobs(jr)
+    assert [c[0] for c in calls] == [signal.SIGINT, signal.SIGINT]
+    assert calls[1][1] is sentinel
+    calls[0][1](signal.SIGINT, None)
+    assert exits == [130]
