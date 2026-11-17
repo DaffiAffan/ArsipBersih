@@ -93,7 +93,7 @@ export function mountFloatBar(container, { category, mode, label = category, onA
       let started;
       try {
         started = await api("POST", `/api/review/apply/${encodeURIComponent(category)}`,
-          { keep: preview.keep, discard: preview.discard });
+          { keep: preview.keep, discard: preview.discard, fingerprint: preview.fingerprint });
       } catch (e) {
         toast(e.message, { kind: "error" }); // 409: counts changed since the dialog (D-024)
         refresh();

@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sqlite3
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -41,6 +42,8 @@ class ApplyPreview:
     keep: int
     discard: int
     unseen: int
+    # Digest of the exact keep/discard unit ids; not part of equality (counts stay comparable).
+    fingerprint: str = field(default="", compare=False)
 
 
 def _now() -> str:
@@ -218,9 +221,19 @@ def _lists(conn: sqlite3.Connection, category: str) -> tuple[list[str], list[str
     raise ValueError(f"unknown category: {category!r}")
 
 
+def apply_fingerprint(keep: list[str], discard: list[str]) -> str:
+    """sha256 over the sorted keep ids and sorted discard ids (order-independent, set-exact)."""
+    h = hashlib.sha256()
+    for tag, ids in (("keep", keep), ("discard", discard)):
+        h.update(tag.encode() + b"|")
+        for uid in sorted(ids):
+            h.update(uid.encode() + b"|")
+    return h.hexdigest()
+
+
 def preview_apply(conn: sqlite3.Connection, category: str) -> ApplyPreview:
     keep, discard, unseen = _lists(conn, category)
-    return ApplyPreview(len(keep), len(discard), unseen)
+    return ApplyPreview(len(keep), len(discard), unseen, apply_fingerprint(keep, discard))
 
 
 def _locations(conn: sqlite3.Connection, ids: list[str]) -> dict[str, str]:
