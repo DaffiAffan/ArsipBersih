@@ -33,6 +33,14 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(pytest.mark.skip(reason=f"{tool} not available"))
 
 
+@pytest.fixture(autouse=True)
+def _no_real_model(request, tmp_path_factory, monkeypatch):
+    """Tests never see the real AI model unless marked ``model``: the installed model in
+    tools/models would otherwise switch on the AI stage and change scan results."""
+    if request.node.get_closest_marker("model") is None:
+        monkeypatch.setenv("ARSIPBERSIH_MODELS", str(tmp_path_factory.mktemp("no-models")))
+
+
 _EXT_FORMATS = {
     ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP",
     ".heic": "HEIF", ".heif": "HEIF",

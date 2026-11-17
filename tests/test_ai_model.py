@@ -20,6 +20,21 @@ def test_model_status_not_ready_when_missing(tmp_path, monkeypatch):
     assert st.path == tmp_path / model.MODEL_NAME
 
 
+def test_tests_do_not_see_an_installed_model(tmp_path, monkeypatch):
+    # A ready model at the default location (tools/models under the repo root) ...
+    fake_repo = tmp_path / "repo"
+    ready = fake_repo / "tools" / "models" / model.MODEL_NAME
+    ready.mkdir(parents=True)
+    for name in (*model.MODEL_FILES, model.MANIFEST):
+        (ready / name).write_bytes(b"x")
+    monkeypatch.setattr(model, "_REPO_ROOT", fake_repo)
+    # ... stays invisible to an unmarked test (conftest's autouse fixture) ...
+    assert model.model_status().ready is False
+    # ... while the default location itself would be ready.
+    monkeypatch.delenv("ARSIPBERSIH_MODELS")
+    assert model.model_status().ready is True and model.model_status().path == ready
+
+
 def test_text_embeddings_uses_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("ARSIPBERSIH_MODELS", str(tmp_path))
     prompts = ["a cat", "a dog"]
