@@ -73,6 +73,7 @@ export function toast(text, { kind = "info" } = {}) {
 // --- keyboard help ("?") ----------------------------------------------------------------
 
 let helpSections = null;
+const extraHelp = []; // sections added by overlays (e.g. the fullscreen viewer) while they are open
 let helpOpen = false;
 
 function showHelp() {
@@ -87,7 +88,7 @@ function showHelp() {
   dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(); });
   dlg.append(
     el("h3", {}, "Pintasan keyboard"),
-    ...helpSections.map((s) => el("section", { class: "help-section" },
+    ...[...extraHelp, ...helpSections].map((s) => el("section", { class: "help-section" },
       el("h4", {}, s.title),
       el("dl", { class: "help-list" }, ...s.keys.flatMap(([key, label]) => [
         el("dt", {}, el("kbd", { class: "kbd" }, key)),
@@ -114,4 +115,10 @@ function onHelpKey(ev) {
 export function registerHelp(sections) {
   if (!helpSections) document.addEventListener("keydown", onHelpKey);
   helpSections = sections;
+}
+
+// Adds help sections while an overlay is open; returns a function that removes them again.
+export function pushHelp(sections) {
+  extraHelp.unshift(...sections);
+  return () => { for (const s of sections) { const n = extraHelp.indexOf(s); if (n >= 0) extraHelp.splice(n, 1); } };
 }

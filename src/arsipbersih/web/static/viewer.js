@@ -2,7 +2,7 @@ import { el } from "./api.js";
 import { bindKeys } from "./keys.js";
 import { renderInspector } from "./inspector.js";
 import { createZoom } from "./zoom.js";
-import { toast } from "./ui.js";
+import { toast, pushHelp } from "./ui.js";
 
 export { CATEGORY_LABELS } from "./labels.js";
 
@@ -154,10 +154,19 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     },
   });
 
+  // Viewer keys for the "?" dialog (the page's own sections stay below).
+  const unhelp = pushHelp([{ title: "Layar penuh", keys: [
+    ["← →", "Foto sebelumnya / berikutnya"], ["S", "Keep foto ini"], ["D", "Delete foto ini"],
+    ["Enter", "Ikuti saran, lalu ke foto berikutnya"],
+    ...(hasVideo ? [["Spasi", "Putar / jeda video"]] : []),
+    ["Roda mouse", "Zoom foto"], ["Seret", "Geser foto yang di-zoom"], ["Klik ganda", "Kembalikan zoom"],
+    ["Esc", "Tutup layar penuh"], ["?", "Bantuan ini"]] }]);
+
   let closed = false;
   function close() {
     if (closed) return;
     closed = true;
+    unhelp();
     unbind();
     if (zoom) zoom.destroy();
     overlay.remove();
