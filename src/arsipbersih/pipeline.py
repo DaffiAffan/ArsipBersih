@@ -14,6 +14,7 @@ from pathlib import Path
 from .ai import stage as ai_stage
 from .classify import run_classify
 from .config import load_settings
+from .dating.infer import DatesResult, run_dates
 from .db import open_db
 from .events import EventSummary, run_events
 from .grouping import run_grouping
@@ -37,7 +38,7 @@ from .visual import run_visual
 
 STAGES = (
     "inventory", "pairing", "hash", "metadata", "visual", "ai",
-    "grouping", "classify", "events", "plan",
+    "grouping", "classify", "events", "dates", "plan",
 )
 
 
@@ -73,6 +74,7 @@ class ScanSummary:
     stopped: bool
     tool_status: ToolStatus
     warnings: list[str] = field(default_factory=list)
+    dates: DatesResult | None = None
 
 
 def _inventory_warnings(inv: InventoryResult) -> list[str]:
@@ -201,6 +203,12 @@ def run_scan(
 
         begin("events")
         summary.events = run_events(conn, settings)
+        if stopped():
+            return summary
+
+        begin("dates")
+        summary.dates = run_dates(conn, settings)
+        summary.warnings.extend(summary.dates.clock_warnings)
         if stopped():
             return summary
 
