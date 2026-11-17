@@ -20,6 +20,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import os
+import posixpath
 import shutil
 import sqlite3
 import stat
@@ -43,6 +44,9 @@ LOCATION_BY_TOP = {
 }
 _LOCATIONS = frozenset(LOCATION_BY_TOP.values())
 _UNDOABLE_KINDS = ("rapikan", "apply")
+# Undo never returns our date sidecars to Sumber/_review: they go here, detached from
+# their unit (spec 11.1). build_units only adopts files under Sumber/ and Arsip/.
+XMP_TRASH_DIR = f"{TRASH_DIR}/_xmp-arsipbersih"
 _WIN_ERROR_NOT_SAME_DEVICE = 17
 _UNSAFE_CHARS = ("\\", ":", "\x00")
 
@@ -274,9 +278,15 @@ def _set_rel_path(conn: sqlite3.Connection, file_id: str, rel: str) -> None:
         conn.execute("update files set rel_path=?, missing=0 where id=?", (rel, file_id))
 
 
+def _is_xmp_trash(rel: str) -> bool:
+    return rel.startswith(XMP_TRASH_DIR + "/")
+
+
 def _record_done(conn, row_id: str, fm: FileMove, done_at: str, original_id: str | None) -> None:
     conn.execute("update moves set status='done', done_at=? where id=?", (done_at, row_id))
     _set_rel_path(conn, fm.file_id, fm.dst_rel)
+    if _is_xmp_trash(fm.dst_rel):  # our sidecar left its unit for good
+        conn.execute("update files set unit_id=null where id=?", (fm.file_id,))
     if original_id is not None:
         conn.execute("update moves set status='undone' where id=?", (original_id,))
 
@@ -537,7 +547,10 @@ def _settle_location(conn, batch_id: str, unit_id: str | None) -> None:
         "select status, dst_rel from moves where batch_id=? and unit_id is ?", (batch_id, unit_id)
     ).fetchall()
     if rows and all(r[0] == "done" for r in rows):
-        location = _location_of(rows[0][1])
+        unit_rows = [r for r in rows if not _is_xmp_trash(r[1])]  # our sidecar's trip
+        if not unit_rows:
+            return
+        location = _location_of(unit_rows[0][1])
         if location is not None:
             conn.execute("update units set location=? where id=?", (location, unit_id))
 
@@ -661,6 +674,8 @@ def _rejoin_split_units(conn, root: Path, errors: list[str]) -> int:
                     "update moves set status='failed', done_at=null where id=?", (row_id,)
                 )
                 _set_rel_path(conn, file_id, src_rel)
+                if _is_xmp_trash(dst_rel):  # our sidecar is back with its unit
+                    conn.execute("update files set unit_id=? where id=?", (unit_id, file_id))
                 if kind == "undo":
                     _revert_original(conn, file_id, src_rel, dst_rel)
             fixed += 1
@@ -723,9 +738,58 @@ def reconcile_or_refuse(conn: sqlite3.Connection, root: Path, errors: list[str])
 # --- undo --------------------------------------------------------------------------------
 
 
+def _xmp_trash_rel(conn, root: Path, rel: str, taken: set[str]) -> str:
+    """Free `_sampah/_xmp-arsipbersih/<rel>`; a clash gets `__2`, `__3`, ... before .xmp."""
+    base = f"{XMP_TRASH_DIR}/{rel}"
+    stem, ext = posixpath.splitext(base)
+    n = 1
+    cand = base
+    while (
+        cand.casefold() in taken
+        or _tracked(conn, cand, nocase=True)
+        or _exists(_abs(root, cand))
+        or _exists(_partial(_abs(root, cand)))
+    ):
+        n += 1
+        cand = f"{stem}__{n}{ext}"
+    taken.add(cand.casefold())
+    return cand
+
+
+def _our_xmp_moves(
+    conn, root: Path, unit_id: str | None, covered: set[str], planned: set[str], taken: set[str]
+) -> list[FileMove]:
+    """Moves sending the unit's ArsipBersih sidecars to _sampah/_xmp-arsipbersih/.
+
+    Only sidecars recorded in xmp_writes and not already reversed by the batch rows
+    (`covered`); owner sidecars are never touched. One missing on disk is skipped quietly.
+    """
+    if unit_id is None:
+        return []
+    out: list[FileMove] = []
+    for file_id, rel in conn.execute(
+        "select f.id, f.rel_path from xmp_writes w join files f on f.id = w.file_id"
+        " where f.unit_id=? and f.purged=0 and f.missing=0 order by f.rel_path",
+        (unit_id,),
+    ):
+        if file_id in covered or file_id in planned or _is_xmp_trash(rel):
+            continue
+        try:
+            if not _exists(_abs(root, rel)):
+                continue
+        except ValueError:
+            continue
+        planned.add(file_id)
+        out.append(FileMove(file_id, rel, _xmp_trash_rel(conn, root, rel, taken)))
+    return out
+
+
 def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str) -> BatchResult:
-    plan: list[tuple[UnitMove, list[str] | None]] = []
+    root = _norm(root)
+    plan: list[tuple[UnitMove, list[str | None] | None]] = []
     notes: list[str] = []
+    xmp_planned: set[str] = set()
+    xmp_taken: set[str] = set()
     for batch_id in batch_ids:
         rows = conn.execute(
             "select m.id, m.file_id, m.src_rel, m.dst_rel, coalesce(f.unit_id, m.unit_id),"
@@ -744,10 +808,16 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
                     notes.append(f"unit {unit_id} partly purged, not restored")
                 continue
             back_to = _location_of(items[0][1].dst_rel) or ""
-            unit_move = UnitMove(unit_id, back_to, [fm for _, fm, _ in items])
-            plan.append((unit_move, [row_id for row_id, _, _ in items]))
+            files = [fm for _, fm, _ in items]
+            originals: list[str | None] = [row_id for row_id, _, _ in items]
+            xmps = _our_xmp_moves(
+                conn, root, unit_id, {fm.file_id for fm in files}, xmp_planned, xmp_taken
+            )
+            files += xmps
+            originals += [None] * len(xmps)
+            plan.append((UnitMove(unit_id, back_to, files), originals))
     result = _run_batch(
-        conn, _norm(root), "undo", label, plan,
+        conn, root, "undo", label, plan,
         after_batch=lambda bid: _reset_review_state(conn, bid),
     )
     # Folders the undone batch created are left empty; the base folders themselves stay.
@@ -784,7 +854,9 @@ def undo_batch(conn: sqlite3.Connection, root: Path, batch_id: str) -> BatchResu
 
     Each unit goes back all-or-nothing; a unit whose original path is occupied, or whose
     file has moved on since, is skipped and reported in `errors`. With no done rows left,
-    no batch row is written and `batch_id` is empty.
+    no batch row is written and `batch_id` is empty. Our date sidecars (xmp_writes) of a
+    restored unit go to `_sampah/_xmp-arsipbersih/<their rel>` in the same batch, detached
+    from the unit, instead of following it back (spec 11.1).
     """
     row = conn.execute("select kind from batches where id=?", (batch_id,)).fetchone()
     if row is None:

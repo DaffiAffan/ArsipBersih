@@ -313,3 +313,150 @@ def test_undo_removes_folders_it_left_empty(root):
     assert (root / "Sumber/HP/DCIM/IMG_1.jpg").exists()
     assert (root / "Arsip").is_dir() and not any((root / "Arsip").iterdir())
     assert (root / "_review").is_dir() and not any((root / "_review").iterdir())
+
+
+# --- our date sidecars (.xmp) on undo (spec 11.1) ------------------------------------------
+
+_WA = "Sumber/HP/WhatsApp/IMG-20230601-WA0001.jpg"
+_WA_ARSIP = "Arsip/2023/2023-06/IMG-20230601-WA0001.jpg"
+_OUR_XMP = _WA_ARSIP + ".xmp"
+_XMP_TRASH = "_sampah/_xmp-arsipbersih/" + _OUR_XMP
+
+
+def _archived_with_our_xmp(root):
+    """A WA unit moved to Arsip by a rapikan batch, then given our date sidecar."""
+    from arsipbersih.config import Settings
+    from arsipbersih.dating.xmp import write_dates
+
+    conn = open_db(root); uid, fid = _one_unit(conn, root, _WA)
+    conn.execute("update units set taken_at='2023-06-01T00:00:00', date_source='filename' where id=?", (uid,))
+    conn.commit()
+    r = execute(conn, root, [UnitMove(uid, "archive", [FileMove(fid, _WA, _WA_ARSIP)])], "rapikan", "t")
+    assert write_dates(conn, root, Settings(), [uid]).written == 1
+    xid = conn.execute("select file_id from xmp_writes").fetchone()[0]
+    return conn, uid, fid, xid, r.batch_id
+
+
+def test_undo_sends_our_xmp_to_sampah_not_source(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    res = undo_batch(conn, root, bid)
+    assert res.moved_units == 1 and res.failed_units == 0 and res.errors == []
+    assert (root / _WA).is_file() and not (root / _WA_ARSIP).exists()
+    assert (root / _XMP_TRASH).is_file() and not (root / _OUR_XMP).exists()
+    assert not (root / (_WA + ".xmp")).exists()
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_XMP_TRASH, None)
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "source"
+    # Journaled in the undo batch itself.
+    row = conn.execute(
+        "select m.src_rel, m.dst_rel, m.status from moves m join batches b on b.id=m.batch_id"
+        " where b.kind='undo' and m.file_id=?", (xid,)).fetchone()
+    assert tuple(row) == (_OUR_XMP, _XMP_TRASH, "done")
+
+
+def test_undo_xmp_name_clash_in_sampah_gets_a_number(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    (root / _XMP_TRASH).parent.mkdir(parents=True)
+    (root / _XMP_TRASH).write_bytes(b"older")
+    undo_batch(conn, root, bid)
+    assert (root / _XMP_TRASH).read_bytes() == b"older"
+    new_rel = conn.execute("select rel_path from files where id=?", (xid,)).fetchone()[0]
+    assert new_rel == _XMP_TRASH[: -len(".xmp")] + "__2.xmp" and (root / new_rel).is_file()
+
+
+def test_undo_skips_missing_our_xmp_quietly(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    os.remove(root / _OUR_XMP)
+    res = undo_batch(conn, root, bid)
+    assert res.moved_units == 1 and res.errors == []
+    assert (root / _WA).is_file()
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_OUR_XMP, uid)
+
+
+def test_undo_never_touches_owner_xmp(root):
+    conn = open_db(root)
+    (root / "Sumber/HP/DCIM").mkdir(parents=True)
+    (root / "Sumber/HP/DCIM/IMG_2.xmp").write_bytes(b"owner")
+    uid, fid = _one_unit(conn, root, "Sumber/HP/DCIM/IMG_2.jpg")
+    sid = conn.execute("select id, unit_id from files where rel_path='Sumber/HP/DCIM/IMG_2.xmp'").fetchone()
+    assert sid[1] == uid
+    um = UnitMove(uid, "archive", [
+        FileMove(fid, "Sumber/HP/DCIM/IMG_2.jpg", "Arsip/2023/2023-06/IMG_2.jpg"),
+        FileMove(sid[0], "Sumber/HP/DCIM/IMG_2.xmp", "Arsip/2023/2023-06/IMG_2.xmp"),
+    ])
+    r = execute(conn, root, [um], "rapikan", "t")
+    undo_batch(conn, root, r.batch_id)
+    assert (root / "Sumber/HP/DCIM/IMG_2.xmp").read_bytes() == b"owner"
+    assert (root / "Sumber/HP/DCIM/IMG_2.jpg").is_file()
+    assert not (root / "_sampah").exists()
+    assert conn.execute("select unit_id from files where id=?", (sid[0],)).fetchone()[0] == uid
+
+
+def test_undo_apply_keep_sends_our_xmp_to_sampah(root):
+    from arsipbersih.decisions import record
+
+    conn, (uid,) = _review_units(root, "burem", n=1)
+    conn.execute("update units set taken_at='2024-01-05T00:00:00', date_source='filename' where id=?", (uid,))
+    conn.execute("insert into flags(id, unit_id, category) values(?,?,?)", (new_id(), uid, "burem"))
+    conn.commit()
+    mark_seen(conn, [uid]); record(conn, uid, "keep")
+    res = apply_category(conn, root, "burem")
+    xmp_rel = "Arsip/2024/2024-01/IMG_0.jpg.xmp"
+    assert (root / xmp_rel).is_file()
+    undo_batch(conn, root, res.batch_id)
+    assert (root / "_review/burem/HP/IMG_0.jpg").is_file()
+    assert (root / "_sampah/_xmp-arsipbersih" / xmp_rel).is_file()
+    assert not (root / "_review/burem/HP/IMG_0.jpg.xmp").exists()
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "review"
+
+
+def test_verify_ok_after_undo_with_xmp(root):
+    from arsipbersih.report import verify
+
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    assert verify(conn, root).ok
+    undo_batch(conn, root, bid)
+    v = verify(conn, root)
+    assert v.ok, (v.missing, v.unexpected)
+
+
+def test_rescan_after_undo_has_no_orphan_unit(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    undo_batch(conn, root, bid)
+    units_before = conn.execute("select count(*) from units").fetchone()[0]
+    run_inventory(conn, root); build_units(conn)
+    assert conn.execute("select count(*) from units").fetchone()[0] == units_before
+    assert tuple(conn.execute("select unit_id, missing from files where id=?", (xid,)).fetchone()) == (None, 0)
+    assert conn.execute("select count(*) from files where unit_id=?", (uid,)).fetchone()[0] == 1
+
+
+def test_reconcile_settles_crashed_undo_with_xmp(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    undo_bid = new_id()
+    with conn:
+        conn.execute("insert into batches (id, kind, label, created_at) values (?, 'undo', 't', ?)",
+                     (undo_bid, "2026-11-17T10:00:00"))
+    insert_pending(conn, uid, fid, _WA_ARSIP, _WA, undo_bid)
+    insert_pending(conn, uid, xid, _OUR_XMP, _XMP_TRASH, undo_bid)
+    os.rename(root / _WA_ARSIP, root / _WA)
+    (root / _XMP_TRASH).parent.mkdir(parents=True)
+    os.rename(root / _OUR_XMP, root / _XMP_TRASH)
+    assert reconcile(conn, root) == 2
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "source"
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_XMP_TRASH, None)
+
+
+def test_reconcile_rejoins_split_undo_puts_our_xmp_back(root):
+    conn, uid, fid, xid, bid = _archived_with_our_xmp(root)
+    undo_bid = new_id()
+    with conn:
+        conn.execute("insert into batches (id, kind, label, created_at) values (?, 'undo', 't', ?)",
+                     (undo_bid, "2026-11-17T10:00:00"))
+    insert_pending(conn, uid, fid, _WA_ARSIP, _WA, undo_bid)
+    insert_pending(conn, uid, xid, _OUR_XMP, _XMP_TRASH, undo_bid)
+    # Crash: the xmp reached _sampah, the media never left Arsip.
+    (root / _XMP_TRASH).parent.mkdir(parents=True)
+    os.rename(root / _OUR_XMP, root / _XMP_TRASH)
+    reconcile(conn, root)
+    assert (root / _OUR_XMP).is_file() and (root / _WA_ARSIP).is_file()
+    assert tuple(conn.execute("select rel_path, unit_id from files where id=?", (xid,)).fetchone()) == (_OUR_XMP, uid)
+    assert conn.execute("select location from units where id=?", (uid,)).fetchone()[0] == "archive"
