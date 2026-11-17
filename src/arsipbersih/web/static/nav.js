@@ -2,12 +2,33 @@ import { api, el } from "/static/api.js";
 import { watchJob } from "/static/job.js";
 import { fmtNum } from "/static/ui.js";
 
+// One /api/review/categories request serves every caller (the sidebar and the group floating
+// bar both refresh after each decision). Calls made before a request starts share it; a call
+// made while one is in flight queues exactly one follow-up, so the answer always reflects it.
+let queued = null;
+let inflight = null;
+function loadCategories() {
+  if (queued) return queued;
+  const prev = inflight;
+  const p = (async () => {
+    if (prev) { try { await prev; } catch (_) { /* the follow-up retries */ } } else await null;
+    queued = null;
+    const req = api("GET", "/api/review/categories");
+    inflight = req;
+    try { return await req; } finally { if (inflight === req) inflight = null; }
+  })();
+  queued = p;
+  return p;
+}
+
 export function mountReviewNav(ul) {
+  // Resolves to the category list (null when the request failed), for other widgets to reuse.
   async function refresh() {
     let cats;
     try {
-      cats = await api("GET", "/api/review/categories");
-    } catch (_) { return; } // keep the previous list
+      cats = await loadCategories();
+    } catch (_) { return null; } // keep the previous list
+    if (!ul) return cats;
     const current = decodeURIComponent(location.pathname.split("/")[2] || "");
     ul.replaceChildren(...cats.map((c) => {
       const active = location.pathname.startsWith("/review/") && c.category === current;
@@ -26,12 +47,13 @@ export function mountReviewNav(ul) {
           el("span", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(c.count), "aria-valuenow": String(done), "aria-label": `${done} dari ${c.count} sudah ditangani` },
             el("i", { style: `width:${pct}%` }))));
     }));
+    return cats;
   }
   return { refresh };
 }
 
 const ul = document.getElementById("nav-review");
-export const reviewNav = ul ? mountReviewNav(ul) : { refresh: async () => {} };
+export const reviewNav = mountReviewNav(ul);
 
 if (ul) {
   let lastKey = null;

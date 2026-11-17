@@ -85,7 +85,6 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     const shown = mode === "compare" ? items[i] : [items[i]];
     const panes = shown.map(mediaPane);
     panes.forEach((p) => stage.append(p));
-    stage.classList.toggle("vw-compare", mode === "compare");
     const zoomable = panes.filter((p) => !p.isVideo);
     zoom = zoomable.length ? createZoom(zoomable) : null;
     renderSide();

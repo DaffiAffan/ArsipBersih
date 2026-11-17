@@ -108,7 +108,7 @@ function rowOf(g, i) {
   el("div", { class: "grp-thumbs" },
     ...shown.map((m) => el("img", { class: "grp-thumb" + (m.is_keeper ? " is-keeper" : ""), src: m.thumb || "", alt: "", loading: "lazy", draggable: "false" })),
     ...(more > 0 ? [el("span", { class: "grp-more muted" }, `+${more}`)] : [])),
-  el("div", { class: "grp-info" },
+  el("div", {},
     el("div", { class: "grp-line" }, el("strong", {}, g.summary), statusMark(g)),
     el("div", { class: "muted grp-sub" }, fmtRange(g))));
 }

@@ -61,8 +61,9 @@ code, pre, .mono { font-family: var(--font-mono); }
 
 /* Kategori review di sidebar */
 .nav-sub a.nav-item { flex-direction: column; gap: 4px; }
-.nav-cat-row { display: flex; justify-content: space-between; gap: var(--space-2); }
-.nav-cat-count { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.nav-cat-row { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.nav-cat-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-cat-count { flex: none; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .nav-sub .progress { height: 3px; }
 .rv-page-head h1 { margin: 0 0 var(--space-1); font-size: 22px; }
 .rv-page-head p { margin: 0 0 var(--space-4); }

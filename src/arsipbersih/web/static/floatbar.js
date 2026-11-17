@@ -25,7 +25,8 @@ export function mountFloatBar(container, { category, mode, label = category, onA
 
   async function load() {
     if (mode === "group") {
-      const cats = await api("GET", "/api/review/categories");
+      const cats = await reviewNav.refresh(); // shared with the sidebar: one request
+      if (!cats) throw new Error("categories unavailable");
       const mine = cats.find((c) => c.category === category);
       const done = mine ? mine.done : 0;
       const total = mine ? mine.count : 0;
