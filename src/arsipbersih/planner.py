@@ -337,7 +337,9 @@ def plan_rapikan(
                 or _archive_dir(u, months)
             ), "archive"
         else:
-            dst_dir = u["planned_review_dir"] or _review_dir(u, REVIEW_DIR, cat)
+            # Like the archive dir: the category at move time is the authority, because
+            # it can change after compute_plans (classify --head, owner correction).
+            dst_dir = _review_dir(u, REVIEW_DIR, cat)
             loc = "review"
         m = _try_build(conn, reserver, u, dst_dir, loc, skipped)
         if m:
@@ -360,6 +362,18 @@ def _discard_category(conn: sqlite3.Connection, u: sqlite3.Row) -> str:
         if c in kinds:
             return c
     return sorted(kinds)[0] if kinds else "lainnya"
+
+
+def _flagged_document_dir(conn: sqlite3.Connection, u: sqlite3.Row) -> str | None:
+    """Document folder for a grouped unit (primary category is a group) that also carries a
+    dokumen-* flag; the highest document flag wins (identitas > keuangan > kertas)."""
+    if u["primary_category"] not in GROUP_CATEGORIES:
+        return None
+    flagged = {r[0] for r in conn.execute("select category from flags where unit_id=?", (u["id"],))}
+    for c in CATEGORY_PRIORITY:
+        if c in flagged and c in DOC_SUBDIRS:
+            return document_dir_for(c, u["taken_at"])
+    return None
 
 
 def plan_apply(
@@ -403,8 +417,11 @@ def plan_apply(
         if gone(uid):
             continue
         # The category at move time decides _Dokumen; planned_archive_dir is the normal folder.
-        dst = document_dir_for(u["primary_category"], u["taken_at"]) or (
-            u["planned_archive_dir"] or _archive_dir(u, months)
+        dst = (
+            document_dir_for(u["primary_category"], u["taken_at"])
+            or _flagged_document_dir(conn, u)
+            or u["planned_archive_dir"]
+            or _archive_dir(u, months)
         )
         m = _try_build(conn, reserver, u, dst, "archive", skipped)
         if m:
