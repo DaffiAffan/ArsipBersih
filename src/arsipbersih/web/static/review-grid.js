@@ -92,7 +92,16 @@ function flushSeen() {
   });
 }
 
-const tracker = createSeenTracker({ root: scroller, onSeen: (id) => queueSeen(byId.get(id)) });
+// Cells under the sticky toolbar or the floating Apply bar are not "on screen" for dwell.
+const tracker = createSeenTracker({
+  root: scroller,
+  onSeen: (id) => queueSeen(byId.get(id)),
+  insets: () => {
+    const fb = root.querySelector(".floatbar");
+    const bottom = scroller && fb ? scroller.getBoundingClientRect().bottom - fb.getBoundingClientRect().top : 0;
+    return { top: toolbarEl.offsetHeight, bottom: bottom + 8 };
+  },
+});
 
 // Dwell only counts while the grid itself is what the owner looks at.
 function cellReady(item) {
@@ -117,14 +126,15 @@ const sentinel = el("div", { class: "grid-more" });
 const inspEl = el("aside", { class: "inspector grid-inspector", "aria-label": "Info foto" });
 
 root.classList.add("grid-root");
-root.replaceChildren(
-  el("div", { class: "grid-toolbar" },
+const toolbarEl = el("div", { class: "grid-toolbar" },
     el("div", { class: "grid-tabs", role: "tablist", "aria-label": "Tampilan" }, ...tabs),
     countEl,
     el("span", { class: "grid-spacer" }),
     el("label", { class: "grid-ctl" }, "Urutan ", sortSel),
     el("label", { class: "grid-ctl" }, el("span", { "aria-hidden": "true" }, "▦"), sizeInput, el("span", { "aria-hidden": "true" }, "▢")),
-    infoBtn),
+    infoBtn);
+root.replaceChildren(
+  toolbarEl,
   el("p", { class: "grid-hint muted" },
     el("kbd", { class: "kbd" }, "S"), " keep · ", el("kbd", { class: "kbd" }, "D"), " delete · ",
     el("kbd", { class: "kbd" }, "Spasi"), " layar penuh · ", el("kbd", { class: "kbd" }, "?"), " bantuan"),
@@ -220,9 +230,10 @@ function watchThumb(cell, img, item) {
 
 function makeCell(item, i) {
   const extra = (item.badges || []).map((c) => CATEGORY_LABELS[c] || c);
-  const caption = [item.reason, item.score != null ? fmtScore(item.score) : null, ...extra].filter(Boolean).join(" · ");
+  const why = [item.reason, item.score != null ? fmtScore(item.score) : null, ...extra].filter(Boolean).join(" · ");
+  const caption = item.name || why;
   const img = el("img", { src: item.thumb || "", alt: "", loading: "lazy", draggable: "false" });
-  const cell = el("div", { class: "photo-cell", tabindex: "-1", "data-id": item.unit_id, title: caption },
+  const cell = el("div", { class: "photo-cell", tabindex: "-1", "data-id": item.unit_id, title: [item.name, why].filter(Boolean).join(" · ") },
     img,
     el("span", { class: "cell-noprev", hidden: true }, "Pratinjau tidak tersedia"),
     el("span", { class: "seen-dot", hidden: true, title: "Sudah dilihat" }),

@@ -1,4 +1,5 @@
 import { el, fmtBytes } from "/static/api.js";
+import { bindKeys } from "/static/keys.js";
 
 export { fmtBytes };
 
@@ -39,7 +40,13 @@ export function confirmDialog({ title, body, okLabel, danger = false, typeToConf
       ok.disabled = true;
       input.addEventListener("input", () => { ok.disabled = input.value !== typeToConfirm; });
     }
-    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    // Empty key layer: page shortcuts (S/D/arrows…) stay inert under the dialog; the dialog
+    // itself still gets Esc (cancel), Enter on its buttons and typing.
+    const unbindKeys = bindKeys({});
+    // Removed on its own "close" event, so the event still reaches document listeners
+    // (seen-dwell.js restarts its countdowns on it).
+    dlg.addEventListener("close", () => dlg.remove());
+    const done = (v) => { unbindKeys(); dlg.close(); resolve(v); };
     ok.addEventListener("click", () => { if (!ok.disabled) done(true); });
     cancel.addEventListener("click", () => done(false));
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(false); });
@@ -74,7 +81,9 @@ function showHelp() {
   helpOpen = true;
   const dlg = el("dialog", { class: "dialog help-dialog", "aria-label": "Pintasan keyboard" });
   const close = el("button", { type: "button", class: "btn btn-secondary" }, "Tutup");
-  const done = () => { dlg.close(); dlg.remove(); helpOpen = false; };
+  const unbindKeys = bindKeys({}); // page shortcuts stay inert while help is open
+  dlg.addEventListener("close", () => dlg.remove()); // after document listeners saw "close"
+  const done = () => { unbindKeys(); dlg.close(); helpOpen = false; };
   close.addEventListener("click", done);
   dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(); });
   dlg.append(

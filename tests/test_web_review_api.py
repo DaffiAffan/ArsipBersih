@@ -200,3 +200,11 @@ def test_grid_items_rejects_oversized_and_bad_view(web, review_units):
     review_units(1)
     assert web.post("/api/review/grid/burem/items", json={"unit_ids": ["x"] * 501}).status_code == 400
     assert web.get("/api/review/grid/burem/order?view=semua").status_code == 400
+
+
+def test_grid_items_carry_the_primary_file_name(web, review_units):
+    a, b = review_units(2)
+    items = web.post("/api/review/grid/burem/items", json={"unit_ids": [a, b]}).json()["items"]
+    assert [i["name"] for i in items] == ["IMG_0.jpg", "IMG_1.jpg"]
+    page = web.get("/api/review/grid/burem").json()["items"]
+    assert sorted(i["name"] for i in page) == ["IMG_0.jpg", "IMG_1.jpg"]

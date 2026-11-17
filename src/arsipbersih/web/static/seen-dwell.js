@@ -6,9 +6,11 @@ import { api } from "/static/api.js";
 // while the page was still. A countdown starts `settleMs` after the last scroll/wheel event,
 // and every scroll/wheel cancels all running countdowns. A cell leaving the viewport is
 // cancelled. `isReady()` must be true when the countdown ends; if it is not (placeholder,
-// viewer or dialog on top), the countdown starts over.
+// viewer or dialog on top), the countdown starts over; closing a dialog restarts every
+// countdown. `insets()` returns the px covered at the top/bottom of `root` (sticky toolbar,
+// floating bar): a cell must be >= 50% visible in the uncovered band.
 
-export function createSeenTracker({ root = null, dwellMs = 1000, settleMs = 150, onSeen }) {
+export function createSeenTracker({ root = null, dwellMs = 1000, settleMs = 150, onSeen, insets = null }) {
   const watched = new Map(); // cell -> { unitId, isReady }
   const visible = new Set(); // watched cells currently >= 50% in view
   const timers = new Map(); // cell -> timeout id
@@ -58,7 +60,7 @@ export function createSeenTracker({ root = null, dwellMs = 1000, settleMs = 150,
     else onScroll(); // coming back counts like a fresh stop: settle, then a full dwell
   }
 
-  const io = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+  function onEntries(entries) {
     for (const e of entries) {
       if (!watched.has(e.target)) continue;
       if (e.isIntersecting && e.intersectionRatio >= 0.5) {
@@ -68,16 +70,43 @@ export function createSeenTracker({ root = null, dwellMs = 1000, settleMs = 150,
         cancel(e.target);
       }
     }
-  }, { root, threshold: [0, 0.5, 1] });
+  }
+
+  // Created lazily (first observe), so `insets()` can measure a laid-out page; rebuilt on resize.
+  let io = null;
+  function makeIO() {
+    let m = { top: 0, bottom: 0 };
+    try { if (insets) m = insets(); } catch (_) { /* no insets */ }
+    const px = (v) => `-${Math.max(0, Math.round(Number(v) || 0))}px`;
+    return new IntersectionObserver(onEntries, { root, rootMargin: `${px(m.top)} 0px ${px(m.bottom)} 0px`, threshold: [0, 0.5, 1] });
+  }
+  function ensureIO() {
+    if (!io && typeof IntersectionObserver !== "undefined") io = makeIO();
+    return io;
+  }
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!io) return;
+      io.disconnect();
+      cancelAll();
+      visible.clear();
+      io = makeIO();
+      for (const cell of watched.keys()) io.observe(cell);
+    }, 200);
+  });
 
   // Capture phase: scroll does not bubble, and the grid scrolls inside .content, not window.
   document.addEventListener("scroll", onScroll, { capture: true, passive: true });
   document.addEventListener("wheel", onScroll, { capture: true, passive: true });
   document.addEventListener("touchmove", onScroll, { capture: true, passive: true });
   document.addEventListener("visibilitychange", onVisibility);
+  // <dialog> "close" does not bubble: capture it so every visible cell needs a fresh full dwell.
+  document.addEventListener("close", () => flush(), true);
 
   function observe(cell, unitId, isReady) {
-    if (!io || watched.has(cell)) return;
+    if (!ensureIO() || watched.has(cell)) return;
     watched.set(cell, { unitId, isReady: isReady || (() => true) });
     io.observe(cell);
   }

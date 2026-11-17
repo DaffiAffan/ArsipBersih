@@ -275,6 +275,7 @@ def _grid_order_sql(sort: str) -> str:
 _GRID_FROM = (
     f"from ({_BRIEF_SQL}) b"
     " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
+    " left join files pf on pf.id = b.file_id"
 )
 
 
@@ -308,6 +309,7 @@ def _grid_item(r: sqlite3.Row, badges: dict[str, list[str]]) -> dict:
             "seen": bool(r["seen"]),
             "taken_at": r["taken_at"],
             "badges": badges.get(r["unit_id"], []),
+            "name": (r["primary_rel_path"] or "").rsplit("/", 1)[-1],
         }
     )
     return item
@@ -320,7 +322,7 @@ def grid_items_by_ids(conn: sqlite3.Connection, category: str, unit_ids: list[st
     for part in _chunks(unit_ids):
         marks = ",".join("?" * len(part))
         for r in conn.execute(
-            f"select b.*, fl.score, fl.reason {_GRID_FROM}"
+            f"select b.*, fl.score, fl.reason, pf.rel_path as primary_rel_path {_GRID_FROM}"
             f" where b.location='review' and b.primary_category=? and b.unit_id in ({marks})",
             (category, *part),
         ):
@@ -343,8 +345,7 @@ def grid_items(
     ).fetchone()[0]
     order = _grid_order_sql(sort)
     rows = conn.execute(
-        f"select b.*, fl.score, fl.reason from ({_BRIEF_SQL}) b"
-        " left join flags fl on fl.unit_id = b.unit_id and fl.category = b.primary_category"
+        f"select b.*, fl.score, fl.reason, pf.rel_path as primary_rel_path {_GRID_FROM}"
         f" where b.location='review' and b.primary_category=? order by {order} limit ? offset ?",
         (category, limit, offset),
     ).fetchall()
