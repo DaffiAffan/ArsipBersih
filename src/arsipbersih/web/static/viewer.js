@@ -2,6 +2,7 @@ import { el } from "./api.js";
 import { bindKeys } from "./keys.js";
 import { renderInspector } from "./inspector.js";
 import { createZoom } from "./zoom.js";
+import { toast } from "./ui.js";
 
 export { CATEGORY_LABELS } from "./labels.js";
 
@@ -37,7 +38,10 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const side = el("aside", { class: "vw-side inspector", "aria-label": "Info foto" });
   const counter = el("span", { class: "vw-counter", "aria-live": "polite" });
   const hint = el("span", { class: "vw-hint" });
-  for (const [k, t] of [["← →", "pindah"], ["S", "keep"], ["D", "delete"], ["Esc", "tutup"]]) {
+  const hasVideo = items.flat().some((it) => it && it.media && it.media.kind === "video");
+  const hintKeys = [["← →", "pindah"], ["S", "keep"], ["D", "delete"], ["Enter", "ikuti saran"],
+    ...(hasVideo ? [["Spasi", "play/pause"]] : []), ["Esc", "tutup"]];
+  for (const [k, t] of hintKeys) {
     if (hint.childNodes.length) hint.append(" · ");
     hint.append(el("kbd", { class: "kbd" }, k), ` ${t}`);
   }
@@ -53,6 +57,10 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   // onDecide as the S/D keys; null (toggle off) means "back to the suggestion".
   function renderSide() {
     const shown = mode === "compare" ? items[i] : [items[i]];
+    // replaceChildren drops the focused Keep/Delete button; remember which one to refocus.
+    const had = document.activeElement && side.contains(document.activeElement) ? document.activeElement : null;
+    const hadUnit = had ? [...side.querySelectorAll(".vw-unit")].findIndex((u) => u.contains(had)) : -1;
+    const hadCls = had && had.classList.contains("btn-danger") ? ".btn-danger" : ".btn-keep";
     side.replaceChildren();
     shown.forEach((it, n) => {
       const box = el("div", { class: "vw-unit" });
@@ -64,11 +72,17 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
         onDecide: async (want) => {
           if (!onDecide) return;
           const at = i;
-          await onDecide(it, want === null ? "suggest" : want);
+          try { await onDecide(it, want === null ? "suggest" : want); }
+          catch (e) { toast(e && e.message ? e.message : "Keputusan gagal disimpan.", { kind: "error" }); }
           if (!closed && i === at) renderSide();
         },
       });
     });
+    if (had) {
+      const u = side.querySelectorAll(".vw-unit")[Math.max(hadUnit, 0)];
+      const b = u && u.querySelector(hadCls);
+      if (b) b.focus();
+    }
   }
 
   function render() {
@@ -102,7 +116,8 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     d: () => { if (onDecide) onDecide(current(), "discard"); },
     Enter: () => { if (onDecide) onDecide(current(), "suggest"); go(i + 1); },
     Escape: () => close(),
-    " ": () => {
+    " ": (e) => {
+      if (e && e.target && e.target.closest && e.target.closest("button")) return;
       const v = stage.querySelector("video");
       if (v) { if (v.paused) v.play(); else v.pause(); }
     },

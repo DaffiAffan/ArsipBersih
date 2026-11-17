@@ -52,4 +52,7 @@
   --duration-fast: 150ms;
   --shadow-float: 0 8px 24px rgba(0, 0, 0, .45), 0 0 0 1px var(--color-border);
   --scrim: rgba(0, 0, 0, .6);
+  --scrim-photo: rgba(0, 0, 0, .78); /* teks di atas foto: >= 7:1 walau fotonya putih */
+  --scrim-kbd: rgba(0, 0, 0, .2);
+  --scrim-kbd-border: rgba(0, 0, 0, .25);
 }

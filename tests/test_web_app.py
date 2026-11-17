@@ -51,3 +51,12 @@ def test_category_labels_are_embedded_for_the_viewer(web):
     html = web.get("/").text
     assert 'id="category-labels"' in html
     assert "Chat (WA/Telegram)" in html
+
+
+def test_reduced_motion_is_respected(web):
+    assert "prefers-reduced-motion" in web.get("/static/css/base.css").text
+
+
+def test_sr_only_utility_lives_in_base_css_only(web):
+    assert ".sr-only" in web.get("/static/css/base.css").text
+    assert ".sr-only" not in web.get("/static/css/pages.css").text

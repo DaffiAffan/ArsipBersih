@@ -23,7 +23,7 @@
 .grp-reason { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); font-size: 14px; }
 .grp-reason[hidden] { display: none; }
 .grp-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.grp-actions .kbd { background: rgba(0, 0, 0, .2); color: inherit; border-color: rgba(0, 0, 0, .25); }
+.grp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
 .cmp-cards { display: flex; gap: var(--space-3); overflow-x: auto; align-items: flex-start; padding: 2px 2px var(--space-2); }
 .cmp-card { flex: 1 0 300px; max-width: 560px; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-card); overflow: hidden; }
 .cmp-card.is-focused { border-color: var(--color-accent); }
@@ -43,7 +43,7 @@
 .cmp-actions[hidden] { display: none; }
 .cmp-actions .btn { flex: 1; }
 .cmp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
-.cmp-actions .kbd { background: rgba(0, 0, 0, .2); color: inherit; border-color: rgba(0, 0, 0, .25); }
+.cmp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
 
 /* Review grid (review-grid.js): foto tidak pernah diredupkan; penanda berupa titik dan label */
 .grid-root { padding-bottom: 96px; } /* ruang untuk bilah Apply melayang */
@@ -71,7 +71,7 @@
 .photo-grid.is-dense .cell-mark { font-size: 10px; padding: 0 4px; }
 .photo-cell .cell-caption {
   position: absolute; left: 0; right: 0; bottom: 0; display: block;
-  padding: 2px 6px; font-size: 11px; background: rgba(0, 0, 0, .72); color: var(--color-text);
+  padding: 2px 6px; font-size: 11px; background: var(--scrim-photo); color: var(--color-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .photo-grid.is-dense .cell-caption { display: none; } /* mode cepat: nama hanya saat hover/fokus */
@@ -99,7 +99,7 @@
 .insp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 .insp-actions .btn { flex: 1; }
 .insp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
-.insp-actions .kbd { background: rgba(0, 0, 0, .2); color: inherit; border-color: rgba(0, 0, 0, .25); }
+.insp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
 
 /* Bilah Apply melayang (floatbar.js) */
 .floatbar-summary { font-size: 14px; white-space: nowrap; }

@@ -31,8 +31,22 @@ function eta(s) {
   return `sekitar ${Math.round(s / 60)} menit lagi`;
 }
 
+function announceText(st) {
+  if (st.status === "running") return `${st.label || "Proses"} berjalan`;
+  if (st.status === "done") return `${st.label || "Proses"} selesai`;
+  if (st.status === "stopped") return `${st.label || "Proses"} di-pause`;
+  if (st.status === "failed") return `${st.label || "Proses"} gagal`;
+  return "";
+}
+
 export function mountJobBar(bar) {
+  // The bar itself updates every second, so only state changes go to the screen-reader region.
+  const live = el("p", { class: "sr-only", role: "status", "aria-live": "polite" });
+  bar.after(live);
+  let lastState = "";
   watchJob((st) => {
+    const state = `${st.kind}|${st.status}`;
+    if (state !== lastState) { lastState = state; live.textContent = announceText(st); }
     if (st.status === "idle") { bar.hidden = true; return; }
     bar.hidden = false;
     const p = st.progress;

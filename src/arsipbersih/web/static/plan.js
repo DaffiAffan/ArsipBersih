@@ -84,7 +84,7 @@ function fieldDialog({ title, lead, field, okLabel }) {
 async function renameEvent(ev) {
   const field = el("input", { type: "text", class: "input", value: ev.name, "aria-label": "Nama baru" });
   const v = await fieldDialog({ title: "Ganti nama acara", lead: `Nama baru untuk "${ev.name}":`, field, okLabel: "Ganti nama" });
-  if (v && v.trim()) override("rename", ev.name, v.trim());
+  if (v && v.trim()) await override("rename", ev.name, v.trim());
 }
 
 async function mergeEvent(ev) {
@@ -93,7 +93,16 @@ async function mergeEvent(ev) {
   const field = el("select", { class: "input", "aria-label": "Gabungkan ke" },
     others.map((o) => el("option", { value: o.name }, o.name)));
   const v = await fieldDialog({ title: "Gabungkan ke…", lead: `Acara "${ev.name}" akan digabung ke:`, field, okLabel: "Gabungkan" });
-  if (v) override("merge", ev.name, v);
+  if (v) await override("merge", ev.name, v);
+}
+
+// After a menu action the "…" button (or the whole menu) is gone from the DOM, so focus would
+// fall to <body>. Put it back on the row's "…" button, or the first one when the row is gone.
+function restoreFocus(key) {
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.isConnected) return;
+  const rows = [...document.querySelectorAll("#events-body .btn-icon")];
+  const target = rows.find((b) => b.dataset.key === key) || rows[0] || $("tidy-btn");
+  if (target && !target.disabled) target.focus();
 }
 
 function closeMenu() {
@@ -109,7 +118,7 @@ function toggleMenu(btn, ev) {
   const wasOpen = openMenu && openMenu.btn === btn;
   closeMenu();
   if (wasOpen) return;
-  const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: () => { closeMenu(); fn(); } }, label);
+  const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: async () => { closeMenu(); await fn(); setTimeout(() => restoreFocus(ev.key), 0); } }, label);
   const menu = el("div", { class: "menu", role: "menu", "aria-label": `Aksi untuk ${ev.name}` },
     item("Bukan acara", () => override("not_event", ev.name)),
     item("Ganti nama…", () => renameEvent(ev)),
@@ -122,12 +131,17 @@ function toggleMenu(btn, ev) {
   const items = [...menu.querySelectorAll("button")];
   const onKey = (e) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMenu(); btn.focus(); }
+    else if (e.key === "Tab") { closeMenu(); btn.focus(); } // focus continues from the "…" button
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const i = items.indexOf(document.activeElement);
       items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
     }
   };
+  // Tab out of the open menu closes it.
+  menu.addEventListener("focusout", (e) => {
+    if (e.relatedTarget && !menu.contains(e.relatedTarget) && e.relatedTarget !== btn) closeMenu();
+  });
   const onDown = (e) => { if (!menu.contains(e.target) && e.target !== btn) closeMenu(); };
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("mousedown", onDown);
@@ -139,7 +153,7 @@ function eventRow(ev) {
   const isChecked = checked.has(ev.key);
   const more = el("button", {
     type: "button", class: "btn btn-icon", "aria-haspopup": "menu", "aria-expanded": "false",
-    "aria-label": `Aksi lain untuk ${ev.name}`, onclick: () => toggleMenu(more, ev),
+    "aria-label": `Aksi lain untuk ${ev.name}`, "data-key": ev.key, onclick: () => toggleMenu(more, ev),
   }, "…");
   return el("tr", { class: isChecked ? "checked" : "" },
     el("td", {}, ev.name, isChecked ? el("span", { class: "badge badge-keep plan-ok" }, "Disetujui") : null),
