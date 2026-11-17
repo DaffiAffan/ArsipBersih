@@ -14,6 +14,8 @@ dependencies = [
     "fastapi>=0.163.1",
     "uvicorn>=0.54.0",
     "jinja2>=3.1.6",
+    "onnxruntime>=1.32.0",
+    "tokenizers>=0.23.3",
 ]
 
 [project.scripts]
@@ -39,4 +41,5 @@ markers = [
     "slow: performance tests, run on demand",
     "requires_exiftool: needs ExifTool (skipped when missing)",
     "requires_ffmpeg: needs ffmpeg/ffprobe (skipped when missing)",
+    "model: needs the downloaded AI model (skipped when missing)",
 ]

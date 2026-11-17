@@ -129,7 +129,10 @@ function render() {
   $("tools-line").replaceChildren(...(missing.length
     ? [el("span", { class: "tools-bad" }, `Alat belum terpasang: ${missing.map((k) => TOOL_NAMES[k] || k).join(", ")}. `),
        ...missing.map((k) => el("code", { class: "hint" }, d.hints[k] || ""))]
-    : ["Alat: ExifTool, ffmpeg, ffprobe siap"]));
+    : ["Alat: ExifTool, ffmpeg, ffprobe siap"]),
+    ...(d.ai_model.ready
+      ? [" · Model AI: siap"]
+      : [el("span", { class: "tools-bad" }, " · Model AI: belum disiapkan — jalankan "), el("code", { class: "hint" }, "arsipbersih setup-models")]));
   $("tools").replaceChildren(...Object.entries(d.tools).map(([k, v]) =>
     el("li", {}, `${TOOL_NAMES[k] || k}: ${v || "belum terpasang"}`)));
   renderSteps();

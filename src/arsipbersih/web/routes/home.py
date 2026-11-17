@@ -14,6 +14,7 @@ from ...db import open_db
 from ...layout import SOURCE_DIR
 from ...lock import RootLocked, acquire_root_lock
 from ...pipeline import SCAN_DONE_KEY, run_scan, source_missing
+from ...ai.model import model_status
 from ...tools import check_tools
 from ..deps import get_conn, get_root, render, start_job
 from ..jobs import RECONCILE_LABEL, JobBusy, reconcile_job
@@ -49,6 +50,7 @@ def home_page(request: Request):
 def home_data(request: Request, conn=Depends(get_conn)):
     root = get_root(request)
     t = check_tools()
+    ai = model_status()
     row = conn.execute("select value from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
     last = json.loads(row[0]) if row else None
     by_location = {r[0]: r[1] for r in conn.execute("select location, count(*) from units group by location")}
@@ -61,6 +63,7 @@ def home_data(request: Request, conn=Depends(get_conn)):
         "source_missing_text": SOURCE_MISSING_TEXT,
         "tools": {"exiftool": t.exiftool, "ffmpeg": t.ffmpeg, "ffprobe": t.ffprobe},
         "hints": TOOL_HINTS,
+        "ai_model": {"ready": ai.ready, "detail": ai.detail},
         "last_scan_at": last,
         "scan_incomplete": last is None and has_files,
         "by_location": by_location,

@@ -12,6 +12,7 @@ REVIEW_DIR = "_review"
 TRASH_DIR = "_sampah"
 STATE_DIR = ".arsipbersih"
 UNDATED_DIR = "Tanpa-Tanggal"
+MODELS_DIR = "tools/models"  # AI model files, relative to the repo root (gitignored)
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _LONG_PREFIX = "\\\\?\\"
