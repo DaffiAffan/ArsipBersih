@@ -2,7 +2,7 @@ import { el } from "./api.js";
 import { bindKeys } from "./keys.js";
 import { renderInspector } from "./inspector.js";
 import { createZoom } from "./zoom.js";
-import { toast } from "./ui.js";
+import { toast, pushHelp } from "./ui.js";
 
 export { CATEGORY_LABELS } from "./labels.js";
 
@@ -51,6 +51,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const counter = el("span", { class: "vw-counter", "aria-live": "polite" });
   const hint = el("span", { class: "vw-hint" });
   const hasVideo = items.flat().some((it) => it && it.media && it.media.kind === "video");
+  const hasImage = items.flat().some((it) => it && !(it.media && it.media.kind === "video"));
   const hintKeys = [["← →", "pindah"], ["S", "keep"], ["D", "delete"], ["Enter", "ikuti saran"],
     ...(hasVideo ? [["Spasi", "play/pause"]] : []), ["Esc", "tutup"]];
   for (const [k, t] of hintKeys) {
@@ -154,10 +155,19 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     },
   });
 
+  // Viewer keys for the "?" dialog (the page's own sections stay below).
+  const unhelp = pushHelp([{ title: "Layar penuh", keys: [
+    ["← →", "Foto sebelumnya / berikutnya"], ["S", "Keep foto ini"], ["D", "Delete foto ini"],
+    ["Enter", "Ikuti saran, lalu ke foto berikutnya"],
+    ...(hasVideo ? [["Spasi", "Putar / jeda video"]] : []),
+    ...(hasImage ? [["Roda mouse", "Zoom foto"], ["Seret", "Geser foto yang di-zoom"], ["Klik ganda", "Kembalikan zoom"]] : []),
+    ["Esc", "Tutup layar penuh"], ["?", "Bantuan ini"]] }]);
+
   let closed = false;
   function close() {
     if (closed) return;
     closed = true;
+    unhelp();
     unbind();
     if (zoom) zoom.destroy();
     overlay.remove();

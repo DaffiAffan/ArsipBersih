@@ -1,7 +1,6 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
-import { bindKeys } from "/static/keys.js";
-import { confirmDialog, fmtNum } from "/static/ui.js";
+import { confirmDialog, fmtNum, modalDialog } from "/static/ui.js";
 import { reviewNav } from "/static/nav.js";
 
 const $ = (id) => document.getElementById(id);
@@ -60,31 +59,20 @@ async function override(kind, name, value) {
   } catch (e) { showError(e.message); }
 }
 
-// Modal with one field (text or select) on <dialog>; own empty key layer like confirmDialog.
+// Modal with one field (text or select); built on the shared modalDialog in ui.js.
 function fieldDialog({ title, lead, field, okLabel }) {
-  return new Promise((resolve) => {
-    const dlg = el("dialog", { class: "dialog", "aria-label": title });
-    const ok = el("button", { type: "button", class: "btn btn-primary" }, okLabel);
-    const cancel = el("button", { type: "button", class: "btn btn-secondary" }, "Batal");
-    const unbind = bindKeys({});
-    dlg.addEventListener("close", () => dlg.remove());
-    const done = (v) => { unbind(); dlg.close(); resolve(v); };
-    ok.addEventListener("click", () => done(field.value));
-    cancel.addEventListener("click", () => done(null));
-    dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(null); });
-    field.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); done(field.value); } });
-    dlg.append(el("h3", {}, title), lead ? el("p", { class: "muted" }, lead) : null, field,
-      el("div", { class: "dialog-actions" }, cancel, ok));
-    document.body.append(dlg);
-    dlg.showModal();
-    field.focus();
+  return modalDialog({
+    title, okLabel, value: () => field.value, cancelValue: null, focus: field, submitOnEnter: field,
+    nodes: [lead ? el("p", { class: "muted" }, lead) : null, field].filter(Boolean),
   });
 }
 
 async function renameEvent(ev) {
   const field = el("input", { type: "text", class: "input", value: ev.name, "aria-label": "Nama baru" });
   const v = await fieldDialog({ title: "Ganti nama acara", lead: `Nama baru untuk "${ev.name}":`, field, okLabel: "Ganti nama" });
-  if (v && v.trim()) await override("rename", ev.name, v.trim());
+  if (!v || !v.trim()) return null;
+  await override("rename", ev.name, v.trim());
+  return v.trim(); // new name: the row key changes with it, so focus is restored by name
 }
 
 async function mergeEvent(ev) {
@@ -98,10 +86,12 @@ async function mergeEvent(ev) {
 
 // After a menu action the "…" button (or the whole menu) is gone from the DOM, so focus would
 // fall to <body>. Put it back on the row's "…" button, or the first one when the row is gone.
-function restoreFocus(key) {
+function restoreFocus(key, name = null) {
   if (document.activeElement && document.activeElement !== document.body && document.activeElement.isConnected) return;
   const rows = [...document.querySelectorAll("#events-body .btn-icon")];
-  const target = rows.find((b) => b.dataset.key === key) || rows[0] || $("tidy-btn");
+  const renamed = name != null ? data.events.find((e) => e.name === name) : null;
+  const k = renamed ? renamed.key : key;
+  const target = rows.find((b) => b.dataset.key === k) || rows[0] || $("tidy-btn");
   if (target && !target.disabled) target.focus();
 }
 
@@ -118,7 +108,7 @@ function toggleMenu(btn, ev) {
   const wasOpen = openMenu && openMenu.btn === btn;
   closeMenu();
   if (wasOpen) return;
-  const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: async () => { closeMenu(); await fn(); setTimeout(() => restoreFocus(ev.key), 0); } }, label);
+  const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: async () => { closeMenu(); const newName = await fn(); setTimeout(() => restoreFocus(ev.key, typeof newName === "string" ? newName : null), 0); } }, label);
   const menu = el("div", { class: "menu", role: "menu", "aria-label": `Aksi untuk ${ev.name}` },
     item("Bukan acara", () => override("not_event", ev.name)),
     item("Ganti nama…", () => renameEvent(ev)),
