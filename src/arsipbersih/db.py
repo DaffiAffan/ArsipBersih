@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .layout import STATE_DIR, long_path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
@@ -129,6 +129,47 @@ create table if not exists settings (
     key text primary key,
     value text not null
 );
+
+create table if not exists ai_embeddings (
+    id text primary key,
+    unit_id text not null references units(id),
+    model text not null,
+    dim integer not null,
+    vector blob not null,
+    created_at text,
+    unique (unit_id, model)
+);
+
+create table if not exists ai_errors (
+    id text primary key,
+    unit_id text not null references units(id),
+    model text not null,
+    error text,
+    created_at text,
+    unique (unit_id, model)
+);
+
+create table if not exists ai_labels (
+    id text primary key,
+    unit_id text not null references units(id),
+    head text not null,
+    head_version text not null,
+    grp text not null,
+    sub text,
+    prob real not null,
+    model text,
+    created_at text,
+    unique (unit_id, head)
+);
+
+create table if not exists ai_feedback (
+    id text primary key,
+    unit_id text not null references units(id),
+    grp text not null,
+    source text not null check (source in ('koreksi','konfirmasi')),
+    created_at text
+);
+create index if not exists idx_ai_feedback_unit on ai_feedback(unit_id);
 """
 
 

@@ -28,6 +28,7 @@ from .mover import (
     undo_batch,
 )
 from . import pipeline
+from .ai.model import ModelSetupError, model_status, setup_models
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
 from .planner import compute_plans
 from .report import build_report, verify
@@ -84,7 +85,12 @@ def _write_crash_log(root: Path, exc: BaseException) -> Optional[Path]:
 
 
 def _root_arg() -> Path:
-    return typer.Argument(..., exists=True, file_okay=False, help="Collection root (contains Sumber/).")
+    # resolve_path: Windows drops a trailing "." or space ("D:\TESTING.") for normal calls,
+    # but \\?\ long paths keep it, so every file lookup would miss.
+    return typer.Argument(
+        ..., exists=True, file_okay=False, resolve_path=True,
+        help="Collection root (contains Sumber/).",
+    )
 
 
 def human_bytes(n: float) -> str:
@@ -148,6 +154,27 @@ def check_tools_cmd() -> None:
             typer.echo(f"  install with: {WINGET_HINTS[name]}")
     if missing:
         typer.echo("Some tools are missing; results will be degraded.")
+    ms = model_status()
+    typer.echo(f"model AI: {'siap' if ms.ready else 'belum (jalankan setup-models)'}")
+
+
+@app.command("setup-models")
+def setup_models_cmd() -> None:
+    """Download the MobileCLIP2-S0 model (one-time, needs internet, about 300 MB)."""
+    typer.echo("Mengunduh model AI (sekitar 300 MB) dari Hugging Face ...")
+    last = {"name": None}
+
+    def progress(name: str, done: int, total: int) -> None:
+        if last["name"] != name:
+            last["name"] = name
+            typer.echo(f"  {name}: {human_bytes(total) if total else '?'}")
+
+    try:
+        dest = setup_models(progress=progress)
+    except ModelSetupError as e:
+        typer.echo(f"{e}\nPeriksa koneksi internet, lalu jalankan setup-models lagi.", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Model siap di {dest}")
 
 
 @app.command()
@@ -419,6 +446,89 @@ def _calibrate(root: Path, sample: int, save: bool) -> None:
             typer.echo("Saved as blur_threshold.")
         else:
             typer.echo("Run again with --save to store it.")
+    finally:
+        conn.close()
+
+
+@app.command("train-head")
+def train_head_cmd(
+    root: Path = _root_arg(),
+    min_per_group: int = typer.Option(30, "--min", min=1, help="Minimum training examples per group."),
+) -> None:
+    """Train a small head from your corrections/confirmations."""
+    from .ai.train import format_metrics_table, train_head
+
+    with _root_locked(root):
+        conn = open_db(root)
+        try:
+            res = train_head(conn, root, min_per_group=min_per_group)
+        finally:
+            conn.close()
+    if not res.version:
+        have = ", ".join(f"{g} {n}" for g, n in res.n_examples.items())
+        typer.echo(
+            f"Contoh koreksi belum cukup: butuh sedikitnya 2 kelompok dengan {min_per_group} contoh latih "
+            f"atau lebih. Contoh latih saat ini: {have or 'belum ada'}."
+        )
+        return
+    typer.echo(f"Head tersimpan: {res.version}")
+    typer.echo("Kelompok terlatih: " + ", ".join(res.trained_groups))
+    if res.fallback_groups:
+        typer.echo("Kelompok memakai zero-shot (contoh kurang): " + ", ".join(res.fallback_groups))
+    typer.echo(f"Data uji: {res.n_holdout} unit. Ketepatan dan daya tangkap (head baru vs zero-shot):")
+    for line in format_metrics_table(res.holdout_metrics, res.baseline_metrics):
+        typer.echo("  " + line)
+    typer.echo(f"Pakai head ini dengan: arsipbersih classify --head {res.version}")
+
+
+@app.command("classify")
+def classify_cmd(
+    root: Path = _root_arg(),
+    head: Optional[str] = typer.Option(None, "--head", help="Head name (default: ai_head setting)."),
+) -> None:
+    """Recompute AI labels from stored embeddings (no image decoding) and refresh categories."""
+    from .ai.heads import canonical_head_name, get_head
+    from .ai.stage import relabel_all
+    from .classify import CATEGORY_PRIORITY, run_classify
+
+    changed = False
+    with _root_locked(root):
+        conn = open_db(root)
+        try:
+            settings = load_settings(conn)
+            try:
+                name = get_head(head or settings.ai_head, root).name  # aliases -> stored name
+            except ValueError as e:
+                typer.echo(str(e))
+                raise typer.Exit(1)
+            n = relabel_all(conn, root, settings, name)
+            # Persist only after relabeling worked; later scans keep using the chosen head.
+            if settings.ai_head != name:
+                changed = canonical_head_name(settings.ai_head) != name
+                settings = replace(settings, ai_head=name)
+                save_settings(conn, settings)
+            counts = run_classify(conn, settings)
+        finally:
+            conn.close()
+    if changed:
+        typer.echo(f"Head aktif sekarang: {name}")
+    typer.echo(f"Head {name}: {n} unit dilabel ulang.")
+    for cat in CATEGORY_PRIORITY:
+        if cat in counts:
+            typer.echo(f"  {cat}: {counts[cat]}")
+
+
+@app.command("ai-report")
+def ai_report_cmd(
+    root: Path = _root_arg(),
+    head: Optional[str] = typer.Option(None, "--head", help="Head name (default: the active ai_head setting)."),
+) -> None:
+    """Show AI label counts and accuracy against the targets."""
+    from .ai.train import ai_report
+
+    conn = open_db(root)
+    try:
+        typer.echo(ai_report(conn, root, head))
     finally:
         conn.close()
 

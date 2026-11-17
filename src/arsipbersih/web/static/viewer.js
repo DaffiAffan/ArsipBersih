@@ -39,7 +39,9 @@ function mediaPane(item, onLoaded) {
   return pane;
 }
 
-export function openViewer({ mode = "single", items, index = 0, onDecide, onIndex, onClose, onShown }) {
+// `onChangeGroup(item, grp)` (optional, single mode): the owner corrects the AI group from
+// the info panel; the caller updates `items` and calls go() when the card changes.
+export function openViewer({ mode = "single", items, index = 0, onDecide, onIndex, onClose, onShown, onChangeGroup }) {
   if (!items || !items.length) return { close() {}, go() {}, index: 0 };
   let i = Math.min(Math.max(index, 0), items.length - 1);
   let zoom = null;
@@ -80,6 +82,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
       side.append(box);
       renderInspector(body, it, {
         onDecide: (want) => safeDecide(it, want === null ? "suggest" : want),
+        onChangeGroup: onChangeGroup && mode !== "compare" ? (grp) => safeChangeGroup(it, grp) : null,
       });
     });
     if (had) {
@@ -123,6 +126,11 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     if (ok && advance && i + 1 < items.length) go(i + 1);
     else renderSide();
     return ok;
+  }
+
+  async function safeChangeGroup(item, grp) {
+    try { await onChangeGroup(item, grp); }
+    catch (e) { toast(e && e.message ? e.message : "Kelompok gagal disimpan.", { kind: "error" }); }
   }
 
   function go(n) {

@@ -20,6 +20,7 @@ import numpy as np
 import pillow_heif
 from PIL import Image, ImageOps
 
+from .ai.model import crop_rgb
 from .config import Settings
 from .formats import Kind
 from .layout import long_path
@@ -54,6 +55,7 @@ class VisualResult:
     frame_lumas: list[float] | None = None
     error: str | None = None
     retry: bool = False  # a timeout or I/O error, not the file: visual_status stays NULL
+    ai_rgb: bytes | None = None  # 256x256x3 uint8 crop for the AI stage, only when asked for
 
 
 class NoRawThumbnail(ValueError):
@@ -181,7 +183,12 @@ def _failure(e: BaseException) -> VisualResult:
 
 
 def analyze_photo(
-    path: Path, kind: Kind, settings: Settings, thumb_dst: Path, preview_dst: Path | None
+    path: Path,
+    kind: Kind,
+    settings: Settings,
+    thumb_dst: Path,
+    preview_dst: Path | None,
+    want_ai: bool = False,
 ) -> VisualResult:
     try:
         big = max(settings.analysis_px, settings.thumb_px)
@@ -201,6 +208,11 @@ def analyze_photo(
         _save_webp(img, thumb_dst, settings.thumb_px)
         if preview_dst is not None:
             _save_webp(img, preview_dst, settings.preview_px)
+        if want_ai:  # crop from the image already decoded here: the AI stage never re-reads it
+            try:
+                result.ai_rgb = crop_rgb(img).tobytes()
+            except Exception:  # noqa: BLE001 - a crop problem never marks a good photo rusak
+                result.ai_rgb = None  # the AI backfill retries it and records any error
         return result
     except NoRawThumbnail as e:
         # Unknown, not corrupt: no thumbnail, and no rusak flag.
@@ -333,7 +345,7 @@ def _rerun_isolated(jobs: list[tuple]) -> dict[str, VisualResult]:
 
 
 def _worker(job: tuple) -> tuple[str, VisualResult]:
-    file_id, path, kind, thumb_dst, preview_dst, duration_s, ffmpeg, settings = job
+    file_id, path, kind, thumb_dst, preview_dst, duration_s, ffmpeg, settings, want_ai = job
     # Test hook: the env var names a file whose analysis kills the child process.
     crash_on = os.environ.get("ARSIPBERSIH_TEST_CRASH_ON")
     if crash_on and Path(path).name == crash_on:
@@ -342,7 +354,8 @@ def _worker(job: tuple) -> tuple[str, VisualResult]:
     if kind == Kind.VIDEO:
         return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst))
     return file_id, analyze_photo(
-        Path(path), kind, settings, Path(thumb_dst), Path(preview_dst) if preview_dst else None
+        Path(path), kind, settings, Path(thumb_dst), Path(preview_dst) if preview_dst else None,
+        want_ai,
     )
 
 
@@ -383,13 +396,20 @@ def run_visual(
     settings: Settings,
     progress: Callable[[int, int], None] | None = None,
     stop: threading.Event | None = None,
+    ai_sink: Callable[[str, bytes], None] | None = None,
 ) -> int:
-    """Analyse every file with visual_status NULL. Returns the number of files processed."""
+    """Analyse every file with visual_status NULL. Returns the number of files processed.
+
+    With ``ai_sink``, the primary photo/RAW file of each unit also yields a 256x256 crop from
+    the same decode; ``ai_sink(file_id, rgb_bytes)`` receives it in this process, per chunk.
+    """
     root = Path(root)
     ffmpeg = find_tool("ffmpeg")
     rows = conn.execute(
-        "select f.id, f.rel_path, f.kind, f.ext, m.duration_s from files f"
-        " left join media_info m on m.file_id = f.id"
+        "select f.id, f.rel_path, f.kind, f.ext, m.duration_s,"
+        " coalesce(u.primary_file_id = f.id and u.location != 'trash', 0) as is_primary"
+        " from files f left join media_info m on m.file_id = f.id"
+        " left join units u on u.id = f.unit_id"
         " where f.visual_status is null and f.kind in (?, ?, ?)"
         " and f.missing = 0 and f.purged = 0 order by f.rel_path",
         (Kind.PHOTO.value, Kind.RAW.value, Kind.VIDEO.value),
@@ -407,6 +427,7 @@ def run_visual(
             fid, str(root / r["rel_path"]), kind.value, str(thumb_path(root, fid)),
             str(preview_path(root, fid)) if wants_preview else None,
             r["duration_s"], ffmpeg, settings,
+            ai_sink is not None and kind != Kind.VIDEO and bool(r["is_primary"]),
         )
         (heavy if kind == Kind.RAW or r["ext"] in _SECOND_PASS_EXTS else fast).append(job)
 
@@ -453,6 +474,12 @@ def run_visual(
                     _store(conn, job[0], results[job[0]])
                     done += 1
                 conn.commit()
+                if ai_sink is not None:
+                    for job in chunk:
+                        r = results[job[0]]
+                        if r.ai_rgb is not None:
+                            ai_sink(job[0], r.ai_rgb)
+                            r.ai_rgb = None
                 if progress:
                     progress(done, total)
         finally:

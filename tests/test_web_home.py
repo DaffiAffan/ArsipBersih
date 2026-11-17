@@ -184,3 +184,9 @@ def test_home_steps_trash_is_step_four(conn_with):
     conn.commit()
     s = home_steps(conn, scanned=True)
     assert s["current"] == 4 and s["totals"]["trash_files"] == 1
+
+
+def test_home_reports_ai_model_status(web):
+    d = web.get("/api/home").json()
+    assert set(d["ai_model"]) == {"ready", "detail"}
+    assert isinstance(d["ai_model"]["ready"], bool)
