@@ -35,3 +35,6 @@ desktop.ini
 
 # Agent worktrees created during development
 .claude/
+
+# Browser automation snapshots/screenshots (playwright-cli)
+.playwright-cli/
