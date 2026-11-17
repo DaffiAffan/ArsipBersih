@@ -4,31 +4,33 @@
 <h1>Riwayat</h1>
 <div id="hist-msg" class="muted" role="status"></div>
 
-<section id="pending-section" hidden>
+<section id="pending-section" class="card" hidden>
   <h2>Perpindahan terputus</h2>
   <p class="muted">Baris ini memblokir semua perpindahan baru sampai dilepas.</p>
   <div id="pending-list"></div>
 </section>
 
-<section>
-  <h2>Batch</h2>
-  <p><button type="button" id="undo-all">Undo semua</button></p>
-  <table class="hist-table">
-    <thead><tr><th>Waktu</th><th>Jenis</th><th>Label</th><th>Dipindah</th><th>Kembali</th><th>Gagal</th><th></th></tr></thead>
+<section class="card">
+  <div class="hist-head">
+    <h2>Batch</h2>
+    <button type="button" id="undo-all" class="btn btn-secondary">Undo semua</button>
+  </div>
+  <table class="table hist-table">
+    <thead><tr><th>Waktu</th><th>Jenis</th><th>Label</th><th class="num">Dipindah</th><th class="num">Kembali</th><th class="num">Gagal</th><th></th></tr></thead>
     <tbody id="batch-rows"></tbody>
   </table>
-  <p id="batch-empty" class="muted" hidden>Belum ada riwayat.</p>
+  <p id="batch-empty" class="empty" hidden>Belum ada riwayat.</p>
 </section>
 
-<section id="missing-section" hidden>
+<section id="missing-section" class="card" hidden>
   <h2>File hilang dari disk</h2>
   <div id="missing-list"></div>
 </section>
 
-<section>
+<section class="card">
   <h2>Kosongkan _sampah</h2>
   <p id="trash-info" class="muted"></p>
-  <button type="button" id="purge-btn" class="danger">Kosongkan _sampah</button>
+  <button type="button" id="purge-btn" class="btn btn-danger">Kosongkan _sampah</button>
 </section>
 {% endblock %}
 {% block scripts %}

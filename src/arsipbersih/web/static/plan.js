@@ -1,10 +1,14 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
+import { bindKeys } from "/static/keys.js";
+import { confirmDialog, fmtNum } from "/static/ui.js";
+import { reviewNav } from "/static/nav.js";
 
 const $ = (id) => document.getElementById(id);
 const checked = new Set();
 let data = null;
 let tidyJobSeen = false;
+let openMenu = null;
 
 function showError(msg) {
   const box = $("plan-error");
@@ -12,17 +16,38 @@ function showError(msg) {
   box.textContent = msg || "";
 }
 
-function summaryLines(s) {
-  const lines = [el("p", {}, `Ke Arsip: ${s.archive_units} unit, ${fmtBytes(s.archive_bytes)}`)];
+function stat(label, value, sub) {
+  return el("div", { class: "stat" },
+    el("dd", {}, value), el("dt", {}, label), sub ? el("small", { class: "muted" }, sub) : null);
+}
+
+function summaryStats(s) {
+  const stats = [stat("Ke Arsip", `${fmtNum(s.archive_units)} unit`, fmtBytes(s.archive_bytes))];
   for (const [cat, [units, bytes]] of Object.entries(s.review)) {
-    lines.push(el("p", {}, `Ke _review/${cat}: ${units} unit, ${fmtBytes(bytes)}`));
+    stats.push(stat(`Ke _review/${cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
   }
-  lines.push(el("p", {}, `Unit dilewati: ${s.skipped.length}`));
+  stats.push(stat("Dilewati", fmtNum(s.skipped.length)));
+  return stats;
+}
+
+function summaryBlock(s) {
+  const nodes = [el("dl", { class: "plan-stats" }, summaryStats(s))];
   if (s.skipped.length) {
-    lines.push(el("ul", {}, s.skipped.map(([id, why]) => el("li", {}, `${id}: ${why}`))));
+    nodes.push(el("details", {}, el("summary", {}, "Unit dilewati"),
+      el("ul", {}, s.skipped.map(([id, why]) => el("li", {}, `${id}: ${why}`)))));
   }
-  lines.push(el("p", { class: s.space_ok ? "" : "plan-error" },
+  nodes.push(el("p", { class: s.space_ok ? "muted" : "plan-error" },
     s.space_ok ? "Ruang disk: cukup" : `Ruang disk: tidak cukup (${s.space_error})`));
+  return nodes;
+}
+
+function confirmLines(s) {
+  const lines = [`Ke Arsip: ${fmtNum(s.archive_units)} unit, ${fmtBytes(s.archive_bytes)}`];
+  for (const [cat, [units, bytes]] of Object.entries(s.review)) {
+    lines.push(`Ke _review/${cat}: ${fmtNum(units)} unit, ${fmtBytes(bytes)}`);
+  }
+  lines.push(`Unit dilewati: ${fmtNum(s.skipped.length)}`);
+  lines.push("Semua perpindahan dicatat dan bisa dibatalkan lewat Riwayat.");
   return lines;
 }
 
@@ -35,39 +60,105 @@ async function override(kind, name, value) {
   } catch (e) { showError(e.message); }
 }
 
-function openMerge(ev) {
-  const sel = $("merge-target");
-  sel.replaceChildren(...data.events.filter((o) => o.key !== ev.key).map((o) => el("option", { value: o.name }, o.name)));
-  $("merge-from").textContent = `Acara "${ev.name}" akan digabung ke:`;
-  $("merge-yes").onclick = () => { $("merge-dialog").close(); if (sel.value) override("merge", ev.name, sel.value); };
-  $("merge-no").onclick = () => $("merge-dialog").close();
-  $("merge-dialog").showModal();
+// Modal with one field (text or select) on <dialog>; own empty key layer like confirmDialog.
+function fieldDialog({ title, lead, field, okLabel }) {
+  return new Promise((resolve) => {
+    const dlg = el("dialog", { class: "dialog", "aria-label": title });
+    const ok = el("button", { type: "button", class: "btn btn-primary" }, okLabel);
+    const cancel = el("button", { type: "button", class: "btn btn-secondary" }, "Batal");
+    const unbind = bindKeys({});
+    dlg.addEventListener("close", () => dlg.remove());
+    const done = (v) => { unbind(); dlg.close(); resolve(v); };
+    ok.addEventListener("click", () => done(field.value));
+    cancel.addEventListener("click", () => done(null));
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(null); });
+    field.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); done(field.value); } });
+    dlg.append(el("h3", {}, title), lead ? el("p", { class: "muted" }, lead) : null, field,
+      el("div", { class: "dialog-actions" }, cancel, ok));
+    document.body.append(dlg);
+    dlg.showModal();
+    field.focus();
+  });
+}
+
+async function renameEvent(ev) {
+  const field = el("input", { type: "text", class: "input", value: ev.name, "aria-label": "Nama baru" });
+  const v = await fieldDialog({ title: "Ganti nama acara", lead: `Nama baru untuk "${ev.name}":`, field, okLabel: "Ganti nama" });
+  if (v && v.trim()) override("rename", ev.name, v.trim());
+}
+
+async function mergeEvent(ev) {
+  const others = data.events.filter((o) => o.key !== ev.key);
+  if (!others.length) { showError("Tidak ada acara lain untuk digabung."); return; }
+  const field = el("select", { class: "input", "aria-label": "Gabungkan ke" },
+    others.map((o) => el("option", { value: o.name }, o.name)));
+  const v = await fieldDialog({ title: "Gabungkan ke…", lead: `Acara "${ev.name}" akan digabung ke:`, field, okLabel: "Gabungkan" });
+  if (v) override("merge", ev.name, v);
+}
+
+function closeMenu() {
+  if (!openMenu) return;
+  const { menu, btn, off } = openMenu;
+  openMenu = null;
+  off();
+  menu.remove();
+  btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleMenu(btn, ev) {
+  const wasOpen = openMenu && openMenu.btn === btn;
+  closeMenu();
+  if (wasOpen) return;
+  const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: () => { closeMenu(); fn(); } }, label);
+  const menu = el("div", { class: "menu", role: "menu", "aria-label": `Aksi untuk ${ev.name}` },
+    item("Bukan acara", () => override("not_event", ev.name)),
+    item("Ganti nama…", () => renameEvent(ev)),
+    item("Gabungkan ke…", () => mergeEvent(ev)));
+  document.body.append(menu);
+  const r = btn.getBoundingClientRect();
+  menu.style.top = `${window.scrollY + r.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, window.scrollX + r.right - menu.offsetWidth)}px`;
+  btn.setAttribute("aria-expanded", "true");
+  const items = [...menu.querySelectorAll("button")];
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMenu(); btn.focus(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const i = items.indexOf(document.activeElement);
+      items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+    }
+  };
+  const onDown = (e) => { if (!menu.contains(e.target) && e.target !== btn) closeMenu(); };
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("mousedown", onDown);
+  openMenu = { menu, btn, off: () => { document.removeEventListener("keydown", onKey, true); document.removeEventListener("mousedown", onDown); } };
+  items[0].focus();
 }
 
 function eventRow(ev) {
-  const btn = (label, fn) => el("button", { type: "button", onclick: fn }, label);
-  return el("tr", { class: checked.has(ev.key) ? "checked" : "" },
-    el("td", {}, ev.name),
+  const isChecked = checked.has(ev.key);
+  const more = el("button", {
+    type: "button", class: "btn btn-icon", "aria-haspopup": "menu", "aria-expanded": "false",
+    "aria-label": `Aksi lain untuk ${ev.name}`, onclick: () => toggleMenu(more, ev),
+  }, "…");
+  return el("tr", { class: isChecked ? "checked" : "" },
+    el("td", {}, ev.name, isChecked ? el("span", { class: "badge badge-keep plan-ok" }, "Disetujui") : null),
     el("td", {}, ev.month || "-"),
-    el("td", {}, String(ev.file_count)),
+    el("td", {}, fmtNum(ev.file_count)),
     el("td", {}, (ev.sources || []).join(", ")),
     el("td", { class: "sample" }, ev.sample_path),
     el("td", {}, el("div", { class: "actions" },
-      btn("Setuju", () => { checked.add(ev.key); render(); }),
-      btn("Bukan acara", () => override("not_event", ev.name)),
-      btn("Ganti nama…", () => {
-        const v = window.prompt(`Nama baru untuk "${ev.name}":`, ev.name);
-        if (v && v.trim()) override("rename", ev.name, v.trim());
-      }),
-      btn("Gabungkan ke…", () => openMerge(ev)),
-    )));
+      el("button", { type: "button", class: "btn btn-secondary", disabled: isChecked,
+        onclick: () => { checked.add(ev.key); render(); } }, isChecked ? "Disetujui" : "Setuju"),
+      more)));
 }
 
 function render() {
+  closeMenu();
   const s = data.summary;
   $("events-body").replaceChildren(...data.events.map(eventRow));
   $("events-empty").hidden = data.events.length > 0;
-  $("summary").replaceChildren(...summaryLines(s));
+  $("summary").replaceChildren(...summaryBlock(s));
   const ok = s.scan_done && s.space_ok;
   $("tidy-btn").disabled = !ok;
   $("tidy-hint").textContent = !s.scan_done
@@ -80,13 +171,9 @@ async function load() {
   try { data = await api("GET", "/api/plan"); render(); } catch (e) { showError(e.message); }
 }
 
-$("tidy-btn").addEventListener("click", () => {
-  $("confirm-body").replaceChildren(...summaryLines(data.summary));
-  $("confirm-dialog").showModal();
-});
-$("confirm-no").addEventListener("click", () => $("confirm-dialog").close());
-$("confirm-yes").addEventListener("click", async () => {
-  $("confirm-dialog").close();
+$("tidy-btn").addEventListener("click", async () => {
+  const ok = await confirmDialog({ title: "Rapikan sekarang?", body: confirmLines(data.summary), okLabel: "Ya, rapikan" });
+  if (!ok) return;
   showError("");
   try { await api("POST", "/api/tidy"); tidyJobSeen = true; $("tidy-btn").disabled = true; }
   catch (e) { showError(e.message); }
@@ -95,7 +182,7 @@ $("confirm-yes").addEventListener("click", async () => {
 function showResult(st) {
   const r = st.result || {};
   const body = [
-    el("p", {}, `Dipindah: ${r.moved_units ?? 0} unit · gagal: ${r.failed_units ?? 0} · dilewati: ${r.skipped_units ?? 0}`),
+    el("p", {}, `Dipindah: ${fmtNum(r.moved_units ?? 0)} unit · gagal: ${fmtNum(r.failed_units ?? 0)} · dilewati: ${fmtNum(r.skipped_units ?? 0)}`),
   ];
   if ((r.errors || []).length) {
     body.push(el("details", {}, el("summary", {}, "Detail"), el("pre", {}, r.errors.join("\n"))));
@@ -107,8 +194,8 @@ function showResult(st) {
 
 watchJob((st) => {
   if (st.kind !== "tidy" || !tidyJobSeen) return;
-  if (st.status === "done") { tidyJobSeen = false; showResult(st); load(); }
-  else if (st.status === "failed") { tidyJobSeen = false; showError(st.error || "Merapikan gagal."); load(); }
+  if (st.status === "done") { tidyJobSeen = false; showResult(st); load(); reviewNav.refresh(); }
+  else if (st.status === "failed") { tidyJobSeen = false; showError(st.error || "Merapikan gagal."); load(); reviewNav.refresh(); }
 });
 
 load();

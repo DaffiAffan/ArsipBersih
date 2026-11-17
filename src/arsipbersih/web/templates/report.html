@@ -3,16 +3,16 @@
 {% block content %}
 <h1>Laporan</h1>
 <div id="report" class="muted">Memuat...</div>
-<section>
+<section class="card">
   <h2>Verifikasi</h2>
   <p class="muted">Mencocokkan file media di database dengan file di disk.</p>
-  <button type="button" id="verify-btn">Verifikasi</button>
+  <button type="button" id="verify-btn" class="btn btn-secondary">Verifikasi</button>
   <div id="verify-result"></div>
 </section>
-<section>
+<section class="card">
   <h2>Cache</h2>
   <p>Ukuran cache: <strong id="cache-size">-</strong>. Thumbnail dan preview dibuat ulang otomatis saat dibutuhkan.</p>
-  <button type="button" id="cache-btn">Hapus cache</button>
+  <button type="button" id="cache-btn" class="btn btn-secondary">Hapus cache</button>
   <div id="cache-result"></div>
 </section>
 {% endblock %}

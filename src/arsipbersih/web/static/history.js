@@ -1,6 +1,7 @@
 import { api, el, fmtBytes } from "/static/api.js";
 import { watchJob } from "/static/job.js";
-import { confirmDialog, fmtTime } from "/static/ui.js";
+import { confirmDialog, fmtNum, fmtTime } from "/static/ui.js";
+import { reviewNav } from "/static/nav.js";
 
 const KIND = { rapikan: "Rapikan", apply: "Apply", undo: "Undo", purge: "Kosongkan sampah" };
 const $ = (id) => document.getElementById(id);
@@ -30,12 +31,12 @@ async function post(url, body) {
 function renderBatches() {
   const rows = data.batches.map((b) => el("tr", {},
     el("td", {}, fmtTime(b.created_at)),
-    el("td", {}, KIND[b.kind] || b.kind),
-    el("td", {}, b.label || ""),
-    el("td", {}, b.done),
-    el("td", {}, b.undone),
-    el("td", {}, b.failed),
-    el("td", {}, b.undoable ? el("button", { type: "button", onclick: () => undoBatch(b) }, "Undo batch ini") : ""),
+    el("td", {}, el("span", { class: "badge badge-muted" }, KIND[b.kind] || b.kind)),
+    el("td", {}, b.title || b.label || ""),
+    el("td", { class: "num" }, fmtNum(b.done)),
+    el("td", { class: "num" }, fmtNum(b.undone)),
+    el("td", { class: "num" }, fmtNum(b.failed)),
+    el("td", { class: "num" }, b.undoable ? el("button", { type: "button", class: "btn btn-secondary", onclick: () => undoBatch(b) }, "Undo batch ini") : ""),
   ));
   $("batch-rows").replaceChildren(...rows);
   $("batch-empty").hidden = rows.length > 0;
@@ -45,7 +46,7 @@ function renderBatches() {
 async function undoBatch(b) {
   const ok = await confirmDialog({
     title: "Undo batch ini?",
-    body: `File dari batch "${b.label || KIND[b.kind] || b.kind}" kembali ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
+    body: `File dari batch "${b.title || b.label || KIND[b.kind] || b.kind}" kembali ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
     okLabel: "Undo",
   });
   if (ok) await post("/api/undo", { batch_id: b.id });
@@ -64,8 +65,8 @@ function renderPending() {
   $("pending-section").hidden = data.pending.length === 0;
   $("pending-list").replaceChildren(...data.pending.map((p) => el("div", { class: "hist-row" },
     el("span", { class: "path" }, `${p.src_rel} → ${p.dst_rel}`),
-    el("button", { type: "button", onclick: () => release(p, false) }, "File memang hilang"),
-    el("button", { type: "button", onclick: () => release(p, true) }, "Sengaja saya hapus"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => release(p, false) }, "File memang hilang"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => release(p, true) }, "Sengaja saya hapus"),
   )));
 }
 
@@ -86,7 +87,7 @@ function renderMissing() {
   $("missing-section").hidden = data.missing.length === 0;
   $("missing-list").replaceChildren(...data.missing.map((m) => el("div", { class: "hist-row" },
     el("span", { class: "path" }, m.rel_path),
-    el("button", { type: "button", onclick: () => forget(m) }, "Tandai sengaja dihapus"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => forget(m) }, "Tandai sengaja dihapus"),
   )));
 }
 
@@ -101,7 +102,7 @@ async function forget(m) {
 
 function renderTrash() {
   const t = data.trash;
-  $("trash-info").textContent = t.files ? `${t.files} file (${fmtBytes(t.bytes)}) di _sampah.` : "_sampah kosong.";
+  $("trash-info").textContent = t.files ? `${fmtNum(t.files)} file (${fmtBytes(t.bytes)}) di _sampah.` : "_sampah kosong.";
   $("purge-btn").disabled = t.files === 0;
 }
 
@@ -109,14 +110,14 @@ async function purge() {
   const { files, bytes } = data.trash; // the numbers shown in the dialog are the ones sent
   const first = await confirmDialog({
     title: "Kosongkan _sampah?",
-    body: `${files} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dipulihkan.`,
+    body: `${fmtNum(files)} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dipulihkan.`,
     okLabel: "Lanjut",
     danger: true,
   });
   if (!first) return;
   const second = await confirmDialog({
     title: "Konfirmasi terakhir",
-    body: `Ketik HAPUS untuk menghapus permanen ${files} file.`,
+    body: `Ketik HAPUS untuk menghapus permanen ${fmtNum(files)} file (${fmtBytes(bytes)}).`,
     okLabel: "Hapus permanen",
     danger: true,
     typeToConfirm: "HAPUS",
@@ -161,4 +162,5 @@ watchJob((st) => {
   lastJobKey = key;
   if (!initial) showResult(st); // a job already finished before page load has no context here
   reload();
+  reviewNav.refresh();
 });

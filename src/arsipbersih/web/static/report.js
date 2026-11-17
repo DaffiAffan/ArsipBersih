@@ -1,13 +1,14 @@
 import { api, el, fmtBytes, LOCATION_LABELS as LOCATIONS } from "/static/api.js";
 import { watchJob } from "/static/job.js";
+import { confirmDialog, fmtNum, toast } from "/static/ui.js";
 import { CATEGORY_LABELS } from "./viewer.js";
 
 function row(label, value) {
-  return el("tr", {}, el("td", {}, label), el("td", {}, String(value)));
+  return el("tr", {}, el("td", {}, label), el("td", { class: "num" }, typeof value === "number" ? fmtNum(value) : String(value)));
 }
 
 function table(title, rows) {
-  return el("div", {}, el("h3", {}, title), el("table", {}, el("tbody", {}, rows)));
+  return el("section", { class: "card" }, el("h2", {}, title), el("table", { class: "table report-table" }, el("tbody", {}, rows)));
 }
 
 async function load() {
@@ -15,7 +16,7 @@ async function load() {
   const box = document.getElementById("report");
   box.className = "";
   box.replaceChildren(
-    el("p", {}, "Total file media: ", el("strong", {}, r.total_media)),
+    el("section", { class: "card report-total" }, el("span", { class: "report-big" }, fmtNum(r.total_media)), el("span", { class: "muted" }, " total file media")),
     table("Per lokasi", Object.entries(r.by_location).map(([k, v]) => row(LOCATIONS[k] || k, v))),
     table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORY_LABELS[k] || k, v))),
     table("Lainnya", [
@@ -31,7 +32,7 @@ async function load() {
 function showVerify(res) {
   const box = document.getElementById("verify-result");
   if (res.ok) {
-    box.replaceChildren(el("p", {}, `Cocok: ${res.db_count} file di DB = ${res.disk_count} file di disk`));
+    box.replaceChildren(el("p", { class: "report-ok" }, `Cocok: ${fmtNum(res.db_count)} file di DB = ${fmtNum(res.disk_count)} file di disk`));
     return;
   }
   const list = (title, items, total) => items.length
@@ -40,7 +41,7 @@ function showVerify(res) {
         total > items.length ? el("p", { class: "muted" }, `Menampilkan ${items.length} pertama dari ${total}.`) : null)
     : null;
   box.replaceChildren(
-    el("p", {}, `Tidak cocok: ${res.db_count} file di DB, ${res.disk_count} file di disk`),
+    el("p", {}, `Tidak cocok: ${fmtNum(res.db_count)} file di DB, ${fmtNum(res.disk_count)} file di disk`),
     list("File hilang", res.missing, res.missing_total),
     list("File tak terduga", res.unexpected, res.unexpected_total),
   );
@@ -56,7 +57,7 @@ watchJob((st) => {
   lastSeen = st.id;
   if (st.status === "failed") {
     const target = st.kind === "verify" ? "verify-result" : "cache-result";
-    document.getElementById(target).replaceChildren(el("p", { class: "vw-error" }, `Gagal: ${st.error || ""}`));
+    document.getElementById(target).replaceChildren(el("p", { class: "report-bad" }, `Gagal: ${st.error || ""}`));
   } else if (st.status === "done" && st.result) {
     if (st.kind === "verify") showVerify(st.result);
     else {
@@ -70,11 +71,16 @@ watchJob((st) => {
 
 document.getElementById("verify-btn").addEventListener("click", () => {
   document.getElementById("verify-result").replaceChildren(el("p", { class: "muted" }, "Memverifikasi..."));
-  api("POST", "/api/report/verify").catch((e) => alert(e.message));
+  api("POST", "/api/report/verify").catch((e) => toast(e.message, { kind: "error" }));
 });
-document.getElementById("cache-btn").addEventListener("click", () => {
-  if (!confirm("Hapus semua cache thumbnail dan preview? File media tidak tersentuh; cache dibuat ulang otomatis.")) return;
-  api("POST", "/api/cache/clear").catch((e) => alert(e.message));
+document.getElementById("cache-btn").addEventListener("click", async () => {
+  const ok = await confirmDialog({
+    title: "Hapus cache?",
+    body: "Semua cache thumbnail dan preview dihapus. File media tidak tersentuh; cache dibuat ulang otomatis.",
+    okLabel: "Hapus cache",
+  });
+  if (!ok) return;
+  api("POST", "/api/cache/clear").catch((e) => toast(e.message, { kind: "error" }));
 });
 
 load().catch((e) => { document.getElementById("report").textContent = e.message; });
