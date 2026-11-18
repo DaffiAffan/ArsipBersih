@@ -88,8 +88,8 @@ def test_summarize_rapikan_matches_plan(root, conn_with):
     conn.close()
 
 
-def test_stage_order_puts_ai_after_visual():
+def test_stage_order_puts_video_and_ai_after_visual():
     from arsipbersih.pipeline import STAGES
 
-    assert STAGES == ("inventory", "pairing", "hash", "metadata", "visual", "ai",
+    assert STAGES == ("inventory", "pairing", "hash", "metadata", "visual", "video", "ai",
                       "grouping", "classify", "events", "dates", "plan")

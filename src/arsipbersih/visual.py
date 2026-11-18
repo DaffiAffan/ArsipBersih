@@ -378,7 +378,8 @@ def _worker(job: tuple) -> tuple[str, VisualResult]:
         os._exit(1)
     kind = Kind(kind)
     if kind == Kind.VIDEO:
-        return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst))
+        return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst),
+                                      want_ai)
     return file_id, analyze_photo(
         Path(path), kind, settings, Path(thumb_dst), Path(preview_dst) if preview_dst else None,
         want_ai,
@@ -424,12 +425,12 @@ def run_visual(
     settings: Settings,
     progress: Callable[[int, int], None] | None = None,
     stop: threading.Event | None = None,
-    ai_sink: Callable[[str, bytes], None] | None = None,
+    ai_sink: Callable[[str, bytes | list[bytes]], None] | None = None,
 ) -> int:
     """Analyse every file with visual_status NULL. Returns the number of files processed.
 
-    With ``ai_sink``, the primary photo/RAW file of each unit also yields a 256x256 crop from
-    the same decode; ``ai_sink(file_id, rgb_bytes)`` receives it in this process, per chunk.
+    With ``ai_sink``, the primary file of each unit also yields 256x256 crop(s) from the same
+    decode (a video: up to 3, as a list); ``ai_sink(file_id, rgb_bytes_or_list)`` receives it in this process, per chunk.
     """
     root = Path(root)
     ffmpeg = find_tool("ffmpeg")
@@ -455,7 +456,7 @@ def run_visual(
             fid, str(root / r["rel_path"]), kind.value, str(thumb_path(root, fid)),
             str(preview_path(root, fid)) if wants_preview else None,
             r["duration_s"], ffmpeg, settings,
-            ai_sink is not None and kind != Kind.VIDEO and bool(r["is_primary"]),
+            ai_sink is not None and bool(r["is_primary"]),
         )
         (heavy if kind == Kind.RAW or r["ext"] in _SECOND_PASS_EXTS else fast).append(job)
 
@@ -508,6 +509,9 @@ def run_visual(
                         if r.ai_rgb is not None:
                             ai_sink(job[0], r.ai_rgb)
                             r.ai_rgb = None
+                        elif r.ai_rgb_list is not None:  # a video: several crops, one unit
+                            ai_sink(job[0], r.ai_rgb_list)
+                            r.ai_rgb_list = None
                 if progress:
                     progress(done, total)
         finally:

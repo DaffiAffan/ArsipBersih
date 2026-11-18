@@ -102,7 +102,7 @@ def test_scan_without_model_finishes_with_warning(root, mini_collection, monkeyp
     assert not s.stopped
     assert NOT_READY_WARNING in s.warnings
     order = list(dict.fromkeys(seen))
-    assert order[order.index("visual") + 1 :][:2] == ["ai", "grouping"]
+    assert order[order.index("visual") + 1 :][:3] == ["video", "ai", "grouping"]
     conn = open_db(root)
     assert conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
     assert _count(conn, "ai_embeddings") == 0

@@ -3,7 +3,7 @@ import { api, el } from "/static/api.js";
 // Scan stages in pipeline order (pipeline.STAGES) with their Indonesian names.
 export const STAGES = [
   ["inventory", "Inventaris"], ["pairing", "Pasangan file"], ["hash", "Hash"],
-  ["metadata", "Metadata"], ["visual", "Analisis visual"], ["ai", "Klasifikasi AI"],
+  ["metadata", "Metadata"], ["visual", "Analisis visual"], ["video", "Analisis video"], ["ai", "Klasifikasi AI"],
   ["grouping", "Kelompok"],
   ["classify", "Klasifikasi"], ["events", "Acara"],
   ["dates", "Tanggal"], ["plan", "Rencana"],

@@ -48,10 +48,11 @@ def load_embeddings(
 
 
 def units_missing_embedding(conn: sqlite3.Connection, model: str) -> list[str]:
-    """Photo/RAW units outside trash (primary file present) with no embedding and no error."""
+    """Photo/RAW units (and videos with sampled frames) outside trash, no embedding, no error."""
     rows = conn.execute(
         "select u.id from units u join files f on f.id = u.primary_file_id"
-        " where u.location != 'trash' and f.kind in ('photo','raw')"
+        " where u.location != 'trash' and (f.kind in ('photo','raw') or (f.kind = 'video'"
+        " and exists (select 1 from video_frames v where v.file_id = f.id)))"
         " and f.missing = 0 and f.purged = 0"
         " and not exists (select 1 from ai_embeddings e where e.unit_id = u.id and e.model = ?)"
         " and not exists (select 1 from ai_errors x where x.unit_id = u.id and x.model = ?)"
