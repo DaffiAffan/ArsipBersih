@@ -6,12 +6,19 @@ Builder's choices (spec 9; calibrate on real data):
 - Alignment works on frame *times*: videos longer than 2 minutes are sampled every
   duration/120 s, so two videos rarely share a frame grid. Every close frame pair votes for
   an offset (b_time - a_time) in bins one coarse spacing wide; the busiest bin wins and the
-  median of it and its neighbours is the offset. Under that offset a frame of `a` that lands
-  inside `b` is matched when some `b` frame within one coarse spacing is close. A match needs
-  >= MIN_FRACTION of those frames and >= min(MIN_FRAMES, frame count) matched frames.
-- Duplicate vs clip (owner decision, spec 7): the shorter video's unmatched head + tail and
-  the longer video's extra length are both <= EDGE_S -> duplicate. Shorter covered (<= EDGE_S
-  unmatched) but the longer has > EDGE_S extra -> clip. Anything else -> none.
+  median of it and its neighbours is the offset. Coverage is counted on the *sparser* video:
+  each of its frames inside the overlap is matched when a frame of the denser video within
+  the denser spacing is close. A match needs >= MIN_FRACTION of those frames and
+  >= min(MIN_FRAMES, those frames) matched frames.
+- Duplicate vs clip (owner decision, spec 7): tol = max(EDGE_S, sparser spacing), because
+  sampling cannot place the ends finer than one sparse spacing (a 600 s video is sampled
+  every 5 s). The shorter video's unmatched head + tail and the longer video's extra length
+  both <= tol -> duplicate. Shorter covered (<= tol unmatched) but the longer has > tol
+  extra -> clip. Anything else -> none.
+- shortcut: two long copies whose 120-frame grids drift apart (e.g. 600 s vs 601.5 s) while
+  the content changes faster than the spacing may fall under MIN_FRACTION and stay ungrouped
+  (a miss = no group, the safe direction). Upgrade by sampling denser (more frames per video)
+  if real collections show missed long duplicates.
 - Candidates: an inverted index on 16-bit bands of every frame pHash (4 keys per frame).
   Two videos are a candidate when they share >= MIN_VOTES distinct keys. A clip shares keys
   with its parent however short it is (a duration window would miss it), and the full
@@ -48,6 +55,7 @@ class Match:
     a_end: float
     b_start: float
     b_end: float
+    edge_gap_s: float = 0.0  # unmatched sparse frames at the overlap's ends x sparse spacing
 
 
 def _spacing(times: list[float]) -> float:
@@ -73,17 +81,27 @@ def align(a: VideoFrameData, b: VideoFrameData, max_dist: int) -> Match | None:
     best = vals[counts.argmax()]
     offset = float(np.median(offs[np.abs(bins - best) <= 1]))
 
-    mapped = ta + offset
-    half_b = _spacing(b.times) / 2
-    inside = (mapped >= tb[0] - half_b) & (mapped <= tb[-1] + half_b)
-    near = np.abs(tb[None, :] - mapped[:, None]) <= step
-    ok = (close & near).any(axis=1) & inside
+    # Coverage is judged on the sparser video: each of its frames inside the overlap needs a
+    # close frame in the denser one within the denser spacing. Counting the denser frames instead
+    # asks a frame up to half a coarse spacing away to show the same content.
+    a_sparse = _spacing(a.times) >= _spacing(b.times)
+    ts, td = (ta, tb) if a_sparse else (tb, ta)
+    off = offset if a_sparse else -offset  # denser time = sparser time + off
+    cl = close if a_sparse else close.T
+    mapped = ts + off
+    half_d = (_spacing(b.times) if a_sparse else _spacing(a.times)) / 2
+    inside = (mapped >= td[0] - half_d) & (mapped <= td[-1] + half_d)
+    near = np.abs(td[None, :] - mapped[:, None]) <= 2 * half_d
+    ok = (cl & near).any(axis=1) & inside
     n_in, n_ok = int(inside.sum()), int(ok.sum())
-    if n_in == 0 or n_ok < min(MIN_FRAMES, len(ta), len(tb)) or n_ok / n_in < MIN_FRACTION:
+    if n_in == 0 or n_ok < min(MIN_FRAMES, n_in) or n_ok / n_in < MIN_FRACTION:
         return None
-    idx = np.nonzero(ok)[0]
-    a_start, a_end = float(ta[idx[0]]), float(ta[idx[-1]])
-    return Match(offset, n_ok / n_in, a_start, a_end, a_start + offset, a_end + offset)
+    idx, inner = np.nonzero(ok)[0], np.nonzero(inside)[0]
+    gap = (idx[0] - inner[0] + inner[-1] - idx[-1]) * max(_spacing(a.times), _spacing(b.times))
+    first, last = float(ts[idx[0]]), float(ts[idx[-1]])
+    if not a_sparse:  # report in a's and b's own timelines
+        first, last = first - offset, last - offset
+    return Match(offset, n_ok / n_in, first, last, first + offset, last + offset, float(gap))
 
 
 def pair_relation(
@@ -96,12 +114,15 @@ def pair_relation(
     m = align(a, b, max_dist)
     if m is None:
         return "none", None
-    half = _spacing(a.times) / 2
-    uncovered = max(0.0, m.a_start - half) + max(0.0, dur_a - (m.a_end + half))
-    if uncovered > EDGE_S:
+    sparse = max(_spacing(a.times), _spacing(b.times))
+    tol = max(EDGE_S, sparse)  # sampling cannot resolve the ends finer than one sparse spacing
+    # The shorter video's part outside the longer one (from the offset) plus unmatched ends.
+    off = m.offset_s
+    uncovered = max(0.0, -off) + max(0.0, off + dur_a - dur_b) + m.edge_gap_s
+    if uncovered > tol:
         return "none", m
     extra = dur_b - (dur_a - uncovered)
-    return ("duplicate" if extra <= EDGE_S else "clip"), m
+    return ("duplicate" if extra <= tol else "clip"), m
 
 
 def classify_pair(

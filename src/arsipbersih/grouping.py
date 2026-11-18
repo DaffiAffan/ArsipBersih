@@ -457,6 +457,12 @@ def run_grouping(
         planned.append(("duplikat-versi", members, keeper))
         excluded.update(u.unit_id for u in members if u.unit_id != keeper)
 
+    # A clip of a non-keeper copy points at that group's keeper, the copy that stays.
+    keeper_of = {u.unit_id: k for kind, members, k in planned if kind == "duplikat-versi"
+                 for u in members}
+    remapped = {(c, keeper_of.get(p, p)): off for c, p, off in clips}
+    clips = [(c, p, off) for (c, p), off in remapped.items() if c != p]
+
     burst_pool = [u for u in photos if u.unit_id not in excluded]
     burst = _burst_groups(burst_pool, settings)
     for members in burst:

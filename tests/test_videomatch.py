@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from arsipbersih.config import Settings
 from arsipbersih.grouping import UnitView, choose_keeper_version, run_grouping
 from arsipbersih.videoframes import VideoFrameData, sample_plan, save_video_frames
@@ -10,18 +12,21 @@ from arsipbersih.videomatch import align, classify_pair
 SCENE_S = 6.0  # synthetic content: one random pHash per 6-second scene
 
 
-def scenes(seed: int, n: int = 200) -> list[int]:
+def scenes(seed: int, n: int = 1000) -> list[int]:
     rng = random.Random(seed)
     return [rng.getrandbits(64) for _ in range(n)]
 
 
-def video(content: list[int], start: float, duration: float, noise_bits: int = 0, seed: int = 1) -> VideoFrameData:
+def video(
+    content: list[int], start: float, duration: float, noise_bits: int = 0, seed: int = 1,
+    scene_s: float = SCENE_S,
+) -> VideoFrameData:
     """Frames of a video showing `content` from `start` for `duration` s, sampled like videoframes."""
     rng = random.Random(seed)
     times = sample_plan(duration)
     hashes = []
     for t in times:
-        h = content[int((start + t) // SCENE_S)]
+        h = content[int((start + t) // scene_s)]
         for bit in rng.sample(range(64), noise_bits):
             h ^= 1 << bit
         hashes.append(f"{h:016x}")
@@ -54,6 +59,30 @@ def test_clip_from_middle_detected_with_offset():
     m = align(clip, parent, 8)
     assert m is not None and abs(m.offset_s - 100.3) <= 2.5
     assert classify_pair(parent, clip, 300, 30) == "clip"
+
+
+@pytest.mark.parametrize("scene_s", [1.0, 2.0])
+def test_clip_in_long_parent_with_scenes_faster_than_spacing(scene_s):
+    # The 600 s parent is sampled every 5 s: most of its neighbours show other scenes.
+    c = scenes(11)
+    parent = video(c, 0, 600, scene_s=scene_s)
+    clip = video(c, 100.3, 30, noise_bits=3, scene_s=scene_s)
+    m = align(clip, parent, 8)
+    assert m is not None and abs(m.offset_s - 100.3) <= 5
+    assert classify_pair(parent, clip, 600, 30) == "clip"
+
+
+@pytest.mark.parametrize("scene_s", [1.0, 2.0])
+def test_long_copy_fraction_longer_with_fast_scenes_is_duplicate(scene_s):
+    c = scenes(12)
+    a, b = video(c, 0, 600, scene_s=scene_s), video(c, 0, 600.3, noise_bits=3, scene_s=scene_s)
+    assert classify_pair(a, b, 600, 600.3) == "duplicate"
+
+
+def test_end_tolerance_follows_sparse_spacing():
+    # 3.5 s extra is below one 5 s sample spacing: sampling cannot call it a clip.
+    c = scenes(13)
+    assert classify_pair(video(c, 0, 600), video(c, 0, 603.5, noise_bits=3), 600, 603.5) == "duplicate"
 
 
 def test_unrelated_videos_no_match():
@@ -152,3 +181,22 @@ def test_clips_table_rewritten_each_run(conn_with):
     conn.commit()
     run_grouping(conn, Settings())
     assert conn.execute("select count(*) from video_clips").fetchone()[0] == 0
+
+
+def test_clip_of_non_keeper_copy_points_at_keeper(conn_with):
+    c = scenes(14)
+    conn = conn_with([
+        dict(name="VID_PARENT.mp4", kind="video", duration=300.0, w=1920, h=1080, sha="p1"),
+        dict(name="VID-20230812-WA0001.mp4", path="Sumber/HP/WhatsApp/Media/WhatsApp Video",
+             kind="video", duration=300.5, w=1280, h=720, sha="p2"),
+        dict(name="VID_CLIP.mp4", kind="video", duration=30.0, w=1920, h=1080, sha="c1"),
+    ])
+    _save_frames(conn, "VID_PARENT.mp4", video(c, 0, 300))
+    _save_frames(conn, "VID-20230812-WA0001.mp4", video(c, 0, 300.5, noise_bits=3, seed=2))
+    _save_frames(conn, "VID_CLIP.mp4", video(c, 100.3, 30, noise_bits=3))
+    assert run_grouping(conn, Settings()).version == 1
+    rows = conn.execute(
+        "select f.rel_path from video_clips k join units u on u.id = k.parent_unit_id"
+        " join files f on f.id = u.primary_file_id"
+    ).fetchall()
+    assert [r[0].rsplit("/", 1)[-1] for r in rows] == ["VID_PARENT.mp4"]
