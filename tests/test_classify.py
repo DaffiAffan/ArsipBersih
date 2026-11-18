@@ -450,3 +450,44 @@ def test_classify_head_not_persisted_when_relabel_fails(tmp_path, monkeypatch):
     r = CliRunner().invoke(app, ["classify", str(tmp_path), "--head", "trained-v1"])
     assert r.exit_code != 0
     assert _stored_head_and_category(tmp_path) == ("zeroshot", None)
+
+
+def _video_cat(conn_with, lumas, sharp, motion, duration=30.0, frames=True):
+    from arsipbersih.videoframes import VideoFrameData, save_video_frames
+
+    conn = conn_with([dict(name="VID_1.mp4", kind="video", duration=duration)])
+    if frames:
+        n = len(lumas)
+        fid = conn.execute("select id from files").fetchone()[0]
+        save_video_frames(conn, fid, VideoFrameData(
+            [float(i) for i in range(n)], ["0" * 16] * n, lumas, sharp, motion))
+        conn.commit()
+    run_classify(conn, Settings())
+    return conn.execute("select primary_category, (select reason from flags) from units").fetchone()
+
+
+def test_pocket_recording_flagged_dark(conn_with):
+    cat, reason = _video_cat(conn_with, [5.0] * 12 + [90.0] * 1, [50.0] * 13, [0.0] + [9.0] * 12)
+    assert cat == "rekaman-tidak-sengaja" and reason == "Rekaman tidak sengaja: 92% frame gelap"
+
+
+def test_blurry_static_recording_flagged(conn_with):
+    cat, reason = _video_cat(conn_with, [120.0] * 20, [5.0] * 17 + [60.0] * 3, [0.0] + [0.5] * 19)
+    assert cat == "rekaman-tidak-sengaja" and reason.endswith("85% frame buram, nyaris tak bergerak")
+
+
+def test_dark_concert_with_motion_not_flagged(conn_with):
+    # 40% dark, lots of change; and a blurry-but-moving clip
+    assert _video_cat(conn_with, [10.0] * 4 + [100.0] * 6, [60.0] * 10, [0.0] + [20.0] * 9)[0] is None
+
+
+def test_blurry_with_motion_not_flagged(conn_with):
+    assert _video_cat(conn_with, [120.0] * 10, [5.0] * 10, [0.0] + [20.0] * 9)[0] is None
+
+
+def test_video_without_frame_data_not_flagged(conn_with):
+    assert _video_cat(conn_with, [], [], [], frames=False)[0] is None
+
+
+def test_short_dark_video_stays_video_pendek_gelap(conn_with):
+    assert _video_cat(conn_with, [5.0] * 3, [5.0] * 3, [0.0] * 3, duration=1.0)[0] == "video-pendek-gelap"
