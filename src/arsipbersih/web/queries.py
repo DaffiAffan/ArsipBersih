@@ -428,7 +428,13 @@ def ai_guess(conn: sqlite3.Connection, unit_id: str, head: str | None = None) ->
         if lab is None:
             return None
         grp, sub, prob, source = lab["grp"], lab["sub"], lab["prob"], "ai"
-    return {"grp": grp, "sub": sub, "prob": prob, "source": source, "label": AI_GROUP_NAMES.get(grp, grp)}
+    label = AI_GROUP_NAMES.get(grp, grp)
+    if grp == "lainnya" and conn.execute(
+        "select 1 from units u join files f on f.id = u.primary_file_id where u.id = ? and f.kind = 'video'",
+        (unit_id,),
+    ).fetchone():
+        label = "Video biasa"
+    return {"grp": grp, "sub": sub, "prob": prob, "source": source, "label": label}
 
 
 VIDEO_GROUPS = ("grafis", "layar", "lainnya")  # the only AI groups that apply to videos

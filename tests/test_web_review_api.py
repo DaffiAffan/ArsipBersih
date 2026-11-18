@@ -481,3 +481,5 @@ def test_video_correction_to_lainnya_removes_flag(web, root):
     _label(root, v, "grafis", None, 0.8)
     r = web.post("/api/review/ai-group", json={"unit_id": v, "grp": "lainnya"})
     assert r.status_code == 200 and r.json()["primary_category"] is None
+    assert r.json()["ai"]["label"] == "Video biasa"  # toast and "Dikoreksi: ..." text
+    assert web.get(f"/api/review/unit/{v}").json()["ai"]["label"] == "Video biasa"
