@@ -145,17 +145,17 @@ def _group_flags(conn: sqlite3.Connection, unit_ids: list[str] | None = None) ->
 def _accidental_reason(vf, s: Settings) -> tuple[float, str] | None:
     """(fraction, reason) for a pocket/accidental recording, from stored frame data, or None.
 
-    Dark frames alone qualify; blurry frames only when the picture also barely moves, so a
+    Needs near-static footage (median motion) plus mostly dark or mostly blurry frames, so a
     dark concert with real motion is not flagged. Videos without frame data never match.
     """
-    if vf is None or not vf.lumas:
+    if vf is None or not vf.lumas or not vf.motion or statistics.median(vf.motion) > s.accidental_motion_max:
         return None
     n = len(vf.lumas)
     dark = sum(v <= s.accidental_luma_max for v in vf.lumas) / n
     if dark >= s.accidental_dark_fraction:
         return dark, f"Rekaman tidak sengaja: {dark * 100:.0f}% frame gelap"
     blur = sum(v <= s.accidental_sharpness_max for v in vf.sharpness) / max(1, len(vf.sharpness))
-    if blur >= s.accidental_dark_fraction and vf.motion and statistics.median(vf.motion) <= s.accidental_motion_max:
+    if blur >= s.accidental_dark_fraction:
         return blur, f"Rekaman tidak sengaja: {blur * 100:.0f}% frame buram, nyaris tak bergerak"
     return None
 

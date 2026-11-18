@@ -467,7 +467,7 @@ def _video_cat(conn_with, lumas, sharp, motion, duration=30.0, frames=True):
 
 
 def test_pocket_recording_flagged_dark(conn_with):
-    cat, reason = _video_cat(conn_with, [5.0] * 12 + [90.0] * 1, [50.0] * 13, [0.0] + [9.0] * 12)
+    cat, reason = _video_cat(conn_with, [5.0] * 12 + [90.0] * 1, [50.0] * 13, [0.0] + [0.5] * 12)
     assert cat == "rekaman-tidak-sengaja" and reason == "Rekaman tidak sengaja: 92% frame gelap"
 
 
@@ -477,8 +477,8 @@ def test_blurry_static_recording_flagged(conn_with):
 
 
 def test_dark_concert_with_motion_not_flagged(conn_with):
-    # 40% dark, lots of change; and a blurry-but-moving clip
-    assert _video_cat(conn_with, [10.0] * 4 + [100.0] * 6, [60.0] * 10, [0.0] + [20.0] * 9)[0] is None
+    # 90% of frames at luma <= 30 but clearly changing: a real night/concert recording
+    assert _video_cat(conn_with, [10.0] * 9 + [100.0], [60.0] * 10, [0.0] + [9.0] * 9)[0] is None
 
 
 def test_blurry_with_motion_not_flagged(conn_with):
