@@ -25,6 +25,7 @@ from .config import Settings
 from .formats import Kind
 from .layout import long_path
 from .tools import NO_CONSOLE_FLAGS, find_tool
+from .videoframes import VideoFrameData, extract, sample_plan, save_video_frames
 
 pillow_heif.register_heif_opener()
 
@@ -56,6 +57,8 @@ class VisualResult:
     error: str | None = None
     retry: bool = False  # a timeout or I/O error, not the file: visual_status stays NULL
     ai_rgb: bytes | None = None  # 256x256x3 uint8 crop for the AI stage, only when asked for
+    video_frames: VideoFrameData | None = None
+    ai_rgb_list: list[bytes] | None = None  # up to 3 video crops, only when asked for
 
 
 class NoRawThumbnail(ValueError):
@@ -261,33 +264,50 @@ def _grab_frame(ffmpeg: str, path: Path, t: float) -> bytes:
 
 
 def analyze_video(
-    path: Path, duration_s: float | None, settings: Settings, ffmpeg: str, thumb_dst: Path
+    path: Path, duration_s: float | None, settings: Settings, ffmpeg: str, thumb_dst: Path,
+    want_ai: bool = False,
 ) -> VisualResult:
     try:
         path = Path(path)
         if not duration_s or duration_s <= 0:
             duration_s = _probe_duration(path)
-        if duration_s:
-            times = [duration_s * f for f in VIDEO_FRAME_FRACTIONS]
-        else:
-            times = list(FALLBACK_FRAME_TIMES)
-        frames: list[bytes] = []
-        for t in times:
-            try:
-                frames.append(_grab_frame(ffmpeg, path, t))
-            except RuntimeError:
-                frames.append(_grab_frame(ffmpeg, path, 0.0))  # seek past the end: use the start
-        grays = []
-        for data in frames:
-            g = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
-            if g is None:
-                raise ValueError("undecodable video frame")
-            grays.append(g)
-        mid = grays[1]
+        errors: list[str] = []
+        dark = settings.dark_video_luma_max
+        try:
+            times = sample_plan(duration_s)
+            grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors)
+        except RuntimeError:  # a wrong duration can seek past the end: sample the start instead
+            if not duration_s:
+                raise
+            times = sample_plan(None)
+            errors.clear()
+            grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors)
+        times = times[: len(grays)]
+        # Thumbnail and the single-frame columns come from a full-aspect grab of the middle.
+        try:
+            mid_png = _grab_frame(ffmpeg, path, duration_s * 0.5 if duration_s else FALLBACK_FRAME_TIMES[0])
+        except RuntimeError:
+            mid_png = _grab_frame(ffmpeg, path, 0.0)
+        mid = cv2.imdecode(np.frombuffer(mid_png, np.uint8), cv2.IMREAD_GRAYSCALE)
+        if mid is None:
+            raise ValueError("undecodable video frame")
         mean, std, clip = luma_stats(mid)
-        with Image.open(io.BytesIO(frames[1])) as im:
+        with Image.open(io.BytesIO(mid_png)) as im:
             im.load()
             _save_webp(im.convert("RGB"), thumb_dst, settings.thumb_px)
+        data = VideoFrameData(
+            times=times,
+            phashes=[phash_hex(phash64(g)) for g in grays],
+            lumas=[float(g.mean()) for g in grays],
+            sharpness=[sharpness_score(g) for g in grays],
+            motion=[0.0] + [
+                float(np.abs(a.astype(np.int16) - b).mean()) for a, b in zip(grays[1:], grays)
+            ],
+        )
+        near = [
+            min(range(len(times)), key=lambda i: abs(times[i] - (duration_s or 1.0) * f))
+            for f in VIDEO_FRAME_FRACTIONS
+        ]
         return VisualResult(
             decode_ok=True,
             phash=phash_hex(phash64(mid)),
@@ -295,8 +315,11 @@ def analyze_video(
             luma_mean=mean,
             luma_std=std,
             clipping=clip,
-            frame_phashes=[phash_hex(phash64(g)) for g in grays],
-            frame_lumas=[float(g.mean()) for g in grays],
+            frame_phashes=[data.phashes[i] for i in near],
+            frame_lumas=[data.lumas[i] for i in near],
+            error="; ".join(errors) or None,
+            video_frames=data,
+            ai_rgb_list=[c.tobytes() for c in crops] if want_ai else None,
         )
     except Exception as e:
         return _failure(e)
@@ -380,13 +403,15 @@ def _store(conn: sqlite3.Connection, file_id: str, r: VisualResult) -> None:
             None if r.decode_ok is None else int(r.decode_ok),
         ),
     )
+    if r.video_frames is not None:
+        save_video_frames(conn, file_id, r.video_frames)
     if r.retry:
         status = None  # read it again on the next scan
     else:
         status = "error" if r.decode_ok is False else "done"
     conn.execute(
         "update files set visual_status=?, error=? where id=?",
-        (status, None if r.decode_ok else r.error, file_id),
+        (status, r.error, file_id),
     )
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .layout import STATE_DIR, long_path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
@@ -201,6 +201,18 @@ create table if not exists xmp_writes (
     xmp_rel_path text not null,
     taken_at text,
     sha256 text,
+    created_at text
+);
+
+create table if not exists video_frames (
+    id text primary key,
+    file_id text not null unique references files(id),
+    version integer not null,
+    times text not null,
+    phashes text not null,
+    lumas text not null,
+    sharpness text not null,
+    motion text not null,
     created_at text
 );
 
