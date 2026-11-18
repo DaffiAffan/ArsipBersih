@@ -1,4 +1,4 @@
-import { el } from "./api.js";
+import { api, el } from "./api.js";
 import { bindKeys } from "./keys.js";
 import { renderInspector } from "./inspector.js";
 import { createZoom } from "./zoom.js";
@@ -83,6 +83,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
       side.append(box);
       renderInspector(body, it, {
         onDecide: (want) => safeDecide(it, want === null ? "suggest" : want),
+        onOpenUnit: openUnit,
         onChangeGroup: onChangeGroup && mode !== "compare" ? (grp) => safeChangeGroup(it, grp) : null,
       });
     });
@@ -91,6 +92,16 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
       const b = u && u.querySelector(hadCls);
       if (b) b.focus();
     }
+  }
+
+  // A clip link: jump to that unit when it is in this list, else show it in its own viewer on top.
+  async function openUnit(unitId) {
+    const at = items.findIndex((x) => x && !Array.isArray(x) && x.unit_id === unitId);
+    if (at >= 0) { go(at); return; }
+    try {
+      const card = await api("GET", `/api/review/unit/${encodeURIComponent(unitId)}`);
+      openViewer({ items: [card] });
+    } catch (e) { toast(e && e.message ? e.message : "Video tidak bisa dibuka.", { kind: "error" }); }
   }
 
   function render() {

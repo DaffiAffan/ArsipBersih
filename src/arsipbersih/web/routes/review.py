@@ -174,6 +174,12 @@ def ai_group(body: AiGroupBody, request: Request, conn: sqlite3.Connection = Dep
         raise UserError("Kelompok tidak dikenal", 400)
     if conn.execute("select 1 from units where id=?", (body.unit_id,)).fetchone() is None:
         raise UserError("Unit tidak ditemukan", 404)
+    if body.grp not in queries.VIDEO_GROUPS and conn.execute(
+        "select 1 from units u join files f on f.id = u.primary_file_id"
+        " where u.id = ? and f.kind = 'video'",
+        (body.unit_id,),
+    ).fetchone():
+        raise UserError("Video hanya bisa dikelompokkan sebagai Grafis, Layar, atau Video biasa", 400)
     try:
         # No scan or apply may rewrite categories or move files while this one changes.
         with request.app.state.jobs.exclusive():
