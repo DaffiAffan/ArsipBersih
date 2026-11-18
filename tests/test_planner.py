@@ -278,7 +278,7 @@ def test_undated_archive_unit_moves_after_manual_date(conn_with, root):
     assert m.to_location == "archive"
     assert m.files[0].src_rel == "Arsip/Tanpa-Tanggal/HP/DSC_1.jpg"
     assert m.files[0].dst_rel == "Arsip/2019/2019-05/DSC_1.jpg"
-    assert m.reason == "pindah karena tanggal dikoreksi"
+    assert m.reason == "pindah karena tanggalnya berubah"
 
 
 def test_archive_event_unit_is_not_moved_when_date_changes(conn_with, root):
@@ -305,7 +305,7 @@ def test_month_folder_unit_moves_when_month_changes(conn_with, root):
     (m,) = plan_rapikan(conn, root)
     assert m.unit_id == _uid(conn, "IMG-1.jpg")
     assert m.files[0].dst_rel == "Arsip/2023/2023-12/IMG-1.jpg"
-    assert m.reason == "pindah karena tanggal dikoreksi"
+    assert m.reason == "pindah karena tanggalnya berubah"
 
 
 def test_event_month_uses_effective_dates(conn_with, root):
@@ -341,8 +341,8 @@ def test_summary_lists_date_corrected_moves_separately(conn_with, root):
     _manual(conn, "DSC_1.jpg", "2019-05-01T12:00:00", "month")
     s = summarize_rapikan(conn, root)
     assert s.archive_units == 1
-    assert list(s.by_reason) == ["pindah karena tanggal dikoreksi"]
-    assert s.by_reason["pindah karena tanggal dikoreksi"][0] == 1
+    assert list(s.by_reason) == ["pindah karena tanggalnya berubah"]
+    assert s.by_reason["pindah karena tanggalnya berubah"][0] == 1
 
 
 def test_manual_date_after_compute_plans_decides_destination(conn_with, root):

@@ -40,7 +40,7 @@ class UnitMove:
     reason: str | None = None  # shown in the Rencana when it is not a plain tidy move
 
 
-REDATED_REASON = "pindah karena tanggal dikoreksi"
+REDATED_REASON = "pindah karena tanggalnya berubah"
 
 
 def _join(*parts: str) -> str:
