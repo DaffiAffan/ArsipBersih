@@ -214,6 +214,7 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             n = sum(1 for v in labels.values() if lo <= v[2] < hi)
             out.append(f"  {lo:.2f} - {min(hi, 1.0):.2f}: {n}")
 
+    videos = _video_units(conn)  # spec 11: video feedback is not mixed into the photo metrics
     # Holdout metrics belong to one trained head: never report them under another head.
     version = head if head.startswith("trained-v") else None
     meta_path = trained_head_dir(root) / f"{version}.json" if version else None
@@ -225,7 +226,7 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
         out.extend("  " + ln for ln in format_metrics_table(metrics, meta.get("baseline_metrics")))
     else:
         feedback = effective_feedback(conn)
-        common = [u for u in labels if u in feedback]
+        common = [u for u in labels if u in feedback and u not in videos]
         metrics = {}
         if not common:
             out.append("Belum ada koreksi/konfirmasi pemilik untuk mengukur ketepatan.")
@@ -233,7 +234,6 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             metrics = per_group_metrics([labels[u][0] for u in common], [feedback[u][0] for u in common])
             out.append(f"Ketepatan dan daya tangkap terhadap {len(common)} koreksi/konfirmasi pemilik (bukan data uji):")
             out.extend("  " + ln for ln in format_metrics_table(metrics))
-    videos = _video_units(conn)
     n_video = sum(1 for u in effective_feedback(conn) if u in videos)
     out.append(f"Contoh koreksi video: {n_video} (belum dipakai melatih)")
     out.extend(_target_lines(metrics))

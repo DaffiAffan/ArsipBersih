@@ -98,7 +98,10 @@ def test_ai_report_counts_video_examples(tmp_path, prompts):  # noqa: F811
     conn.execute("insert into units (id, primary_file_id, location) values ('vid', 'f-vid', 'source')")
     conn.execute("insert into files (id, unit_id, rel_path, kind, missing) values ('f-vid', 'vid', 'v.mp4', 'video', 0)")
     store.add_feedback(conn, "vid", "grafis", "koreksi")
-    assert "Contoh koreksi video: 1 (belum dipakai melatih)" in train.ai_report(conn, tmp_path)
+    store.save_labels(conn, "zeroshot", "v1", [("vid", "lainnya", None, 0.9)])
+    text = train.ai_report(conn, tmp_path)
+    assert "Contoh koreksi video: 1 (belum dipakai melatih)" in text
+    assert "Belum ada koreksi/konfirmasi pemilik" in text  # the video is not in the photo metrics
 
 
 def test_wa_video_with_only_creation_time_is_flagged_download_meme(conn_with):
