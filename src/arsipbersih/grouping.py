@@ -56,6 +56,8 @@ class UnitView:
     date_source: str | None = None
     file_count: int = 1  # present files of the unit (RAW+JPG, Live Photo, sidecars)
     unit_bytes: int = 0  # their total size
+    has_gps: bool = False
+    qt_datetime: str | None = None  # QuickTime recording date (video camera evidence)
 
 
 @dataclass
@@ -69,7 +71,7 @@ def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None)
     base = (
         "select u.id as unit_id, u.location, u.taken_at, u.date_source, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
-        "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
+        "m.make, m.model, m.has_gps, m.qt_datetime, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
         "c.n as file_count, c.bytes as unit_bytes "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
@@ -101,6 +103,7 @@ def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None)
             duration_s=r["duration_s"], kind=r["kind"], sha256=r["sha256"],
             date_source=r["date_source"],
             file_count=r["file_count"] or 1, unit_bytes=r["unit_bytes"] or 0,
+            has_gps=bool(r["has_gps"]), qt_datetime=r["qt_datetime"],
         ))
     return views
 

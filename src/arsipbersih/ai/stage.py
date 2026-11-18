@@ -23,7 +23,7 @@ from ..classify import _is_screen_aspect, download_reason
 from ..config import Settings
 from ..formats import Kind
 from ..grouping import UnitView, load_unit_views
-from ..pathrules import segments_of
+from ..pathrules import has_camera_name, is_chat, segments_of
 from ..tools import find_tool
 from ..videoframes import extract, sample_plan
 from .heads import UnitFacts, get_head
@@ -207,13 +207,31 @@ def _backfill_jobs(conn: sqlite3.Connection, root: Path, unit_ids: list[str]) ->
 # --- labels --------------------------------------------------------------------------------
 
 
+TALL_SCREEN_RATIO = 2.0
+
+
+def is_tall_screen_ratio(w: int | None, h: int | None) -> bool:
+    """Long side at least twice the short one: 16:9 is also a normal camera ratio, so it is no hint."""
+    return bool(w and h) and max(w, h) / min(w, h) >= TALL_SCREEN_RATIO
+
+
+def has_camera_data(u: UnitView) -> bool:
+    """Evidence a video came from a camera: make/model, GPS, QuickTime date, or a camera file name."""
+    return bool(
+        u.make or u.model or u.has_gps or u.qt_datetime
+        or (has_camera_name(u.filename) and not is_chat(segments_of(u.orig_rel_path), u.filename))
+    )
+
+
 def unit_facts(u: UnitView) -> UnitFacts:
     """Rule hints for the head, from the same notions the category rules use."""
     ext = u.filename.rsplit(".", 1)[-1].lower() if "." in u.filename else ""
+    video = u.kind == "video"
     return UnitFacts(
-        has_camera=bool(u.make or u.model),
+        has_camera=has_camera_data(u) if video else bool(u.make or u.model),
         is_png=ext == "png",
-        screen_ratio=_is_screen_aspect(u.width, u.height),
+        screen_ratio=is_tall_screen_ratio(u.width, u.height) if video
+        else _is_screen_aspect(u.width, u.height),
         download_like=download_reason(u, segments_of(u.orig_rel_path), ext) is not None,
     )
 

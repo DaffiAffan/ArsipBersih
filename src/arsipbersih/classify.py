@@ -33,6 +33,9 @@ SCREEN_RATIO_TOLERANCE = 0.02
 MEME_LONG_SIDE = 1000
 MEME_EXTS = frozenset({"gif", "webp"})
 
+VIDEO_AI_CATEGORIES = frozenset({"download-meme", "screenshot"})
+VIDEO_AI_MIN = 0.7
+
 Flag = tuple[str, float | None, str]  # category, score, reason
 
 _GROUP_REASONS = {
@@ -263,8 +266,11 @@ def _unit_flags(u: UnitView, facts: _Facts) -> list[Flag]:
     flags = list(facts.group_flags.get(u.unit_id, []))
     if u.location != "archive":
         flags += _classify_unit(u, facts.extras[u.unit_id], facts.settings, facts.broken.get(u.unit_id))
-    if u.location != "archive" and u.kind != "video" and u.unit_id in facts.ai_flags:
+    if u.location != "archive" and u.unit_id in facts.ai_flags:
         cat, prob, reason = facts.ai_flags[u.unit_id]
+        # Videos: only graphics and screen recordings, at a fixed threshold (documents are ignored).
+        if u.kind == "video" and (cat not in VIDEO_AI_CATEGORIES or prob < VIDEO_AI_MIN):
+            return flags
         if not any(f[0] == cat for f in flags):
             flags.append((cat, prob, reason))
     return flags

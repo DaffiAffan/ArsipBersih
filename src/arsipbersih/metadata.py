@@ -22,7 +22,7 @@ _READY = b"{ready}"
 _EXIF_ARGS = [
     "-json", "-G1", "-charset", "filename=utf8",
     "-DateTimeOriginal", "-CreateDate", "-Make", "-Model",
-    "-ImageWidth", "-ImageHeight", "-GPSLatitude", "-n",
+    "-ImageWidth", "-ImageHeight", "-GPSLatitude", "-GPSCoordinates", "-n",
 ]
 
 
@@ -216,14 +216,16 @@ def extract_exif_fields(d: dict) -> dict:
             "CreateDate", "CreationDate", "DateTimeOriginal"
         ):
             qt.setdefault(g, _to_utc_text(v))
-        if t == "GPSLatitude":
+        if t in ("GPSLatitude", "GPSCoordinates"):
             out["has_gps"] = 1
     if qt:
         best = min(qt, key=lambda x: (not x.endswith("QuickTime"), x))
         out["qt_datetime"] = qt[best]
-    for field, key in (("make", "IFD0:Make"), ("model", "IFD0:Model")):
-        v = d.get(key)
-        out[field] = str(v) if _present(v) else None
+    for field, tag in (("make", "Make"), ("model", "Model")):  # EXIF first, then QuickTime/Keys
+        for key in (f"IFD0:{tag}", f"Keys:{tag}", f"QuickTime:{tag}", f"UserData:{tag}"):
+            if _present(d.get(key)):
+                out[field] = str(d[key])
+                break
     for field, tag, exif_tag in (("width", "ImageWidth", "ExifImageWidth"),
                                  ("height", "ImageHeight", "ExifImageHeight")):
         cands = [d.get(f"File:{tag}"), d.get(f"ExifIFD:{exif_tag}")]
