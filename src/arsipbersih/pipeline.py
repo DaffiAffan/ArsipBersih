@@ -37,7 +37,7 @@ from .mover import (
 from .pairing import build_units, confirm_live_photos
 from .planner import compute_plans, plan_rapikan
 from .tools import ToolStatus, check_tools
-from .videostage import run_video_backfill
+from .videostage import VideoBackfillResult, run_video_backfill
 from .visual import run_visual
 
 STAGES = (
@@ -79,6 +79,15 @@ class ScanSummary:
     tool_status: ToolStatus
     warnings: list[str] = field(default_factory=list)
     dates: DatesResult | None = None
+
+
+def _backfill_warnings(vb: VideoBackfillResult) -> list[str]:
+    if vb.done == 0:
+        return []
+    out = [f"Analisis video lama: {vb.done - vb.errors} video diisi ulang (pertama kali lebih lama)"]
+    if vb.errors:
+        out.append(f"{vb.errors} video gagal dianalisis")
+    return out
 
 
 def _inventory_warnings(inv: InventoryResult) -> list[str]:
@@ -178,8 +187,9 @@ def run_scan(
             run_visual(conn, root, settings, begin("visual"), stop,
                        ai_sink=collector.add if collector is not None else None)
             if not stopped():
-                run_video_backfill(conn, root, settings, begin("video"), stop,
-                                   ai_sink=collector.add_many if collector is not None else None)
+                vb = run_video_backfill(conn, root, settings, begin("video"), stop,
+                                        ai_sink=collector.add_many if collector is not None else None)
+                summary.warnings.extend(_backfill_warnings(vb))
         finally:
             if collector is not None:
                 collector.flush()  # also on pause: crops already decoded are not lost

@@ -13,8 +13,8 @@ from arsipbersih.config import Settings
 from arsipbersih.db import open_db
 from arsipbersih.inventory import run_inventory
 from arsipbersih.pairing import build_units
-from arsipbersih.pipeline import SCAN_DONE_KEY, run_scan
-from arsipbersih.videostage import run_video_backfill
+from arsipbersih.pipeline import SCAN_DONE_KEY, _backfill_warnings, run_scan
+from arsipbersih.videostage import VideoBackfillResult, run_video_backfill
 from conftest import requires_ffmpeg
 from test_ai_stage import FakeEncoder, InlinePool, ai_ready  # noqa: F401 (fixture)
 
@@ -79,6 +79,20 @@ def test_stopped_backfill_keeps_scan_unfinished(root, make_video):
     assert not conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
     assert not run_scan(root).stopped and _frames(conn) == 3
     assert conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
+
+
+def test_scan_warns_when_old_videos_are_backfilled(root, make_video):
+    for i in range(2):
+        make_video(root / f"Sumber/HP/v{i}.mp4", seconds=2)
+    assert not any("Analisis video lama" in w for w in run_scan(root).warnings)
+    conn = open_db(root)
+    conn.execute("delete from video_frames")
+    conn.commit()
+    assert "Analisis video lama: 2 video diisi ulang (pertama kali lebih lama)" in run_scan(root).warnings
+    assert _backfill_warnings(VideoBackfillResult(done=3, errors=1)) == [
+        "Analisis video lama: 2 video diisi ulang (pertama kali lebih lama)",
+        "1 video gagal dianalisis",
+    ]
 
 
 def test_chunk_is_submitted_before_collecting(root, make_video, monkeypatch):
