@@ -7,7 +7,8 @@ import pytest
 
 from arsipbersih.config import Settings
 from arsipbersih.decisions import record
-from arsipbersih.grouping import find_close_pairs, run_grouping
+from arsipbersih.grouping import (choose_keeper_version, find_close_pairs, has_camera_data,
+                                  load_unit_views, run_grouping)
 from arsipbersih.pathrules import is_chat, is_trash, segments_of
 
 
@@ -258,3 +259,14 @@ def test_load_unit_views_filters_by_ids(conn_with):
     assert [v.unit_id for v in load_unit_views(conn, [ids[0]])] == [ids[0]]
     assert load_unit_views(conn, []) == []
     assert {v.unit_id for v in load_unit_views(conn)} == set(ids)
+
+
+def test_video_keeper_uses_shared_camera_data_rule(conn_with):
+    conn = conn_with([dict(name="clip.mp4", kind="video", w=1280, h=720, duration=30.0),
+                      dict(name="VID-20230812-WA0001.mp4", kind="video", w=1280, h=720, duration=30.0)])
+    conn.execute("update media_info set has_gps=1 where file_id=(select id from files where rel_path like '%/clip.mp4')")
+    units = load_unit_views(conn)
+    gps = next(u for u in units if u.filename == "clip.mp4")
+    assert choose_keeper_version(units) == gps.unit_id
+    conn.execute("update media_info set has_gps=0, qt_datetime='2023-08-12'")
+    assert not has_camera_data(next(u for u in load_unit_views(conn) if u.filename.startswith("VID-")))

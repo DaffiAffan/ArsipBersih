@@ -137,10 +137,23 @@ def choose_keeper_exact(units: list[UnitView]) -> str:
     return min(pool, key=_exact_key).unit_id
 
 
-def _video_has_camera_data(u: UnitView) -> bool:
-    # shortcut: no GPS / QuickTime make-model on UnitView yet; Task 4's has_camera_data replaces this.
-    return (bool(u.make or u.model) or u.date_source == "quicktime"
-            or has_camera_name(u.filename) or u.filename.upper().startswith("DJI_"))
+def _plausible_date(text: str | None) -> bool:
+    """False for empty or zero-epoch dates (QuickTime 1904-01-01, Unix 1970-01-01)."""
+    return bool(text) and text[:4].isdigit() and int(text[:4]) >= 1971
+
+
+def has_camera_data(u: UnitView) -> bool:
+    """Evidence a video came from a camera: make/model, GPS, a camera file name, or a QuickTime date.
+
+    Chat-named files and files in chat/download folders never count by name or date alone: a
+    forwarded video carries the encode/send time, not a recording time.
+    """
+    if u.make or u.model or u.has_gps:
+        return True
+    segs = segments_of(u.orig_rel_path)
+    if is_chat(segs, u.filename) or is_download(segs):
+        return False
+    return has_camera_name(u.filename) or _plausible_date(u.qt_datetime)
 
 
 def _version_key(u: UnitView) -> tuple:
@@ -150,7 +163,7 @@ def _version_key(u: UnitView) -> tuple:
         segs = segments_of(u.orig_rel_path)
         bitrate = (u.size or 0) / u.duration_s if u.duration_s else 0.0
         return (-u.file_count, 0, -((u.width or 0) * (u.height or 0)), -bitrate,
-                not _video_has_camera_data(u), is_chat(segs, u.filename) or is_download(segs),
+                not has_camera_data(u), is_chat(segs, u.filename) or is_download(segs),
                 not has_camera_name(u.filename), u.location != "archive",
                 len(u.orig_rel_path), u.orig_rel_path, u.unit_id)
     return (*_completeness(u), -((u.width or 0) * (u.height or 0)), -(u.size or 0),
