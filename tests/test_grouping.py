@@ -9,7 +9,7 @@ from arsipbersih.config import Settings
 from arsipbersih.decisions import record
 from arsipbersih.grouping import (choose_keeper_version, find_close_pairs, has_camera_data,
                                   load_unit_views, run_grouping)
-from arsipbersih.pathrules import is_chat, is_trash, segments_of
+from arsipbersih.pathrules import has_camera_name, is_chat, is_trash, segments_of
 
 
 def unit_location(conn, unit_id):
@@ -130,6 +130,7 @@ def test_burst_ids_chain_within_folder(conn_with):
 
 
 def test_pathrules():
+    assert has_camera_name("DJI_0001.MP4")
     assert is_chat(["WhatsApp", "Media", "WhatsApp Images"], "IMG_1.jpg")
     assert is_chat([], "VID-20230812-WA0007.mp4")
     assert is_trash(["DCIM"], ".trashed-1690000000-IMG_1.jpg")
