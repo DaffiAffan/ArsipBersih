@@ -65,16 +65,48 @@ def test_failed_video_is_recorded_and_not_retried(root, make_video, monkeypatch)
 
 
 def test_stopped_backfill_keeps_scan_unfinished(root, make_video):
-    make_video(root / "Sumber/HP/v.mp4", seconds=2)
+    for i in range(3):
+        make_video(root / f"Sumber/HP/v{i}.mp4", seconds=2)
     assert not run_scan(root).stopped
     conn = open_db(root)
     conn.execute("delete from video_frames")
     conn.commit()
     stop = threading.Event()
-    s = run_scan(root, progress=lambda p: stop.set() if p.stage == "video" else None, stop=stop)
-    assert s.stopped and _frames(conn) == 0
+    # pause once the first chunk (2 videos) is stored
+    s = run_scan(root, progress=lambda p: stop.set() if p.stage == "video" and p.done else None,
+                 stop=stop)
+    assert s.stopped and _frames(conn) == 2
     assert not conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
-    assert not run_scan(root).stopped and _frames(conn) == 1
+    assert not run_scan(root).stopped and _frames(conn) == 3
+    assert conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
+
+
+def test_crash_blames_only_the_culprit(root, make_video, monkeypatch):
+    from concurrent.futures.process import BrokenProcessPool
+
+    from arsipbersih import videostage
+
+    conn = _old_videos(root, make_video, monkeypatch, 2)
+    real = videostage._worker
+    state = {"batch": True}
+
+    def flaky(job):
+        if job[1].endswith("v0.mp4"):
+            raise BrokenProcessPool("boom")
+        if state["batch"] and not job[1].endswith("v0.mp4"):
+            raise BrokenProcessPool("neighbour of a crash")  # the whole pool breaks together
+        return real(job)
+
+    class Pool(InlinePool):
+        def __init__(self, workers=2, *a, **k):
+            state["batch"] = workers != 1  # isolated re-runs use a single-worker pool
+
+    monkeypatch.setattr(videostage, "_worker", flaky)
+    monkeypatch.setattr(visual, "_pool", Pool)
+    r = run_video_backfill(conn, root, Settings())
+    assert (r.done, r.errors) == (2, 1) and _frames(conn) == 1
+    bad = conn.execute("select rel_path from files where error like 'video: %'").fetchall()
+    assert [x[0] for x in bad] == ["Sumber/HP/v0.mp4"]
 
 
 def test_new_video_is_decoded_once(root, make_video, ai_ready, monkeypatch):  # noqa: F811

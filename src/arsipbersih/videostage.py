@@ -35,6 +35,22 @@ def _worker(job: tuple) -> tuple[str, visual.VisualResult]:
                                          want_ai)
 
 
+def _rerun_isolated(jobs: list[tuple]) -> dict[str, visual.VisualResult]:
+    """One job at a time in a fresh pool: only the video that crashes alone is the culprit."""
+    out: dict[str, visual.VisualResult] = {}
+    for job in jobs:
+        pool = visual._pool(1)
+        try:
+            out[job[0]] = pool.submit(_worker, job).result()[1]
+        except BrokenProcessPool:
+            out[job[0]] = visual.VisualResult(decode_ok=False, error="worker crashed while decoding")
+        except Exception as e:
+            out[job[0]] = visual.VisualResult(decode_ok=False, error=visual._error_text(e))
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
 def run_video_backfill(
     conn: sqlite3.Connection,
     root: Path,
@@ -73,17 +89,22 @@ def run_video_backfill(
                  str(visual.thumb_path(root, r["id"])), ai_sink is not None)
                 for r in chunk
             ]
-            futures = [pool.submit(_worker, j) for j in jobs]
-            for job, fut in zip(jobs, futures):
-                fid = job[0]
+            results: dict[str, visual.VisualResult] = {}
+            unfinished: list[tuple] = []
+            for job in jobs:
                 try:
-                    r = fut.result()[1]
-                except BrokenProcessPool:  # native crash: stop reusing this pool, mark the culprit
-                    pool.shutdown(wait=False, cancel_futures=True)
-                    pool = visual._pool(VIDEO_WORKERS)
-                    r = visual.VisualResult(decode_ok=False, error="worker crashed while decoding")
+                    results[job[0]] = pool.submit(_worker, job).result()[1]
+                except BrokenProcessPool:  # may be a neighbour's crash: find the culprit below
+                    unfinished.append(job)
                 except Exception as e:
-                    r = visual.VisualResult(decode_ok=False, error=visual._error_text(e))
+                    results[job[0]] = visual.VisualResult(decode_ok=False, error=visual._error_text(e))
+            if unfinished:
+                pool.shutdown(wait=False, cancel_futures=True)
+                results.update(_rerun_isolated(unfinished))
+                pool = visual._pool(VIDEO_WORKERS)
+            for job in jobs:
+                fid = job[0]
+                r = results[fid]
                 if r.video_frames is None:
                     result.errors += 1
                     if not r.retry:
