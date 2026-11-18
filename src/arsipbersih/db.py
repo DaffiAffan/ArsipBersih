@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .layout import STATE_DIR, long_path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
@@ -213,6 +213,15 @@ create table if not exists video_frames (
     lumas text not null,
     sharpness text not null,
     motion text not null,
+    created_at text
+);
+
+-- Rewritten by every grouping run, like groups (spec 5.4).
+create table if not exists video_clips (
+    id text primary key,
+    clip_unit_id text not null references units(id),
+    parent_unit_id text not null references units(id),
+    offset_s real,
     created_at text
 );
 
