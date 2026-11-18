@@ -52,7 +52,9 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const hint = el("span", { class: "vw-hint" });
   const hasVideo = items.flat().some((it) => it && it.media && it.media.kind === "video");
   const hasImage = items.flat().some((it) => it && !(it.media && it.media.kind === "video"));
-  const hintKeys = [["← →", "pindah"], ["S", "keep"], ["D", "delete"], ["Enter", "ikuti saran"],
+  // Without onDecide (a clip opened from a link) the viewer only shows: no decision keys.
+  const decideKeys = onDecide ? [["S", "keep"], ["D", "delete"], ["Enter", "ikuti saran"]] : [];
+  const hintKeys = [["← →", "pindah"], ...decideKeys,
     ...(hasVideo ? [["Spasi", "play/pause"]] : []), ["Esc", "tutup"]];
   for (const [k, t] of hintKeys) {
     if (hint.childNodes.length) hint.append(" · ");
@@ -82,7 +84,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
       box.append(body);
       side.append(box);
       renderInspector(body, it, {
-        onDecide: (want) => safeDecide(it, want === null ? "suggest" : want),
+        onDecide: onDecide ? (want) => safeDecide(it, want === null ? "suggest" : want) : null,
         onOpenUnit: openUnit,
         onChangeGroup: onChangeGroup && mode !== "compare" ? (grp) => safeChangeGroup(it, grp) : null,
       });
@@ -168,8 +170,8 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
 
   // Viewer keys for the "?" dialog (the page's own sections stay below).
   const unhelp = pushHelp([{ title: "Layar penuh", keys: [
-    ["← →", "Foto sebelumnya / berikutnya"], ["S", "Keep foto ini"], ["D", "Delete foto ini"],
-    ["Enter", "Ikuti saran, lalu ke foto berikutnya"],
+    ["← →", "Foto sebelumnya / berikutnya"],
+    ...(onDecide ? [["S", "Keep foto ini"], ["D", "Delete foto ini"], ["Enter", "Ikuti saran, lalu ke foto berikutnya"]] : []),
     ...(hasVideo ? [["Spasi", "Putar / jeda video"]] : []),
     ...(hasImage ? [["Roda mouse", "Zoom foto"], ["Seret", "Geser foto yang di-zoom"], ["Klik ganda", "Kembalikan zoom"]] : []),
     ["Esc", "Tutup layar penuh"], ["?", "Bantuan ini"]] }]);

@@ -151,7 +151,7 @@ export function renderInspector(node, unit, { onDecide, onChangeGroup, onOpenUni
     aiSection(unit, onChangeGroup),
     clipsSection(unit, onOpenUnit),
     why,
-    el("div", { class: "insp-actions" }, keepBtn, delBtn),
+    onDecide ? el("div", { class: "insp-actions" }, keepBtn, delBtn) : null, // view-only without onDecide
   );
 }
 
