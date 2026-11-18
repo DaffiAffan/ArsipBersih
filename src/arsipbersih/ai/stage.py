@@ -23,7 +23,7 @@ from ..classify import _is_screen_aspect, download_reason
 from ..config import Settings
 from ..formats import Kind
 from ..grouping import UnitView, has_camera_data, load_unit_views
-from ..pathrules import has_camera_name, is_chat, is_download, segments_of
+from ..pathrules import segments_of
 from ..tools import find_tool
 from ..videoframes import extract, sample_plan
 from .heads import UnitFacts, get_head
