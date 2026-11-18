@@ -81,6 +81,23 @@ def test_stopped_backfill_keeps_scan_unfinished(root, make_video):
     assert conn.execute("select 1 from settings where key = ?", (SCAN_DONE_KEY,)).fetchone()
 
 
+def test_chunk_is_submitted_before_collecting(root, make_video, monkeypatch):
+    conn = _old_videos(root, make_video, monkeypatch, 2)
+    events = []
+
+    class Pool(InlinePool):
+        def submit(self, fn, *args):
+            events.append("submit")
+            f = super().submit(fn, *args)
+            real = f.result
+            f.result = lambda *a, **k: events.append("result") or real(*a, **k)
+            return f
+
+    monkeypatch.setattr(visual, "_pool", Pool)
+    run_video_backfill(conn, root, Settings())
+    assert events == ["submit", "submit", "result", "result"]
+
+
 def test_crash_blames_only_the_culprit(root, make_video, monkeypatch):
     from concurrent.futures.process import BrokenProcessPool
 

@@ -91,9 +91,15 @@ def run_video_backfill(
             ]
             results: dict[str, visual.VisualResult] = {}
             unfinished: list[tuple] = []
-            for job in jobs:
+            futures = []
+            for job in jobs:  # submit the whole chunk first so the workers run in parallel
                 try:
-                    results[job[0]] = pool.submit(_worker, job).result()[1]
+                    futures.append((job, pool.submit(_worker, job)))
+                except BrokenProcessPool:
+                    unfinished.append(job)
+            for job, fut in futures:
+                try:
+                    results[job[0]] = fut.result()[1]
                 except BrokenProcessPool:  # may be a neighbour's crash: find the culprit below
                     unfinished.append(job)
                 except Exception as e:
