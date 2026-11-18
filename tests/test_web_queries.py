@@ -240,3 +240,10 @@ def test_batch_titles_are_readable(conn_with):
     titles = [b["title"] for b in queries.list_batches(conn)]
     assert titles == ["Undo · Apply · Chat (WA/Telegram)", "Kosongkan sampah",
                       "Rapikan ke Arsip", "Apply · Chat (WA/Telegram)"]
+
+
+def test_category_has_label_and_help():
+    from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+
+    assert CATEGORY_LABELS["rekaman-tidak-sengaja"] == "Rekaman tidak sengaja"
+    assert "Cek dulu" in CATEGORY_HELP["rekaman-tidak-sengaja"]

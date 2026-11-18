@@ -43,6 +43,10 @@ class Settings:
     bright_luma_min: float = 240.0       # [Claude]
     clipping_max: float = 0.5            # [Claude] fraction of pixels <=5 or >=250
     dark_video_luma_max: float = 15.0    # [Claude]
+    accidental_dark_fraction: float = 0.8   # [Claude] calibrate later
+    accidental_luma_max: float = 30.0       # [Claude]
+    accidental_motion_max: float = 2.0      # [Claude]
+    accidental_sharpness_max: float = 15.0  # [Claude] on 64x64 frames
     generic_folders: tuple[str, ...] = DEFAULT_GENERIC_FOLDERS
     ai_head: str = "zeroshot"  # AI classification head: "zeroshot" or "trained-vN"
     ai_threads: int = 4  # onnxruntime intra-op threads for the vision encoder
