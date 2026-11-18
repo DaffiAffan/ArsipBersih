@@ -21,6 +21,9 @@ MAX_RGB_CROPS = 3
 UNKNOWN_DURATION_FRAMES = 3
 SPARSE_STEP_S = 4.0  # beyond this spacing only keyframes are decoded (long videos)
 EXTRACT_TIMEOUT_S = 600
+EXTRACT_TIMEOUT_PER_S = 2.0  # slow full 4K decode on 2 threads; long videos are keyframe-only
+EXTRACT_TIMEOUT_MAX_S = 7200
+DECODE_THREADS = "2"  # 4K HEVC: ~555 MB per ffmpeg by default; up to 3 run in parallel on 8 GB
 THUMB_SRC_PX = 512
 
 
@@ -68,7 +71,7 @@ def extract(
     """
     # Two outputs of one decode: raw RGB crops on stdout, and (optionally) the full-aspect
     # frame nearest 50% as a PNG for the thumbnail.
-    pre, fps_part = [ffmpeg, "-nostdin", "-v", "error"], ""
+    pre, fps_part = [ffmpeg, "-nostdin", "-v", "error", "-threads", DECODE_THREADS], ""
     if len(times) > 1:
         step = (times[-1] - times[0]) / (len(times) - 1)
         fps_part = f"fps=1/{step:.6f},"
@@ -87,9 +90,10 @@ def extract(
                 "-map", "[v]", "-frames:v", n, "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
                 "-map", "[t]", "-frames:v", "1", "-y", str(thumb_dst)]
     err = ""
+    timeout = min(EXTRACT_TIMEOUT_MAX_S, max(EXTRACT_TIMEOUT_S, EXTRACT_TIMEOUT_PER_S * times[-1]))
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, timeout=EXTRACT_TIMEOUT_S, check=False,
+            cmd, capture_output=True, timeout=timeout, check=False,
             stdin=subprocess.DEVNULL, creationflags=NO_CONSOLE_FLAGS,
         )
         raw, err = proc.stdout, proc.stderr.decode("utf-8", "replace").strip()[:300]
@@ -99,7 +103,8 @@ def extract(
     count = len(raw) // fb
     if count == 0:
         raise RuntimeError(err or "no frames decoded")
-    if count < len(times) and errors is not None:
+    # ffmpeg's fps filter often drops the final sample at the very end: one short is complete.
+    if count < len(times) - 1 and errors is not None:
         errors.append(f"partial video decode: {count}/{len(times)} frames: {err or 'ended early'}")
     rgb = np.frombuffer(raw, np.uint8, count * fb).reshape(count, RGB_PX, RGB_PX, 3)
     grays = [

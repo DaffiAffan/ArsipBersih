@@ -158,3 +158,28 @@ def test_analyze_video_decodes_with_a_single_process(root, make_video, monkeypat
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a) or real(*a, **k))
     r = analyze_video(v, 4.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
     assert r.decode_ok and len(calls) == 1 and (root / "v.webp").exists()
+
+
+def test_decode_threads_capped_and_timeout_scales_with_duration(monkeypatch, tmp_path):
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append((cmd, kw["timeout"]))
+        return subprocess.CompletedProcess(cmd, 0, b"\0" * (256 * 256 * 3), b"")
+
+    monkeypatch.setattr(videoframes.subprocess, "run", run)
+    for duration in (30.0, 1800.0, 10 * 3600.0):
+        extract("ffmpeg", tmp_path / "v.mp4", sample_plan(duration))
+    timeouts = [t for _, t in seen]
+    for cmd, _ in seen:
+        assert cmd[cmd.index("-threads") + 1] == "2" and cmd.index("-threads") < cmd.index("-i")
+    assert timeouts[0] == videoframes.EXTRACT_TIMEOUT_S
+    assert videoframes.EXTRACT_TIMEOUT_S < timeouts[1] < videoframes.EXTRACT_TIMEOUT_MAX_S
+    assert timeouts[2] == videoframes.EXTRACT_TIMEOUT_MAX_S
+
+
+def test_one_frame_short_is_a_complete_decode(monkeypatch, tmp_path):
+    monkeypatch.setattr(videoframes.subprocess, "run", _fake_run(60, b""))
+    errors: list[str] = []
+    grays, _ = extract("ffmpeg", tmp_path / "v.mp4", sample_plan(61.7), errors=errors)
+    assert len(grays) == 60 and errors == []
