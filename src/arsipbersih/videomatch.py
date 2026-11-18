@@ -14,7 +14,10 @@ Builder's choices (spec 9; calibrate on real data):
   sampling cannot place the ends finer than one sparse spacing (a 600 s video is sampled
   every 5 s). The shorter video's unmatched head + tail and the longer video's extra length
   both <= tol -> duplicate. Shorter covered (<= tol unmatched) but the longer has > tol
-  extra -> clip. Anything else -> none.
+  extra -> clip, but only with >= MIN_FRAMES matched frames in absolute terms (a 12 s clip of
+  a 20-min video overlaps ~1 parent frame, so coverage alone is one chance match; a miss is
+  the safe direction). Not also "most short frames match": with scenes faster than the parent
+  spacing only ~1 short frame per parent spacing can be checked. Anything else -> none.
 - shortcut: two long copies whose 120-frame grids drift apart (e.g. 600 s vs 601.5 s) while
   the content changes faster than the spacing may fall under MIN_FRACTION and stay ungrouped
   (a miss = no group, the safe direction). Upgrade by sampling denser (more frames per video)
@@ -56,6 +59,7 @@ class Match:
     b_start: float
     b_end: float
     edge_gap_s: float = 0.0  # unmatched sparse frames at the overlap's ends x sparse spacing
+    matched_frames: int = 0  # sparse frames inside the overlap that matched
 
 
 def _spacing(times: list[float]) -> float:
@@ -101,7 +105,7 @@ def align(a: VideoFrameData, b: VideoFrameData, max_dist: int) -> Match | None:
     first, last = float(ts[idx[0]]), float(ts[idx[-1]])
     if not a_sparse:  # report in a's and b's own timelines
         first, last = first - offset, last - offset
-    return Match(offset, n_ok / n_in, first, last, first + offset, last + offset, float(gap))
+    return Match(offset, n_ok / n_in, first, last, first + offset, last + offset, float(gap), n_ok)
 
 
 def pair_relation(
@@ -122,7 +126,13 @@ def pair_relation(
     if uncovered > tol:
         return "none", m
     extra = dur_b - (dur_a - uncovered)
-    return ("duplicate" if extra <= tol else "clip"), m
+    if extra <= tol:
+        return "duplicate", m
+    # A short clip of a long parent overlaps only a few sparse parent frames: one chance match
+    # would read as full coverage. Demand MIN_FRAMES real matches (a miss is the safe direction).
+    if m.matched_frames < MIN_FRAMES:
+        return "none", m
+    return "clip", m
 
 
 def classify_pair(

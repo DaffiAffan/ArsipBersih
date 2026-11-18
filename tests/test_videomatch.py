@@ -200,3 +200,13 @@ def test_clip_of_non_keeper_copy_points_at_keeper(conn_with):
         " join files f on f.id = u.primary_file_id"
     ).fetchall()
     assert [r[0].rsplit("/", 1)[-1] for r in rows] == ["VID_PARENT.mp4"]
+
+
+def test_one_shared_frame_with_long_video_is_not_a_clip():
+    # 20-min parent sampled every 10 s: a 12 s video overlaps ~1 parent frame. Eleven random
+    # frames plus one copied parent frame must not read as a full-coverage clip.
+    c = scenes(15, n=300)
+    parent = video(c, 0, 1200)
+    short = video(scenes(16), 0, 12)
+    short.phashes[5] = parent.phashes[60]
+    assert classify_pair(parent, short, 1200, 12) == "none"
