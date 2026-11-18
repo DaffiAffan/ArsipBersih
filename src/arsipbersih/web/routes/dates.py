@@ -224,11 +224,13 @@ def manual(body: ManualBody, request: Request, conn: sqlite3.Connection = Depend
         raise UserError("Tahun tidak valid.", 400)
     if not 1 <= body.month <= 12:
         raise UserError("Bulan tidak valid.", 400)
+    if body.day is not None and not 1 <= body.day <= 31:
+        raise UserError("Hari tidak valid.", 400)
     try:
-        day = date(body.year, body.month, body.day or 1)
+        day = date(body.year, body.month, 1 if body.day is None else body.day)
     except ValueError:
         raise UserError("Tanggal itu tidak ada di bulan tersebut.", 400) from None
-    precision = "day" if body.day else "month"
+    precision = "day" if body.day is not None else "month"
     taken_at = f"{day.isoformat()}T12:00:00"
     found = {r[0] for r in _rows(conn, "select id from units where id in ({marks}) and location != 'trash'", ids)}
     if len(found) != len(ids):

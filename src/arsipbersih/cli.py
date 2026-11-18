@@ -134,7 +134,7 @@ def _plan_summary(conn, root: Path) -> None:
     for cat, (units, size) in summary.review.items():
         typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
     for reason, (units, size) in summary.by_reason.items():
-        label = "moved because the date was corrected" if reason == REDATED_REASON else reason
+        label = "moved because the date changed" if reason == REDATED_REASON else reason
         typer.echo(f"Within Arsip ({label}): {units} units, {human_bytes(size)}")
     typer.echo(f"Skipped units: {len(summary.skipped)}")
     for unit_id, reason in summary.skipped:
@@ -424,6 +424,7 @@ def report(root: Path = _root_arg()) -> None:
             f"Rename hint: {folder} is named {folder_month}, "
             f"but most of its photos are from {month}"
         )
+    typer.echo(f"Outdated .xmp kept: {r.stale_xmp}")
     typer.echo(f"Cache size: {human_bytes(r.cache_bytes)}")
     for w in r.clock_warnings:
         typer.echo(f"Warning: {w}")

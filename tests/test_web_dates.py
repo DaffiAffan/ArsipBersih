@@ -125,6 +125,7 @@ def test_manual_date_for_selection(web, conn_with):
     r = web.post("/api/dates/manual", json={"unit_ids": [a], "year": 2019, "month": 2, "day": 30})
     assert r.status_code == 400
     assert "tanggal" in r.json()["detail"].lower()
+    assert web.post("/api/dates/manual", json={"unit_ids": [a], "year": 2019, "month": 2, "day": 0}).status_code == 400
     assert web.post("/api/dates/manual", json={"unit_ids": [], "year": 2019, "month": 2}).status_code == 400
     assert web.post("/api/dates/manual", json={"unit_ids": ["nope"], "year": 2019, "month": 2}).status_code == 404
 
