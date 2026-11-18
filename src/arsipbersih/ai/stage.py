@@ -24,6 +24,8 @@ from ..config import Settings
 from ..formats import Kind
 from ..grouping import UnitView, load_unit_views
 from ..pathrules import segments_of
+from ..tools import find_tool
+from ..videoframes import extract, sample_plan
 from .heads import UnitFacts, get_head
 from .model import INPUT_PX, MODEL_NAME, VisionEncoder, crop_rgb, model_status
 from .store import (
@@ -71,6 +73,18 @@ def _stack(crops: list[bytes]) -> np.ndarray:
     return np.frombuffer(b"".join(crops), dtype=np.uint8).reshape(len(crops), *_CROP_SHAPE)
 
 
+def embed_groups(encoder, groups: list[tuple[str, list[bytes]]]) -> list[tuple[str, np.ndarray]]:
+    """One embedding per unit: a video's crops are embedded together and averaged (re-normalized)."""
+    flat = _stack([c for _, crops in groups for c in crops])
+    vecs = np.asarray(encoder.embed(flat), dtype=np.float32)
+    out, i = [], 0
+    for unit_id, crops in groups:
+        v = vecs[i : i + len(crops)].mean(axis=0)
+        i += len(crops)
+        out.append((unit_id, v / max(float(np.linalg.norm(v)), 1e-12)))
+    return out
+
+
 class AiCollector:
     """Visual-stage sink: maps a file to its unit (primary files only) and embeds in batches."""
 
@@ -80,12 +94,17 @@ class AiCollector:
         self._conn = conn
         self._model = model
         self._batch = max(1, batch)
-        self._pending: list[tuple[str, bytes]] = []
+        self._pending: list[tuple[str, list[bytes]]] = []
+        self._crops = 0
         self.embedded = 0
         self.error: str | None = None  # set when embedding failed; the collector then stops
 
-    def add(self, file_id: str, rgb_bytes: bytes) -> None:
-        if self.error is not None or len(rgb_bytes) != _CROP_BYTES:
+    def add(self, file_id: str, rgb: bytes | list[bytes]) -> None:
+        self.add_many(file_id, [rgb] if isinstance(rgb, bytes) else rgb)
+
+    def add_many(self, file_id: str, rgb_list: list[bytes]) -> None:
+        crops = [c for c in rgb_list if len(c) == _CROP_BYTES]
+        if self.error is not None or not crops:
             return
         row = self._conn.execute(
             "select u.id from files f join units u on u.id = f.unit_id"
@@ -94,32 +113,44 @@ class AiCollector:
         ).fetchone()
         if row is None:  # a companion file (RAW of a RAW+JPG pair, Live Photo video, ...)
             return
-        self._pending.append((row[0], rgb_bytes))
-        if len(self._pending) >= self._batch:
+        self._pending.append((row[0], crops))
+        self._crops += len(crops)
+        if self._crops >= self._batch:
             self.flush()
 
     def flush(self) -> None:
         if not self._pending:
             return
-        pending, self._pending = self._pending, []
+        pending, self._pending, self._crops = self._pending, [], 0
         try:
-            vecs = self._encoder.embed(_stack([c for _, c in pending]))
+            rows = embed_groups(self._encoder, pending)
         except Exception as e:  # the backfill retries these units on the ai stage
             self.error = _error_text(e)
             return
-        save_embeddings(self._conn, self._model, [(u, v) for (u, _), v in zip(pending, vecs)])
+        save_embeddings(self._conn, self._model, rows)
         self.embedded += len(pending)
 
 
 # --- backfill ------------------------------------------------------------------------------
 
 
-def _backfill_worker(job: tuple[str, str, str]) -> tuple[str, bytes | None, str | None, bool]:
-    """(unit_id, crop bytes, error, retry later). Runs in a worker process."""
+def _video_crops(path: str) -> list[bytes]:
+    ffmpeg = find_tool("ffmpeg")
+    if ffmpeg is None:
+        raise MemoryError("ffmpeg not found")  # treated as transient: retried once it is installed
+    duration = visual._probe_duration(Path(path))
+    times = [duration * f for f in (0.1, 0.5, 0.9)] if duration else sample_plan(None)
+    return [c.tobytes() for c in extract(ffmpeg, Path(path), times)[1]]
+
+
+def _backfill_worker(job: tuple[str, str, str]) -> tuple[str, list[bytes] | None, str | None, bool]:
+    """(unit_id, crops, error, retry later). Runs in a worker process."""
     unit_id, path, kind = job
     try:
+        if Kind(kind) == Kind.VIDEO:
+            return unit_id, _video_crops(path), None, False
         img = visual._load_rgb(Path(path), Kind(kind), BACKFILL_DRAFT_PX)
-        return unit_id, crop_rgb(img).tobytes(), None, False
+        return unit_id, [crop_rgb(img).tobytes()], None, False
     except Exception as e:
         transient = isinstance(e, MemoryError) or visual._is_transient(e)
         return unit_id, None, _error_text(e), transient
@@ -254,11 +285,11 @@ def run_ai(
                             record_error(conn, unit_id, MODEL_NAME, error or "decode failed")
                 if ok:
                     try:
-                        vecs = encoder.embed(_stack([c for _, c in ok]))
+                        rows = embed_groups(encoder, ok)
                     except Exception as e:
                         result.warnings.append(f"Model AI gagal menghitung embedding ({_error_text(e)})")
                         return result
-                    save_embeddings(conn, MODEL_NAME, [(u, v) for (u, _), v in zip(ok, vecs)])
+                    save_embeddings(conn, MODEL_NAME, rows)
                     result.embedded += len(ok)
                 done += len(decoded)
                 if progress:

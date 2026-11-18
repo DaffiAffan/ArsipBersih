@@ -37,10 +37,11 @@ from .mover import (
 from .pairing import build_units, confirm_live_photos
 from .planner import compute_plans, plan_rapikan
 from .tools import ToolStatus, check_tools
+from .videostage import run_video_backfill
 from .visual import run_visual
 
 STAGES = (
-    "inventory", "pairing", "hash", "metadata", "visual", "ai",
+    "inventory", "pairing", "hash", "metadata", "visual", "video", "ai",
     "grouping", "classify", "events", "dates", "plan",
 )
 
@@ -176,6 +177,9 @@ def run_scan(
         try:
             run_visual(conn, root, settings, begin("visual"), stop,
                        ai_sink=collector.add if collector is not None else None)
+            if not stopped():
+                run_video_backfill(conn, root, settings, begin("video"), stop,
+                                   ai_sink=collector.add_many if collector is not None else None)
         finally:
             if collector is not None:
                 collector.flush()  # also on pause: crops already decoded are not lost
