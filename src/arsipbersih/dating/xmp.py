@@ -194,6 +194,24 @@ def _sidecars(conn: sqlite3.Connection) -> tuple[dict[str, _Own], dict[str, list
     return own, foreign
 
 
+def is_stale_own(source: str | None, taken_at: str | None) -> bool:
+    """A unit that carries our sidecar but whose effective date is now a camera date or empty."""
+    return source in CAMERA_SOURCES or not taken_at
+
+
+def count_stale_own(conn: sqlite3.Connection) -> int:
+    """Archive units with an outdated own sidecar (same rule as `XmpResult.stale_own`)."""
+    units = _archive_units(conn, None)
+    own_by_unit, _ = _sidecars(conn)
+    units = [u for u in units if u.unit_id in own_by_unit]
+    dates = effective_dates(conn, [u.unit_id for u in units])
+    n = 0
+    for u in units:
+        taken_at, source, _precision = dates.get(u.unit_id, (None, None, None))
+        n += is_stale_own(source, taken_at)
+    return n
+
+
 def _tracked_paths(conn: sqlite3.Connection) -> set[str]:
     """Every files.rel_path, lowercased: one query per run instead of a full-table
     `collate nocase` scan per new sidecar."""
@@ -284,7 +302,7 @@ def write_dates(
     for unit in units:
         taken_at, source, precision = dates.get(unit.unit_id, (None, None, None))
         own = own_by_unit.get(unit.unit_id)
-        if own is not None and (source in CAMERA_SOURCES or not taken_at):
+        if own is not None and is_stale_own(source, taken_at):
             res.stale_own.append(unit.rel_path)  # left untouched, only reported
             continue
         if source in CAMERA_SOURCES:
@@ -347,6 +365,12 @@ def write_dates_after_move(
         errors.append(f"xmp: dates not written: {type(e).__name__}: {e}")
         return None
     errors.extend(f"xmp: {e}" for e in res.errors)
+    errors.extend(
+        f"xmp: {rel}: old .xmp from ArsipBersih kept, date now comes from the camera"
+        for rel in res.stale_own[:MAX_REPORTED]
+    )
+    if len(res.stale_own) > MAX_REPORTED:
+        errors.append(f"xmp: {len(res.stale_own) - MAX_REPORTED} more with an old .xmp kept")
     errors.extend(
         f"xmp: {rel}: has its own .xmp, date not written"
         for rel in res.skipped_foreign[:MAX_REPORTED]

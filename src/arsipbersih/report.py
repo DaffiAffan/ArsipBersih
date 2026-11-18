@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .dating.clock import device_warnings
 from .dating.infer import event_proposals
+from .dating.xmp import count_stale_own
 from .formats import IGNORED_NAMES, SKIP_DIRS, Kind, detect_kind
 from .layout import ARCHIVE_DIR, REVIEW_DIR, SOURCE_DIR, STATE_DIR, TRASH_DIR, long_path
 from .planner import _archived_month
@@ -33,6 +34,7 @@ class Report:
     date_proposals: int = 0  # events waiting for an owner date decision
     # (event folder, folder month, majority effective month) for archived event folders
     event_month_mismatch: list[tuple[str, str, str]] = field(default_factory=list)
+    stale_xmp: int = 0  # archive units with an outdated own .xmp (camera date now, or no date)
 
 
 @dataclass
@@ -153,6 +155,7 @@ def build_report(conn: sqlite3.Connection, root: Path) -> Report:
         date_sources=date_sources,
         date_proposals=len(event_proposals(conn)),
         event_month_mismatch=_event_month_mismatch(conn),
+        stale_xmp=count_stale_own(conn),
     )
 
 
