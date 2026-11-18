@@ -442,3 +442,44 @@ def test_apply_category_rejects_changed_lists_before_moving(web, root, review_un
         conn.close()
     assert _db_row(root, a) == "review" and _db_row(root, b) == "review"
     assert (root / "_review/burem/HP/IMG_0.jpg").exists()
+
+
+def _video_unit(root, name, category=None):
+    conn = open_db(root)
+    try:
+        uid = _add_unit(conn, root, f"_review/{category or 'x'}/HP/{name}", location="review", category=category)
+        conn.execute("update files set kind='video', ext='mp4' where unit_id=?", (uid,))
+        conn.commit()
+        return uid
+    finally:
+        conn.close()
+
+
+def test_unit_detail_has_clip_relations(web, root):
+    parent, clip = _video_unit(root, "VID_full.mp4"), _video_unit(root, "VID_cut.mp4")
+    conn = open_db(root)
+    conn.execute(
+        "insert into video_clips(id, clip_unit_id, parent_unit_id, offset_s, created_at) values(?,?,?,?,?)",
+        (new_id(), clip, parent, 45.0, "2024-01-01T00:00:00"),
+    )
+    conn.commit()
+    conn.close()
+    c = web.get(f"/api/review/unit/{clip}").json()["clips"]
+    assert c["parent"] == {"unit_id": parent, "name": "VID_full.mp4", "offset_s": 45.0} and c["children"] == []
+    p = web.get(f"/api/review/unit/{parent}").json()["clips"]
+    assert p["parent"] is None and [x["unit_id"] for x in p["children"]] == [clip]
+
+
+def test_video_ai_group_rejects_document_groups(web, root):
+    v = _video_unit(root, "VID_a.mp4")
+    assert web.post("/api/review/ai-group", json={"unit_id": v, "grp": "keuangan"}).status_code == 400
+    assert web.post("/api/review/ai-group", json={"unit_id": v, "grp": "grafis"}).status_code == 200
+
+
+def test_video_correction_to_lainnya_removes_flag(web, root):
+    v = _video_unit(root, "VID_b.mp4", category="download-meme")
+    _label(root, v, "grafis", None, 0.8)
+    r = web.post("/api/review/ai-group", json={"unit_id": v, "grp": "lainnya"})
+    assert r.status_code == 200 and r.json()["primary_category"] is None
+    assert r.json()["ai"]["label"] == "Video biasa"  # toast and "Dikoreksi: ..." text
+    assert web.get(f"/api/review/unit/{v}").json()["ai"]["label"] == "Video biasa"

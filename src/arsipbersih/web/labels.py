@@ -15,6 +15,7 @@ CATEGORY_LABELS = {
     "download-meme": "Download / meme / grafis",
     "pendamping-gopro": "File GoPro (LRV/THM)",
     "sampah-hp": "Trash HP",
+    "rekaman-tidak-sengaja": "Rekaman tidak sengaja",
     "video-pendek-gelap": "Video pendek / gelap",
     "kepencet": "Kepencet (tidak sengaja)",
     "burem": "Blur",
@@ -50,6 +51,10 @@ CATEGORY_HELP = {
     "download-meme": f"Gambar hasil download, meme, atau grafis dari internet. {_GRID_TAIL}",
     "pendamping-gopro": f"File pendamping GoPro (LRV/THM) yang bukan video utama. {_GRID_TAIL}",
     "sampah-hp": f"File dari folder sampah atau cache HP. {_GRID_TAIL}",
+    "rekaman-tidak-sengaja": (
+        "Video yang hampir semuanya gelap, atau buram dan nyaris tidak bergerak. Kemungkinan besar"
+        f" terekam tidak sengaja, misalnya di dalam kantong. Cek dulu sebelum dibuang. {_GRID_TAIL}"
+    ),
     "video-pendek-gelap": f"Video yang sangat pendek atau gelap, biasanya tidak sengaja terekam. {_GRID_TAIL}",
     "kepencet": f"Foto yang kemungkinan terjepret tidak sengaja. {_GRID_TAIL}",
     "burem": f"Foto yang Blur atau tidak fokus. {_GRID_TAIL}",

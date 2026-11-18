@@ -8,7 +8,7 @@ CHAT_WORDS = ("whatsapp", "telegram", "messenger", "line", "signal", "wechat")
 CHAT_NAME_RE = r"^(IMG|VID|AUD|PTT|STK)-\d{8}-WA\d{4}"
 DOWNLOAD_DIRS = ("download", "downloads", "unduhan", "bluetooth")
 TRASH_MARKERS = (".trashed", ".trash", "recycle bin", "$recycle.bin")
-CAMERA_NAME_RE = r"^(IMG|VID|DSC|DSCF|DSCN|_DSC|PXL|MVIMG|GX|GH|GP|GOPR|P\d{7})|^\d{8}_\d{6}"
+CAMERA_NAME_RE = r"^(IMG|VID|DSC|DSCF|DSCN|_DSC|PXL|MVIMG|GX|GH|GP|GOPR|DJI_|P\d{7})|^\d{8}_\d{6}"
 BURST_RE = r"_(BURST|COVER)\d*"
 
 _CHAT_NAME = re.compile(CHAT_NAME_RE, re.IGNORECASE)

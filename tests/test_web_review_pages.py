@@ -160,3 +160,15 @@ def test_hidden_attribute_beats_author_display_rules(web):
     css = web.get("/static/css/base.css").text
     assert "[hidden] { display: none !important; }" in css
     assert "hasImage" in web.get("/static/viewer.js").text
+
+
+def test_inspector_js_has_clip_strings(web):
+    insp = web.get("/static/inspector.js").text
+    for s in ("Potongan dari:", "Punya potongan:", "Video biasa", "onOpenUnit"):
+        assert s in insp
+
+
+def test_viewer_without_ondecide_hides_decision_actions(web):
+    viewer = web.get("/static/viewer.js").text
+    assert 'onDecide ? [["S", "keep"]' in viewer and "onDecide: onDecide ?" in viewer
+    assert 'onDecide ? el("div", { class: "insp-actions" }' in web.get("/static/inspector.js").text

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import statistics
 from collections import defaultdict
 
 from .config import Settings
 from .db import new_id
+from .videoframes import load_video_frames
 from .grouping import UnitView, load_unit_views
 from .pathrules import (
     is_chat,
@@ -21,7 +23,7 @@ CATEGORY_PRIORITY: tuple[str, ...] = (
     "rusak", "duplikat-persis", "duplikat-versi", "mirip-beruntun",
     "dokumen-identitas", "dokumen-keuangan", "dokumen-kertas", "screenshot",
     "download-meme", "kiriman-chat", "pendamping-gopro", "sampah-hp",
-    "video-pendek-gelap", "kepencet", "burem", "gelap-terang",
+    "rekaman-tidak-sengaja", "video-pendek-gelap", "kepencet", "burem", "gelap-terang",
 )
 GROUP_CATEGORIES = frozenset({"duplikat-persis", "duplikat-versi", "mirip-beruntun"})
 GRID_CATEGORIES = frozenset(CATEGORY_PRIORITY) - GROUP_CATEGORIES
@@ -30,6 +32,9 @@ SCREEN_RATIOS = (16 / 9, 2.0, 18.5 / 9, 19 / 9, 19.5 / 9, 20 / 9, 21 / 9)
 SCREEN_RATIO_TOLERANCE = 0.02
 MEME_LONG_SIDE = 1000
 MEME_EXTS = frozenset({"gif", "webp"})
+
+VIDEO_AI_CATEGORIES = frozenset({"download-meme", "screenshot"})
+VIDEO_AI_MIN = 0.7
 
 Flag = tuple[str, float | None, str]  # category, score, reason
 
@@ -109,7 +114,7 @@ def _broken_units(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -
 def _extras(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict[str, dict]:
     rows = _rows(
         conn,
-        "select u.id as unit_id, f.ext, m.luma_mean, m.luma_std, m.clipping, m.frame_lumas "
+        "select u.id as unit_id, f.id as file_id, f.kind, f.ext, m.luma_mean, m.luma_std, m.clipping, m.frame_lumas "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
         "where f.missing = 0 and f.purged = 0",
@@ -120,6 +125,9 @@ def _extras(conn: sqlite3.Connection, unit_ids: list[str] | None = None) -> dict
         lumas = json.loads(r["frame_lumas"]) if r["frame_lumas"] else None
         out[r["unit_id"]] = dict(ext=r["ext"] or "", luma=r["luma_mean"], std=r["luma_std"],
                                  clip=r["clipping"], frame_lumas=lumas)
+    video_files = {r["file_id"]: r["unit_id"] for r in rows if r["kind"] == "video"}
+    for fid, data in load_video_frames(conn, video_files).items():
+        out[video_files[fid]]["vframes"] = data
     return out
 
 
@@ -135,6 +143,24 @@ def _group_flags(conn: sqlite3.Connection, unit_ids: list[str] | None = None) ->
         if r["kind"] in GROUP_CATEGORIES:
             out[r["unit_id"]].append((r["kind"], None, _GROUP_REASONS[r["kind"]]))
     return out
+
+
+def _accidental_reason(vf, s: Settings) -> tuple[float, str] | None:
+    """(fraction, reason) for a pocket/accidental recording, from stored frame data, or None.
+
+    Needs near-static footage (median motion) plus mostly dark or mostly blurry frames, so a
+    dark concert with real motion is not flagged. Videos without frame data never match.
+    """
+    if vf is None or not vf.lumas or not vf.motion or statistics.median(vf.motion) > s.accidental_motion_max:
+        return None
+    n = len(vf.lumas)
+    dark = sum(v <= s.accidental_luma_max for v in vf.lumas) / n
+    if dark >= s.accidental_dark_fraction:
+        return dark, f"Rekaman tidak sengaja: {dark * 100:.0f}% frame gelap"
+    blur = sum(v <= s.accidental_sharpness_max for v in vf.sharpness) / max(1, len(vf.sharpness))
+    if blur >= s.accidental_dark_fraction:
+        return blur, f"Rekaman tidak sengaja: {blur * 100:.0f}% frame buram, nyaris tak bergerak"
+    return None
 
 
 def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: str | None) -> list[Flag]:
@@ -165,6 +191,8 @@ def _classify_unit(u: UnitView, ex: dict, s: Settings, broken: str | None) -> li
         elif lumas and all(v < s.dark_video_luma_max for v in lumas):
             flags.append(("video-pendek-gelap", max(lumas),
                           f"video terlalu gelap: luma {_num(max(lumas))}"))
+        elif (acc := _accidental_reason(ex.get("vframes"), s)):
+            flags.append(("rekaman-tidak-sengaja", acc[0], acc[1]))
     sharp, luma, std, clip = u.sharpness, ex["luma"], ex["std"], ex["clip"]
     if sharp is not None and sharp < s.kepencet_sharpness_max and (
         (luma is not None and luma < s.kepencet_luma_max)
@@ -238,8 +266,11 @@ def _unit_flags(u: UnitView, facts: _Facts) -> list[Flag]:
     flags = list(facts.group_flags.get(u.unit_id, []))
     if u.location != "archive":
         flags += _classify_unit(u, facts.extras[u.unit_id], facts.settings, facts.broken.get(u.unit_id))
-    if u.location != "archive" and u.kind != "video" and u.unit_id in facts.ai_flags:
+    if u.location != "archive" and u.unit_id in facts.ai_flags:
         cat, prob, reason = facts.ai_flags[u.unit_id]
+        # Videos: only graphics and screen recordings, at a fixed threshold (documents are ignored).
+        if u.kind == "video" and (cat not in VIDEO_AI_CATEGORIES or prob < VIDEO_AI_MIN):
+            return flags
         if not any(f[0] == cat for f in flags):
             flags.append((cat, prob, reason))
     return flags

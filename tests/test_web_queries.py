@@ -219,6 +219,22 @@ def test_version_reason_names_resolution(conn_with):
     assert origins[small] == "versi kiriman WA" and origins[big] is None
 
 
+def test_video_version_reason_follows_video_keeper_order(conn_with):
+    conn = conn_with([
+        {"name": "VID_LONG.mp4", "loc": "review", "w": 1280, "h": 720, "duration": 60.0},
+        {"name": "VID_SHORT.mp4", "loc": "review", "w": 1920, "h": 1080, "duration": 40.0},
+        {"name": "VID_HQ.mp4", "loc": "review", "w": 1920, "h": 1080, "duration": 30.0,
+         "size": 30_000_000},
+        {"name": "VID_LQ.mp4", "loc": "review", "w": 1920, "h": 1080, "duration": 30.5,
+         "size": 10_000_000},
+    ])
+    uid = {n: _unit(conn, n)["uid"] for n in ("VID_LONG.mp4", "VID_SHORT.mp4", "VID_HQ.mp4", "VID_LQ.mp4")}
+    gid = _group(conn, "duplikat-versi", uid["VID_LONG.mp4"], [uid["VID_LONG.mp4"], uid["VID_SHORT.mp4"]])
+    assert queries.group_detail(conn, gid)["reason"] == "Durasi paling panjang"
+    gid = _group(conn, "duplikat-versi", uid["VID_HQ.mp4"], [uid["VID_HQ.mp4"], uid["VID_LQ.mp4"]])
+    assert queries.group_detail(conn, gid)["reason"] == "Kualitas (bitrate) paling tinggi"
+
+
 def test_burst_reason_is_sharpest(conn_with):
     conn = conn_with([{"name": n, "loc": "review"} for n in ("a.jpg", "b.jpg")])
     a, b = _unit(conn, "a.jpg")["uid"], _unit(conn, "b.jpg")["uid"]
@@ -240,3 +256,10 @@ def test_batch_titles_are_readable(conn_with):
     titles = [b["title"] for b in queries.list_batches(conn)]
     assert titles == ["Undo · Apply · Chat (WA/Telegram)", "Kosongkan sampah",
                       "Rapikan ke Arsip", "Apply · Chat (WA/Telegram)"]
+
+
+def test_category_has_label_and_help():
+    from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+
+    assert CATEGORY_LABELS["rekaman-tidak-sengaja"] == "Rekaman tidak sengaja"
+    assert "Cek dulu" in CATEGORY_HELP["rekaman-tidak-sengaja"]

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from .layout import STATE_DIR, long_path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
+VIDEO_META_REFRESH_KEY = "video_meta_refresh"
 BUSY_TIMEOUT_MS = 30_000
 
 SCHEMA = """
@@ -204,6 +205,27 @@ create table if not exists xmp_writes (
     created_at text
 );
 
+create table if not exists video_frames (
+    id text primary key,
+    file_id text not null unique references files(id),
+    version integer not null,
+    times text not null,
+    phashes text not null,
+    lumas text not null,
+    sharpness text not null,
+    motion text not null,
+    created_at text
+);
+
+-- Rewritten by every grouping run, like groups (spec 5.4).
+create table if not exists video_clips (
+    id text primary key,
+    clip_unit_id text not null references units(id),
+    parent_unit_id text not null references units(id),
+    offset_s real,
+    created_at text
+);
+
 -- Dropped and recreated on every schema run so the definition can change across versions.
 drop view if exists unit_dates;
 create view unit_dates as
@@ -245,9 +267,13 @@ def open_db(root: Path, *, check_same_thread: bool = True) -> sqlite3.Connection
     conn.execute("pragma foreign_keys=on")
     # Only touch the file (write lock) when the schema is missing or outdated, so opening
     # a connection never stalls behind a long writer such as a scan batch.
-    if conn.execute("pragma user_version").fetchone()[0] != SCHEMA_VERSION:
+    old = conn.execute("pragma user_version").fetchone()[0]
+    if old != SCHEMA_VERSION:
         conn.execute("pragma journal_mode=wal")
         conn.executescript(SCHEMA)
+        if 0 < old < 5:  # videos read before QuickTime/Keys camera fields: refill once (metadata)
+            conn.execute("insert or ignore into settings(key, value) values(?, 'true')",
+                         (VIDEO_META_REFRESH_KEY,))
         conn.execute(f"pragma user_version={SCHEMA_VERSION}")
         conn.commit()
     return conn

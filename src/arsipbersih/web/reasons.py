@@ -5,7 +5,9 @@ Compares the keeper with the best other member using the engine's own key functi
 """
 from __future__ import annotations
 
-from ..grouping import UnitView, _completeness, _exact_key, _version_key
+from ..grouping import (
+    UnitView, _clearly_shorter, _completeness, _exact_key, _version_key, choose_keeper_version,
+)
 
 _FALLBACK = "Saran otomatis"
 _COMPLETE = "Salinan paling lengkap (ikut file pasangannya)"
@@ -37,13 +39,30 @@ def _exact_reason(keeper: UnitView, other: UnitView) -> str:
     return _EXACT_LABELS[i]
 
 
+# Video _version_key slots after completeness (2) and pixels: bitrate, camera data,
+# chat/download, camera file name, in Arsip (grouping.py).
+_VIDEO_LABELS = {
+    3: "Kualitas (bitrate) paling tinggi",
+    4: "Ada data kamera",
+    5: "Bukan kiriman chat/download",
+    6: "Nama file asli kamera",
+    7: "Salinan yang sudah ada di Arsip",
+}
+
+
 def _version_reason(keeper: UnitView, other: UnitView) -> str:
     # _version_key = (*completeness(2), -pixels, -size, no_camera, *exact_key)
     i = _first_diff(_version_key(keeper), _version_key(other))
+    video = keeper.kind == "video" and other.kind == "video"
+    if video and keeper.file_count == other.file_count and _clearly_shorter(
+            other.duration_s or 0.0, keeper.duration_s or 0.0):
+        return "Durasi paling panjang"  # checked before the key, as in choose_keeper_version
     if i is None:
         return _FALLBACK
     if i < len(_completeness(keeper)):
         return _COMPLETE
+    if video and i != 2:
+        return _VIDEO_LABELS.get(i, _FALLBACK)
     return {
         len(_completeness(keeper)): "Resolusi paling besar",
         len(_completeness(keeper)) + 1: "File paling besar",
@@ -62,6 +81,6 @@ def suggestion_reason(kind: str, views: list[UnitView], keeper_id: str) -> str:
         best = min(others, key=lambda v: (_completeness(v), v.location != "archive", _exact_key(v)))
         return _exact_reason(keeper, best)
     if kind == "duplikat-versi":
-        best = min(others, key=_version_key)
-        return _version_reason(keeper, best)
+        best_id = choose_keeper_version(others)
+        return _version_reason(keeper, next(v for v in others if v.unit_id == best_id))
     return _FALLBACK

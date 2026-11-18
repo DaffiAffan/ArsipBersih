@@ -8,6 +8,7 @@ import os
 import signal
 import sqlite3
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -25,6 +26,7 @@ from .config import Settings
 from .formats import Kind
 from .layout import long_path
 from .tools import NO_CONSOLE_FLAGS, find_tool
+from .videoframes import VideoFrameData, extract, sample_plan, save_video_frames
 
 pillow_heif.register_heif_opener()
 
@@ -56,6 +58,8 @@ class VisualResult:
     error: str | None = None
     retry: bool = False  # a timeout or I/O error, not the file: visual_status stays NULL
     ai_rgb: bytes | None = None  # 256x256x3 uint8 crop for the AI stage, only when asked for
+    video_frames: VideoFrameData | None = None
+    ai_rgb_list: list[bytes] | None = None  # up to 3 video crops, only when asked for
 
 
 class NoRawThumbnail(ValueError):
@@ -261,33 +265,52 @@ def _grab_frame(ffmpeg: str, path: Path, t: float) -> bytes:
 
 
 def analyze_video(
-    path: Path, duration_s: float | None, settings: Settings, ffmpeg: str, thumb_dst: Path
+    path: Path, duration_s: float | None, settings: Settings, ffmpeg: str, thumb_dst: Path,
+    want_ai: bool = False,
 ) -> VisualResult:
     try:
         path = Path(path)
         if not duration_s or duration_s <= 0:
             duration_s = _probe_duration(path)
-        if duration_s:
-            times = [duration_s * f for f in VIDEO_FRAME_FRACTIONS]
-        else:
-            times = list(FALLBACK_FRAME_TIMES)
-        frames: list[bytes] = []
-        for t in times:
+        errors: list[str] = []
+        dark = settings.dark_video_luma_max
+        with tempfile.TemporaryDirectory() as tmp:
+            thumb_png = Path(tmp) / "mid.png"
             try:
-                frames.append(_grab_frame(ffmpeg, path, t))
-            except RuntimeError:
-                frames.append(_grab_frame(ffmpeg, path, 0.0))  # seek past the end: use the start
-        grays = []
-        for data in frames:
-            g = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
-            if g is None:
-                raise ValueError("undecodable video frame")
-            grays.append(g)
-        mid = grays[1]
+                times = sample_plan(duration_s)
+                grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors,
+                                       thumb_dst=thumb_png)
+            except RuntimeError:  # a wrong duration can seek past the end: sample the start
+                if not duration_s:
+                    raise
+                times = sample_plan(None)  # extra process, only on this failure path
+                errors.clear()
+                grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors,
+                                       thumb_dst=thumb_png)
+            times = times[: len(grays)]
+            mid_png = thumb_png.read_bytes() if thumb_png.exists() else b""
+        if not mid_png:  # the middle frame was lost to a partial decode; failure path only
+            mid_png = _grab_frame(ffmpeg, path, 0.0)
+        mid = cv2.imdecode(np.frombuffer(mid_png, np.uint8), cv2.IMREAD_GRAYSCALE)
+        if mid is None:
+            raise ValueError("undecodable video frame")
         mean, std, clip = luma_stats(mid)
-        with Image.open(io.BytesIO(frames[1])) as im:
+        with Image.open(io.BytesIO(mid_png)) as im:
             im.load()
             _save_webp(im.convert("RGB"), thumb_dst, settings.thumb_px)
+        data = VideoFrameData(
+            times=times,
+            phashes=[phash_hex(phash64(g)) for g in grays],
+            lumas=[float(g.mean()) for g in grays],
+            sharpness=[sharpness_score(g) for g in grays],
+            motion=[0.0] + [
+                float(np.abs(a.astype(np.int16) - b).mean()) for a, b in zip(grays[1:], grays)
+            ],
+        )
+        near = [
+            min(range(len(times)), key=lambda i: abs(times[i] - (duration_s or 1.0) * f))
+            for f in VIDEO_FRAME_FRACTIONS
+        ]
         return VisualResult(
             decode_ok=True,
             phash=phash_hex(phash64(mid)),
@@ -295,8 +318,11 @@ def analyze_video(
             luma_mean=mean,
             luma_std=std,
             clipping=clip,
-            frame_phashes=[phash_hex(phash64(g)) for g in grays],
-            frame_lumas=[float(g.mean()) for g in grays],
+            frame_phashes=[data.phashes[i] for i in near],
+            frame_lumas=[data.lumas[i] for i in near],
+            error="; ".join(errors) or None,
+            video_frames=data,
+            ai_rgb_list=[c.tobytes() for c in crops] if want_ai else None,
         )
     except Exception as e:
         return _failure(e)
@@ -352,7 +378,8 @@ def _worker(job: tuple) -> tuple[str, VisualResult]:
         os._exit(1)
     kind = Kind(kind)
     if kind == Kind.VIDEO:
-        return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst))
+        return file_id, analyze_video(Path(path), duration_s, settings, ffmpeg, Path(thumb_dst),
+                                      want_ai)
     return file_id, analyze_photo(
         Path(path), kind, settings, Path(thumb_dst), Path(preview_dst) if preview_dst else None,
         want_ai,
@@ -380,13 +407,15 @@ def _store(conn: sqlite3.Connection, file_id: str, r: VisualResult) -> None:
             None if r.decode_ok is None else int(r.decode_ok),
         ),
     )
+    if r.video_frames is not None:
+        save_video_frames(conn, file_id, r.video_frames)
     if r.retry:
         status = None  # read it again on the next scan
     else:
         status = "error" if r.decode_ok is False else "done"
     conn.execute(
         "update files set visual_status=?, error=? where id=?",
-        (status, None if r.decode_ok else r.error, file_id),
+        (status, r.error, file_id),
     )
 
 
@@ -396,12 +425,12 @@ def run_visual(
     settings: Settings,
     progress: Callable[[int, int], None] | None = None,
     stop: threading.Event | None = None,
-    ai_sink: Callable[[str, bytes], None] | None = None,
+    ai_sink: Callable[[str, bytes | list[bytes]], None] | None = None,
 ) -> int:
     """Analyse every file with visual_status NULL. Returns the number of files processed.
 
-    With ``ai_sink``, the primary photo/RAW file of each unit also yields a 256x256 crop from
-    the same decode; ``ai_sink(file_id, rgb_bytes)`` receives it in this process, per chunk.
+    With ``ai_sink``, the primary file of each unit also yields 256x256 crop(s) from the same
+    decode (a video: up to 3, as a list); ``ai_sink(file_id, rgb_bytes_or_list)`` receives it in this process, per chunk.
     """
     root = Path(root)
     ffmpeg = find_tool("ffmpeg")
@@ -427,7 +456,7 @@ def run_visual(
             fid, str(root / r["rel_path"]), kind.value, str(thumb_path(root, fid)),
             str(preview_path(root, fid)) if wants_preview else None,
             r["duration_s"], ffmpeg, settings,
-            ai_sink is not None and kind != Kind.VIDEO and bool(r["is_primary"]),
+            ai_sink is not None and bool(r["is_primary"]),
         )
         (heavy if kind == Kind.RAW or r["ext"] in _SECOND_PASS_EXTS else fast).append(job)
 
@@ -480,6 +509,9 @@ def run_visual(
                         if r.ai_rgb is not None:
                             ai_sink(job[0], r.ai_rgb)
                             r.ai_rgb = None
+                        elif r.ai_rgb_list is not None:  # a video: several crops, one unit
+                            ai_sink(job[0], r.ai_rgb_list)
+                            r.ai_rgb_list = None
                 if progress:
                     progress(done, total)
         finally:

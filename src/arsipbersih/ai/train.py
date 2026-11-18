@@ -94,6 +94,11 @@ def _versions(heads: Path, pattern: str) -> list[int]:
     return [int(m.group(1)) for p in heads.glob(pattern) if (m := re.fullmatch(r"trained-v(\d+)", p.stem))]
 
 
+def _video_units(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "select u.id from units u join files f on f.id = u.primary_file_id where f.kind = 'video'")}
+
+
 def train_head(conn: sqlite3.Connection, root: Path, *, min_per_group: int = 30, holdout: float = 0.2,
                seed: int = 42, text_emb_fn: Callable[[list[str]], np.ndarray] | None = None,
                config_path: Path | None = None) -> TrainResult:
@@ -101,7 +106,8 @@ def train_head(conn: sqlite3.Connection, root: Path, *, min_per_group: int = 30,
     config_path = config_path or DEFAULT_PROMPTS
     ids, mat = load_embeddings(conn, MODEL_NAME)
     feedback = effective_feedback(conn)
-    rows = [(i, u) for i, u in enumerate(ids) if u in feedback]
+    videos = _video_units(conn)  # video embeddings are frame means: they do not train the photo head
+    rows = [(i, u) for i, u in enumerate(ids) if u in feedback and u not in videos]
     labels = {u: feedback[u][0] for _, u in rows}
     train_rows = [i for i, u in rows if not is_holdout(u, holdout, seed)]
     test_rows = [i for i, u in rows if is_holdout(u, holdout, seed)]
@@ -208,6 +214,7 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             n = sum(1 for v in labels.values() if lo <= v[2] < hi)
             out.append(f"  {lo:.2f} - {min(hi, 1.0):.2f}: {n}")
 
+    videos = _video_units(conn)  # spec 11: video feedback is not mixed into the photo metrics
     # Holdout metrics belong to one trained head: never report them under another head.
     version = head if head.startswith("trained-v") else None
     meta_path = trained_head_dir(root) / f"{version}.json" if version else None
@@ -219,7 +226,7 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
         out.extend("  " + ln for ln in format_metrics_table(metrics, meta.get("baseline_metrics")))
     else:
         feedback = effective_feedback(conn)
-        common = [u for u in labels if u in feedback]
+        common = [u for u in labels if u in feedback and u not in videos]
         metrics = {}
         if not common:
             out.append("Belum ada koreksi/konfirmasi pemilik untuk mengukur ketepatan.")
@@ -227,6 +234,8 @@ def ai_report(conn: sqlite3.Connection, root: Path, head: str | None = None) -> 
             metrics = per_group_metrics([labels[u][0] for u in common], [feedback[u][0] for u in common])
             out.append(f"Ketepatan dan daya tangkap terhadap {len(common)} koreksi/konfirmasi pemilik (bukan data uji):")
             out.extend("  " + ln for ln in format_metrics_table(metrics))
+    n_video = sum(1 for u in effective_feedback(conn) if u in videos)
+    out.append(f"Contoh koreksi video: {n_video} (belum dipakai melatih)")
     out.extend(_target_lines(metrics))
     if latest and latest != head:
         out.append(f"Ada head terlatih {latest}; lihat hasilnya dengan: arsipbersih ai-report --head {latest}")

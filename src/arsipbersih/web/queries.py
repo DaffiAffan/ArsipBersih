@@ -428,7 +428,43 @@ def ai_guess(conn: sqlite3.Connection, unit_id: str, head: str | None = None) ->
         if lab is None:
             return None
         grp, sub, prob, source = lab["grp"], lab["sub"], lab["prob"], "ai"
-    return {"grp": grp, "sub": sub, "prob": prob, "source": source, "label": AI_GROUP_NAMES.get(grp, grp)}
+    label = AI_GROUP_NAMES.get(grp, grp)
+    if grp == "lainnya" and conn.execute(
+        "select 1 from units u join files f on f.id = u.primary_file_id where u.id = ? and f.kind = 'video'",
+        (unit_id,),
+    ).fetchone():
+        label = "Video biasa"
+    return {"grp": grp, "sub": sub, "prob": prob, "source": source, "label": label}
+
+
+VIDEO_GROUPS = ("grafis", "layar", "lainnya")  # the only AI groups that apply to videos
+
+
+def _clip_ref(conn: sqlite3.Connection, unit_id: str, offset_s) -> dict | None:
+    row = conn.execute(
+        "select f.rel_path from units u join files f on f.id = u.primary_file_id where u.id = ?",
+        (unit_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"unit_id": unit_id, "name": row["rel_path"].rsplit("/", 1)[-1], "offset_s": offset_s}
+
+
+def clip_relations(conn: sqlite3.Connection, unit_id: str) -> dict:
+    """{parent: the video this one was cut from | None, children: the cuts made from it}."""
+    p = conn.execute(
+        "select parent_unit_id, offset_s from video_clips where clip_unit_id = ?", (unit_id,)
+    ).fetchone()
+    parent = _clip_ref(conn, p["parent_unit_id"], p["offset_s"]) if p else None
+    children = [
+        c
+        for r in conn.execute(
+            "select clip_unit_id, offset_s from video_clips where parent_unit_id = ? order by offset_s",
+            (unit_id,),
+        )
+        if (c := _clip_ref(conn, r["clip_unit_id"], r["offset_s"]))
+    ]
+    return {"parent": parent, "children": children}
 
 
 def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None) -> dict | None:
@@ -495,6 +531,9 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None)
         "video": _video(video_id) if video_id else None,
         "kind": "video" if is_video else "photo",
     }
+    ai = ai_guess(conn, unit_id, head)
+    if is_video and ai is not None and ai["grp"] not in VIDEO_GROUPS:
+        ai = None  # document groups do not apply to videos
     return {
         "unit_id": unit_id,
         "pair_kind": u["pair_kind"],
@@ -520,7 +559,8 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None)
         "primary": primary,
         "flags": flags,
         "media": media,
-        "ai": ai_guess(conn, unit_id, head),
+        "ai": ai,
+        "clips": clip_relations(conn, unit_id),
     }
 
 

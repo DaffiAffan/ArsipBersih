@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import bisect
 import json
 import posixpath
 import re
 import sqlite3
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -20,11 +20,12 @@ from .formats import Kind
 from .db import new_id
 from .pairing import gopro_clip_id
 from .pathrules import has_camera_name, is_chat, is_download, segments_of
+from .videoframes import load_video_frames
+from .videomatch import EDGE_S, candidate_pairs, pair_relation
 from .visual import _load_rgb, hamming, phash_int
 
 BLOCK = 4096
 ASPECT_TOLERANCE = 0.02
-VIDEO_DURATION_TOLERANCE_S = 1.0
 DETAIL_PX = 768
 DETAIL_BLOCK = 32
 DETAIL_CACHE = 128  # decoded images kept at once (<= ~1 MB each)
@@ -56,6 +57,8 @@ class UnitView:
     date_source: str | None = None
     file_count: int = 1  # present files of the unit (RAW+JPG, Live Photo, sidecars)
     unit_bytes: int = 0  # their total size
+    has_gps: bool = False
+    qt_datetime: str | None = None  # QuickTime recording date (video camera evidence)
 
 
 @dataclass
@@ -69,7 +72,7 @@ def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None)
     base = (
         "select u.id as unit_id, u.location, u.taken_at, u.date_source, f.rel_path, f.orig_rel_path, "
         "f.source_label, f.size, f.kind, f.sha256, "
-        "m.make, m.model, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
+        "m.make, m.model, m.has_gps, m.qt_datetime, m.width, m.height, m.duration_s, m.phash, m.frame_phashes, m.sharpness, "
         "c.n as file_count, c.bytes as unit_bytes "
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
@@ -101,6 +104,7 @@ def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None)
             duration_s=r["duration_s"], kind=r["kind"], sha256=r["sha256"],
             date_source=r["date_source"],
             file_count=r["file_count"] or 1, unit_bytes=r["unit_bytes"] or 0,
+            has_gps=bool(r["has_gps"]), qt_datetime=r["qt_datetime"],
         ))
     return views
 
@@ -133,12 +137,49 @@ def choose_keeper_exact(units: list[UnitView]) -> str:
     return min(pool, key=_exact_key).unit_id
 
 
+def _plausible_date(text: str | None) -> bool:
+    """False for empty or zero-epoch dates (QuickTime 1904-01-01, Unix 1970-01-01)."""
+    return bool(text) and text[:4].isdigit() and int(text[:4]) >= 1971
+
+
+def has_camera_data(u: UnitView) -> bool:
+    """Evidence a video came from a camera: make/model, GPS, a camera file name, or a QuickTime date.
+
+    Chat-named files and files in chat/download folders never count by name or date alone: a
+    forwarded video carries the encode/send time, not a recording time.
+    """
+    if u.make or u.model or u.has_gps:
+        return True
+    segs = segments_of(u.orig_rel_path)
+    if is_chat(segs, u.filename) or is_download(segs):
+        return False
+    return has_camera_name(u.filename) or _plausible_date(u.qt_datetime)
+
+
 def _version_key(u: UnitView) -> tuple:
+    if u.kind == "video":
+        # Same slots as the photo key (web/reasons.py reads them); bytes never make a video
+        # "more complete" and size becomes bitrate. Duration is filtered first (choose_keeper_version).
+        segs = segments_of(u.orig_rel_path)
+        bitrate = (u.size or 0) / u.duration_s if u.duration_s else 0.0
+        return (-u.file_count, 0, -((u.width or 0) * (u.height or 0)), -bitrate,
+                not has_camera_data(u), is_chat(segs, u.filename) or is_download(segs),
+                not has_camera_name(u.filename), u.location != "archive",
+                len(u.orig_rel_path), u.orig_rel_path, u.unit_id)
     return (*_completeness(u), -((u.width or 0) * (u.height or 0)), -(u.size or 0),
             not (u.make or u.model), *_exact_key(u))
 
 
+def _clearly_shorter(d: float, longest: float) -> bool:
+    return longest - d > EDGE_S and longest - d > 0.05 * longest
+
+
 def choose_keeper_version(units: list[UnitView]) -> str:
+    if all(u.kind == "video" for u in units):
+        most = max(u.file_count for u in units)
+        units = [u for u in units if u.file_count == most]
+        longest = max(u.duration_s or 0.0 for u in units)
+        units = [u for u in units if not _clearly_shorter(u.duration_s or 0.0, longest)]
     return min(units, key=_version_key).unit_id
 
 
@@ -318,28 +359,31 @@ def _photo_version_groups(
     return _complete_linkage(cand, edges)
 
 
-def _video_version_groups(videos: list[UnitView], max_dist: int) -> list[list[UnitView]]:
-    cand = [
-        u for u in videos
-        if u.duration_s is not None and u.frame_phashes and len(u.frame_phashes) == 3
-    ]
-    cand.sort(key=lambda u: u.duration_s)
-    durations = [u.duration_s for u in cand]
-    frames = {u.unit_id: [phash_int(f) for f in u.frame_phashes] for u in cand}
+def _video_version_groups(
+    conn: sqlite3.Connection, videos: list[UnitView], max_dist: int
+) -> tuple[list[list[UnitView]], list[tuple[str, str, float]]]:
+    """Duplicate groups and (clip unit, parent unit, offset s) relations (videomatch)."""
+    by_id = {u.unit_id: u for u in videos if u.duration_s}
+    primary = {r[0]: r[1] for r in conn.execute("select id, primary_file_id from units")}
+    loaded = load_video_frames(conn, [primary[uid] for uid in by_id])
+    frames = {uid: loaded[primary[uid]] for uid in by_id if primary[uid] in loaded}
     edges: dict[tuple[str, str], int] = {}
-    for i, a in enumerate(cand):
-        hi = bisect.bisect_right(durations, a.duration_s + VIDEO_DURATION_TOLERANCE_S)
-        for b in cand[i + 1:hi]:
-            if a.sha256 and a.sha256 == b.sha256:
-                continue
-            ca = gopro_clip_id(posixpath.splitext(a.filename)[0])
-            cb = gopro_clip_id(posixpath.splitext(b.filename)[0])
-            if ca is not None and ca == cb:
-                continue
-            d = [hamming(x, y) for x, y in zip(frames[a.unit_id], frames[b.unit_id])]
-            if all(x <= max_dist for x in d):
-                edges[_edge(a.unit_id, b.unit_id)] = sum(d)
-    return _complete_linkage(cand, edges)
+    clips: list[tuple[str, str, float]] = []
+    for x, y in candidate_pairs(frames):
+        a, b = by_id[x], by_id[y]
+        if a.sha256 and a.sha256 == b.sha256:
+            continue
+        ca = gopro_clip_id(posixpath.splitext(a.filename)[0])
+        cb = gopro_clip_id(posixpath.splitext(b.filename)[0])
+        if ca is not None and ca == cb:
+            continue
+        rel, m = pair_relation(frames[x], frames[y], a.duration_s, b.duration_s, max_dist)
+        if rel == "duplicate":
+            edges[_edge(x, y)] = round((1 - m.matched_fraction) * 100)
+        elif rel == "clip":
+            short, long = (a, b) if a.duration_s <= b.duration_s else (b, a)
+            clips.append((short.unit_id, long.unit_id, round(max(0.0, m.offset_s), 1)))
+    return _complete_linkage([by_id[uid] for uid in frames], edges), clips
 
 
 def _burst_id(filename: str) -> str | None:
@@ -359,8 +403,6 @@ def _time_known(u: UnitView) -> bool:
 
 
 def _burst_groups(photos: list[UnitView], settings: Settings) -> list[list[UnitView]]:
-    from datetime import datetime
-
     uf = _UnionFind()
     by_id = {u.unit_id: u for u in photos}
 
@@ -424,11 +466,18 @@ def run_grouping(
 
     detail = _DetailCheck(root, settings.version_detail_max) if root is not None else None
     version = _photo_version_groups(photos, settings.phash_version_max, detail)
-    version += _video_version_groups(videos, settings.video_frame_phash_max)
+    video_groups, clips = _video_version_groups(conn, videos, settings.video_frame_phash_max)
+    version += video_groups
     for members in version:
         keeper = choose_keeper_version(members)
         planned.append(("duplikat-versi", members, keeper))
         excluded.update(u.unit_id for u in members if u.unit_id != keeper)
+
+    # A clip of a non-keeper copy points at that group's keeper, the copy that stays.
+    keeper_of = {u.unit_id: k for kind, members, k in planned if kind == "duplikat-versi"
+                 for u in members}
+    remapped = {(c, keeper_of.get(p, p)): off for c, p, off in clips}
+    clips = [(c, p, off) for (c, p), off in remapped.items() if c != p]
 
     burst_pool = [u for u in photos if u.unit_id not in excluded]
     burst = _burst_groups(burst_pool, settings)
@@ -451,6 +500,13 @@ def run_grouping(
                 "insert into group_members(group_id, unit_id) values(?,?)",
                 [(gid, u.unit_id) for u in members],
             )
+        conn.execute("delete from video_clips")
+        now = datetime.now(timezone.utc).isoformat()
+        conn.executemany(
+            "insert into video_clips(id, clip_unit_id, parent_unit_id, offset_s, created_at)"
+            " values(?,?,?,?,?)",
+            [(new_id(), c, p, off, now) for c, p, off in clips],
+        )
         # A re-scan can change keepers or membership; an unapplied keep/discard decided against
         # the old group must not follow a unit that is now the keeper (or left its group).
         after = _group_signatures(conn)

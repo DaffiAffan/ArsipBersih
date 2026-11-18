@@ -11,6 +11,7 @@ from pathlib import Path
 
 from arsipbersih.config import Settings
 from arsipbersih.dates import pick_taken_at
+from arsipbersih.db import VIDEO_META_REFRESH_KEY
 from arsipbersih.layout import long_path
 from arsipbersih.tools import NO_CONSOLE_FLAGS, find_tool
 
@@ -21,8 +22,8 @@ _KINDS = "('photo','raw','video')"
 _READY = b"{ready}"
 _EXIF_ARGS = [
     "-json", "-G1", "-charset", "filename=utf8",
-    "-DateTimeOriginal", "-CreateDate", "-Make", "-Model",
-    "-ImageWidth", "-ImageHeight", "-GPSLatitude", "-n",
+    "-DateTimeOriginal", "-CreateDate", "-Make", "-Model", "-AndroidMake", "-AndroidModel",
+    "-ImageWidth", "-ImageHeight", "-GPSLatitude", "-GPSCoordinates", "-n",
 ]
 
 
@@ -216,14 +217,17 @@ def extract_exif_fields(d: dict) -> dict:
             "CreateDate", "CreationDate", "DateTimeOriginal"
         ):
             qt.setdefault(g, _to_utc_text(v))
-        if t == "GPSLatitude":
+        if t in ("GPSLatitude", "GPSCoordinates"):
             out["has_gps"] = 1
     if qt:
         best = min(qt, key=lambda x: (not x.endswith("QuickTime"), x))
         out["qt_datetime"] = qt[best]
-    for field, key in (("make", "IFD0:Make"), ("model", "IFD0:Model")):
-        v = d.get(key)
-        out[field] = str(v) if _present(v) else None
+    for field, tag in (("make", "Make"), ("model", "Model")):  # EXIF first, then QuickTime/Keys
+        for key in (f"IFD0:{tag}", f"Keys:{tag}", f"QuickTime:{tag}", f"UserData:{tag}",
+                    f"Keys:Android{tag}"):
+            if _present(d.get(key)):
+                out[field] = str(d[key])
+                break
     for field, tag, exif_tag in (("width", "ImageWidth", "ExifImageWidth"),
                                  ("height", "ImageHeight", "ExifImageHeight")):
         cands = [d.get(f"File:{tag}"), d.get(f"ExifIFD:{exif_tag}")]
@@ -363,6 +367,37 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
             _store(conn, fid, {}, "error", f"{type(e).__name__}: {e}")
 
 
+def _refresh_video_camera(conn, root: Path, et: ExifTool, stop) -> None:
+    """One-time fill of make/model/has_gps for videos read before Fase 3 (QuickTime/Keys/Android).
+
+    Narrow on purpose: a full re-read would also rewrite files.error (wiping visual errors and
+    the video-backfill marker) and blank media_info when ExifTool fails on a file. Here only
+    empty camera fields are filled; dates, errors and everything else stay untouched.
+    """
+    if conn.execute("select 1 from settings where key = ?", (VIDEO_META_REFRESH_KEY,)).fetchone() is None:
+        return
+    rows = conn.execute(
+        "select id, rel_path from files where kind = 'video' and meta_status = 'done'"
+        " and missing = 0 and purged = 0 order by id"
+    ).fetchall()
+    for i in range(0, len(rows), BATCH):
+        if stop is not None and stop.is_set():
+            return  # the marker stays: the next scan repeats it (filling is idempotent)
+        batch = rows[i : i + BATCH]
+        entries, _ = _read_exif(et, [root / r["rel_path"] for r in batch])
+        for r, entry in zip(batch, entries):
+            if entry:
+                f = extract_exif_fields(entry)
+                conn.execute(
+                    "update media_info set make = coalesce(make, ?), model = coalesce(model, ?),"
+                    " has_gps = max(coalesce(has_gps, 0), ?) where file_id = ?",
+                    (f["make"], f["model"], f["has_gps"], r["id"]),
+                )
+        conn.commit()
+    conn.execute("delete from settings where key = ?", (VIDEO_META_REFRESH_KEY,))
+    conn.commit()
+
+
 def run_metadata(
     conn: sqlite3.Connection,
     root: Path,
@@ -396,6 +431,8 @@ def run_metadata(
             done += len(batch)
             if progress:
                 progress(done, total)
+        if et is not None and not (stop is not None and stop.is_set()):
+            _refresh_video_camera(conn, root, et, stop)
 
     unavailable: ExifToolUnavailable | None = None
     if exe:

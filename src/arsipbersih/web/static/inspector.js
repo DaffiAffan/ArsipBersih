@@ -9,6 +9,8 @@ export const DISCARD_EFFECT = "Kalau tidak di-Keep, file pindah ke _sampah saat 
 // Same names as AI_GROUP_NAMES in classify.py; the order is the menu order.
 export const AI_GROUPS = [["identitas", "Identitas"], ["keuangan", "Keuangan"], ["kertas", "Kertas & catatan"],
   ["grafis", "Grafis"], ["layar", "Layar"], ["lainnya", "Foto biasa"]];
+// Videos only know three groups; "lainnya" reads "Video biasa" there.
+const VIDEO_AI_GROUPS = [["grafis", "Grafis"], ["layar", "Layar"], ["lainnya", "Video biasa"]];
 
 function fmtTaken(iso) {
   if (!iso) return "Tidak diketahui";
@@ -39,9 +41,10 @@ export function aiGuessText(ai) {
 }
 
 // AI guess + "Ubah kelompok" menu. The button shows only when the caller can save a
-// correction, and never for videos (the AI does not look at videos yet).
+// correction. Videos get the three video groups.
 function aiSection(unit, onChangeGroup) {
-  const canChange = Boolean(onChangeGroup) && (unit.media || {}).kind !== "video";
+  const isVideo = (unit.media || {}).kind === "video";
+  const canChange = Boolean(onChangeGroup);
   if (!unit.ai && !canChange) return null;
   const box = el("section", { class: "insp-ai" }, el("p", { class: "insp-ai-guess" }, aiGuessText(unit.ai)));
   if (!canChange) return box;
@@ -54,7 +57,7 @@ function aiSection(unit, onChangeGroup) {
       if (!menu.hidden) { const first = menu.querySelector("button"); if (first) first.focus(); }
     } }, "Ubah kelompok");
   let saving = false;
-  for (const [grp, name] of AI_GROUPS) {
+  for (const [grp, name] of (isVideo ? VIDEO_AI_GROUPS : AI_GROUPS)) {
     menu.append(el("button", { type: "button", class: "insp-ai-item", role: "menuitemradio", "aria-checked": String(grp === current),
       onclick: async () => {
         if (saving) return;
@@ -76,12 +79,27 @@ function aiSection(unit, onChangeGroup) {
   return box;
 }
 
+// "Potongan dari: nama (mulai 0:45)" and "Punya potongan: N" with links that open that unit.
+function clipsSection(unit, onOpenUnit) {
+  const { parent, children } = unit.clips || {};
+  if (!parent && !(children && children.length)) return null;
+  const link = (c) => el("button", { type: "button", class: "btn btn-ghost insp-clip-link", disabled: !onOpenUnit,
+    onclick: () => onOpenUnit(c.unit_id) }, `${c.name} (mulai ${fmtDuration(c.offset_s)})`);
+  const box = el("section", { class: "insp-clips" });
+  if (parent) box.append(el("p", {}, "Potongan dari: ", link(parent)));
+  if (children && children.length) {
+    box.append(el("p", {}, `Punya potongan: ${children.length}`),
+      el("ul", {}, ...children.map((c) => el("li", {}, link(c)))));
+  }
+  return box;
+}
+
 function folderOf(path) {
   const i = path ? path.lastIndexOf("/") : -1;
   return i > 0 ? path.slice(0, i) : "";
 }
 
-export function renderInspector(node, unit, { onDecide, onChangeGroup } = {}) {
+export function renderInspector(node, unit, { onDecide, onChangeGroup, onOpenUnit } = {}) {
   if (!unit) {
     node.replaceChildren(el("p", { class: "empty" }, "Pilih foto untuk melihat infonya."));
     return;
@@ -131,8 +149,9 @@ export function renderInspector(node, unit, { onDecide, onChangeGroup } = {}) {
     path ? el("div", { class: "mono insp-path insp-fullpath" }, path) : null,
     facts,
     aiSection(unit, onChangeGroup),
+    clipsSection(unit, onOpenUnit),
     why,
-    el("div", { class: "insp-actions" }, keepBtn, delBtn),
+    onDecide ? el("div", { class: "insp-actions" }, keepBtn, delBtn) : null, // view-only without onDecide
   );
 }
 
