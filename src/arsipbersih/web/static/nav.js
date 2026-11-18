@@ -52,19 +52,34 @@ export function mountReviewNav(ul) {
   return { refresh };
 }
 
+// "Tanggal" entry: open event proposals (plus undated units, when there are any).
+export function mountDatesNav(countEl) {
+  async function refresh() {
+    if (!countEl) return null;
+    let c;
+    try { c = await api("GET", "/api/dates/counts"); } catch (_) { return null; }
+    countEl.textContent = c.undated ? `${fmtNum(c.proposals)} · ${fmtNum(c.undated)}` : fmtNum(c.proposals);
+    countEl.title = `${fmtNum(c.proposals)} acara menunggu keputusan, ${fmtNum(c.undated)} foto tanpa tanggal`;
+    return c;
+  }
+  return { refresh };
+}
+
 const ul = document.getElementById("nav-review");
 export const reviewNav = mountReviewNav(ul);
+export const datesNav = mountDatesNav(document.getElementById("nav-dates-count"));
 
 if (ul) {
   let lastKey = null;
   let first = true;
   reviewNav.refresh();
+  datesNav.refresh();
   watchJob((st) => {
     if (st.status === "running" || st.status === "idle") { first = false; return; }
     const key = `${st.id}:${st.status}`;
     if (key === lastKey) return;
     lastKey = key;
-    if (!first) reviewNav.refresh();
+    if (!first) { reviewNav.refresh(); datesNav.refresh(); }
     first = false;
   });
 }

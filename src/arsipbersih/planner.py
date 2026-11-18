@@ -37,6 +37,10 @@ class UnitMove:
     unit_id: str
     to_location: str
     files: list[FileMove]
+    reason: str | None = None  # shown in the Rencana when it is not a plain tidy move
+
+
+REDATED_REASON = "pindah karena tanggalnya berubah"
 
 
 def _join(*parts: str) -> str:
@@ -107,11 +111,13 @@ def _label_of(orig_rel_path: str | None, source_label: str | None) -> str:
     return _split_orig(orig_rel_path or "")[0]
 
 
+# taken_at is the EFFECTIVE date (override or raw), so every placement follows corrections.
 _UNIT_SQL = (
-    "select u.id, u.taken_at, u.event_key, u.event_name, u.event_subpath, u.location, "
+    "select u.id, d.taken_at, u.event_key, u.event_name, u.event_subpath, u.location, "
     "u.primary_file_id, u.primary_category, u.planned_archive_dir, u.planned_review_dir, "
     "pf.orig_rel_path as orig, pf.rel_path as prim_rel, pf.source_label as label "
-    "from units u left join files pf on pf.id = u.primary_file_id"
+    "from units u join unit_dates d on d.unit_id = u.id "
+    "left join files pf on pf.id = u.primary_file_id"
 )
 
 
@@ -131,9 +137,10 @@ def _event_months(conn: sqlite3.Connection) -> dict[str, str]:
     """Folder month per event: the earliest month of its existing Arsip folder if it has
     archived units (so later, earlier-dated photos reuse it), else its earliest photo month."""
     rows = conn.execute(
-        "select event_key, min(substr(taken_at,1,7)) m from units "
-        "where event_key is not null and taken_at is not null and location != 'trash' "
-        "group by event_key"
+        "select u.event_key, min(substr(d.taken_at,1,7)) m from units u "
+        "join unit_dates d on d.unit_id = u.id "
+        "where u.event_key is not null and d.taken_at is not null and u.location != 'trash' "
+        "group by u.event_key"
     ).fetchall()
     months = {r["event_key"]: r["m"] for r in rows if r["m"]}
     existing: dict[str, str] = {}
@@ -307,11 +314,34 @@ def _missing_reason(rel_paths: list[str]) -> str:
     return "file missing on disk: " + ", ".join(rel_paths)
 
 
+_MONTH_DIR_RE = re.compile(r"^(\d{4})-\d{2}$")
+
+
+def _redated_dir(u: sqlite3.Row) -> str | None:
+    """New month folder for a non-event archive unit whose effective date moved it out of
+    its folder (spec 7.5): Arsip/Tanpa-Tanggal/... once dated, or Arsip/YYYY/YYYY-MM whose
+    month differs. Event folders and _Dokumen are never touched here."""
+    taken = u["taken_at"]
+    if u["event_key"] or not taken or len(taken) < 7:
+        return None
+    parts = (u["prim_rel"] or "").replace("\\", "/").split("/")
+    if len(parts) < 3 or parts[0] != ARCHIVE_DIR:
+        return None
+    month = taken[:7]
+    if parts[1] == UNDATED_DIR:
+        return _join(ARCHIVE_DIR, month[:4], month)
+    m = _MONTH_DIR_RE.match(parts[2]) if len(parts) == 4 else None
+    if m and m.group(1) == parts[1] and parts[2] != month:
+        return _join(ARCHIVE_DIR, month[:4], month)
+    return None
+
+
 def plan_rapikan(
     conn: sqlite3.Connection, root: Path, skipped: list[tuple[str, str]] | None = None
 ) -> list[UnitMove]:
     """Plan every source unit, plus review units that lost their category on a re-scan
-    (no review category shows them any more, so they go back to their archive folder)."""
+    (no review category shows them any more, so they go back to their archive folder),
+    plus non-event archive units whose corrected date belongs in another month folder."""
     months = _event_months(conn)
     keepers = _keepers(conn)
     incomplete = missing_files_by_unit(conn)
@@ -330,11 +360,10 @@ def plan_rapikan(
             continue
         cat = u["primary_category"]
         if cat is None or (u["id"] in keepers and cat in GROUP_CATEGORIES):
-            # The current category is the authority for _Dokumen, never a stored plan.
+            # Computed at move time, never from planned_archive_dir: the category (for
+            # _Dokumen) and the effective date can change after compute_plans.
             dst_dir, loc = (
-                document_dir_for(cat, u["taken_at"])
-                or u["planned_archive_dir"]
-                or _archive_dir(u, months)
+                document_dir_for(cat, u["taken_at"]) or _archive_dir(u, months)
             ), "archive"
         else:
             # Like the archive dir: the category at move time is the authority, because
@@ -343,6 +372,22 @@ def plan_rapikan(
             loc = "review"
         m = _try_build(conn, reserver, u, dst_dir, loc, skipped)
         if m:
+            moves.append(m)
+    archived = conn.execute(
+        _UNIT_SQL + " where u.location = 'archive' and u.event_key is null"
+        " and d.taken_at is not null order by pf.rel_path, u.id"
+    ).fetchall()
+    for u in archived:
+        dst_dir = _redated_dir(u)
+        if dst_dir is None:
+            continue
+        if u["id"] in incomplete:
+            if skipped is not None:
+                skipped.append((u["id"], _missing_reason(incomplete[u["id"]])))
+            continue
+        m = _try_build(conn, reserver, u, dst_dir, "archive", skipped)
+        if m:
+            m.reason = REDATED_REASON
             moves.append(m)
     return moves
 
@@ -416,11 +461,11 @@ def plan_apply(
             continue
         if gone(uid):
             continue
-        # The category at move time decides _Dokumen; planned_archive_dir is the normal folder.
+        # Computed at move time: the category decides _Dokumen and the effective date
+        # (owner decisions since the last scan included) decides the normal folder.
         dst = (
             document_dir_for(u["primary_category"], u["taken_at"])
             or _flagged_document_dir(conn, u)
-            or u["planned_archive_dir"]
             or _archive_dir(u, months)
         )
         m = _try_build(conn, reserver, u, dst, "archive", skipped)

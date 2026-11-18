@@ -190,3 +190,7 @@ def test_home_reports_ai_model_status(web):
     d = web.get("/api/home").json()
     assert set(d["ai_model"]) == {"ready", "detail"}
     assert isinstance(d["ai_model"]["ready"], bool)
+
+
+def test_home_api_has_clock_warnings(web):
+    assert web.get("/api/home").json()["clock_warnings"] == []

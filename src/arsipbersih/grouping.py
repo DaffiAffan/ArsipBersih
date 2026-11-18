@@ -74,7 +74,9 @@ def load_unit_views(conn: sqlite3.Connection, unit_ids: list[str] | None = None)
         "from units u join files f on f.id = u.primary_file_id "
         "left join media_info m on m.file_id = f.id "
         "left join (select unit_id, count(*) as n, coalesce(sum(size), 0) as bytes from files "
-        "  where missing = 0 and purged = 0 group by unit_id) c on c.unit_id = u.id "
+        "  where missing = 0 and purged = 0"
+        # Our date sidecars never make a unit look more complete (spec 11.6).
+        "  and id not in (select file_id from xmp_writes) group by unit_id) c on c.unit_id = u.id "
         "where u.location != 'trash' and f.missing = 0 and f.purged = 0"
     )
     if unit_ids is None:

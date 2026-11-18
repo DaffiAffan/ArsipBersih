@@ -76,10 +76,7 @@ def add_override(conn, kind: str, name: str, value: str | None = None) -> None:
         )
 
 
-def run_events(conn, settings: Settings, *, persist: bool = True) -> list[EventSummary]:
-    """Resolve events for every unit. With persist=False nothing is written (read-only
-    preview, e.g. GET /api/plan); the returned summaries are the same either way."""
-    generic = {normalize_event_key(g) for g in settings.generic_folders}
+def _load_overrides(conn) -> tuple[set[str], dict[str, str], dict[str, str]]:
     not_event: set[str] = set()
     merges: dict[str, str] = {}
     renames: dict[str, str] = {}
@@ -90,6 +87,37 @@ def run_events(conn, settings: Settings, *, persist: bool = True) -> list[EventS
             merges[r["name_key"]] = r["value"]
         elif r["kind"] == "rename" and r["value"]:
             renames[r["name_key"]] = r["value"]
+    return not_event, merges, renames
+
+
+def _apply_overrides(
+    name: str, merges: dict[str, str], renames: dict[str, str]
+) -> tuple[str, str]:
+    """(key, display name) after the owner's merge then rename, exactly as run_events does."""
+    key = normalize_event_key(name)
+    if key in merges:
+        name = merges[key]
+        key = normalize_event_key(name)
+    if key in renames:
+        name = renames[key]
+    name = sanitize_component(name)
+    return normalize_event_key(name), name
+
+
+def current_event_key(conn, key: str) -> str:
+    """Map an event key stored earlier (e.g. with a date decision) to the key units carry
+    now, following the owner's merge/rename overrides."""
+    _, merges, renames = _load_overrides(conn)
+    if key not in merges and key not in renames:
+        return key
+    return _apply_overrides(key, merges, renames)[0]
+
+
+def run_events(conn, settings: Settings, *, persist: bool = True) -> list[EventSummary]:
+    """Resolve events for every unit. With persist=False nothing is written (read-only
+    preview, e.g. GET /api/plan); the returned summaries are the same either way."""
+    generic = {normalize_event_key(g) for g in settings.generic_folders}
+    not_event, merges, renames = _load_overrides(conn)
 
     rows = conn.execute(
         "select u.id, u.location, u.taken_at, u.event_key, u.event_name, u.event_subpath, "
@@ -105,14 +133,7 @@ def run_events(conn, settings: Settings, *, persist: bool = True) -> list[EventS
             name, sub = resolve_event(segments_of(r["orig_rel_path"]), generic, not_event)
             key = None
             if name is not None:
-                key = normalize_event_key(name)
-                if key in merges:
-                    name = merges[key]
-                    key = normalize_event_key(name)
-                if key in renames:
-                    name = renames[key]
-                name = sanitize_component(name)
-                key = normalize_event_key(name)
+                key, name = _apply_overrides(name, merges, renames)
         else:
             key, name, sub = r["event_key"], r["event_name"], r["event_subpath"]
         resolved.append((r, key, name, sub))

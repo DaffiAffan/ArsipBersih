@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from .dating.clock import device_warnings
+from .dating.infer import event_proposals
+from .dating.xmp import count_stale_own
 from .formats import IGNORED_NAMES, SKIP_DIRS, Kind, detect_kind
 from .layout import ARCHIVE_DIR, REVIEW_DIR, SOURCE_DIR, STATE_DIR, TRASH_DIR, long_path
+from .planner import _archived_month
 
 _MEDIA_KINDS = "('photo','raw','video','gopro_aux','sidecar')"
 _DUP = "('duplikat-persis','duplikat-versi')"
@@ -24,6 +29,12 @@ class Report:
     non_media_left: int
     undated: int
     cache_bytes: int
+    clock_warnings: list[str] = field(default_factory=list)
+    date_sources: dict[str, int] = field(default_factory=dict)  # effective source -> units
+    date_proposals: int = 0  # events waiting for an owner date decision
+    # (event folder, folder month, majority effective month) for archived event folders
+    event_month_mismatch: list[tuple[str, str, str]] = field(default_factory=list)
+    stale_xmp: int = 0  # archive units with an outdated own .xmp (camera date now, or no date)
 
 
 @dataclass
@@ -73,6 +84,29 @@ def _dir_bytes(path: Path) -> int:
     return total
 
 
+def _event_month_mismatch(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
+    """Archived event folders whose month differs from the most common effective month
+    of their units (spec 11.4: reported as a rename hint, never moved)."""
+    folders: dict[tuple[str, str], Counter] = {}
+    for r in conn.execute(
+        "select f.rel_path, d.taken_at from units u join unit_dates d on d.unit_id = u.id"
+        " join files f on f.id = u.primary_file_id"
+        " where u.location = 'archive' and u.event_key is not null and d.taken_at is not null"
+    ):
+        folder_month = _archived_month(r["rel_path"])
+        if folder_month is None:
+            continue
+        folder = "/".join(r["rel_path"].replace("\\", "/").split("/")[:3])
+        folders.setdefault((folder, folder_month), Counter())[r["taken_at"][:7]] += 1
+    out = []
+    for (folder, folder_month), months in sorted(folders.items()):
+        # Most units first; on a tie the earliest month, like the planner's event month.
+        majority = min(months, key=lambda m: (-months[m], m))
+        if majority != folder_month:
+            out.append((folder, folder_month, majority))
+    return out
+
+
 def build_report(conn: sqlite3.Connection, root: Path) -> Report:
     root = Path(root)
     total = conn.execute(
@@ -94,7 +128,19 @@ def build_report(conn: sqlite3.Connection, root: Path) -> Report:
         "select coalesce(sum(f.size), 0) from files f join units u on u.id = f.unit_id"
         f" where u.primary_category in {_DUP} and u.location != 'archive' and f.purged = 0"
     ).fetchone()[0]
-    undated = conn.execute("select count(*) from units where taken_at is null").fetchone()[0]
+    date_sources: dict[str, int] = {}
+    undated = 0
+    rows = conn.execute(
+        "select d.source, d.taken_at is null as undated, count(*) n"
+        " from units u join unit_dates d on d.unit_id = u.id"
+        " where u.location != 'trash' group by 1, 2"
+    ).fetchall()
+    for r in rows:
+        if r["undated"]:
+            undated += r["n"]
+        else:
+            key = r["source"] or "unknown"
+            date_sources[key] = date_sources.get(key, 0) + r["n"]
     cache = root / STATE_DIR / "cache"
     return Report(
         total_media=total,
@@ -105,6 +151,11 @@ def build_report(conn: sqlite3.Connection, root: Path) -> Report:
         non_media_left=sum(1 for _ in _walk_files(root, SOURCE_DIR, media=False)),
         undated=undated,
         cache_bytes=_dir_bytes(cache) if cache.is_dir() else 0,
+        clock_warnings=device_warnings(conn),
+        date_sources=date_sources,
+        date_proposals=len(event_proposals(conn)),
+        event_month_mismatch=_event_month_mismatch(conn),
+        stale_xmp=count_stale_own(conn),
     )
 
 

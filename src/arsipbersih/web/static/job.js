@@ -5,7 +5,8 @@ export const STAGES = [
   ["inventory", "Inventaris"], ["pairing", "Pasangan file"], ["hash", "Hash"],
   ["metadata", "Metadata"], ["visual", "Analisis visual"], ["ai", "Klasifikasi AI"],
   ["grouping", "Kelompok"],
-  ["classify", "Klasifikasi"], ["events", "Acara"], ["plan", "Rencana"],
+  ["classify", "Klasifikasi"], ["events", "Acara"],
+  ["dates", "Tanggal"], ["plan", "Rencana"],
 ];
 const STAGE_LABELS = Object.fromEntries(STAGES);
 

@@ -24,7 +24,12 @@
         ("laporan", "/laporan", "Laporan"),
         ("pengaturan", "/pengaturan", "Pengaturan")] %}
       <a class="nav-item{% if active == key %} is-active{% endif %}" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
-      {% if key == "review" %}<ul id="nav-review" class="nav-sub" aria-label="Kategori review"></ul>{% endif %}
+      {% if key == "review" %}<ul id="nav-review" class="nav-sub" aria-label="Kategori review"></ul>
+      <ul class="nav-sub" aria-label="Koreksi tanggal">
+        <li><a id="nav-dates" class="nav-item nav-cat{% if subactive == 'tanggal' %} is-active{% endif %}" href="/tanggal"{% if subactive == 'tanggal' %} aria-current="page"{% endif %}>
+          <span class="nav-cat-row"><span class="nav-cat-label">Tanggal</span><span id="nav-dates-count" class="nav-cat-count"></span></span>
+        </a></li>
+      </ul>{% endif %}
       {% endfor %}
     </nav>
   </aside>

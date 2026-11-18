@@ -30,7 +30,7 @@ from .mover import (
 from . import pipeline
 from .ai.model import ModelSetupError, model_status, setup_models
 from .pipeline import Progress, ScanIncomplete, SCAN_DONE_KEY, rapikan
-from .planner import compute_plans
+from .planner import REDATED_REASON, compute_plans
 from .report import build_report, verify
 from .tools import check_tools
 
@@ -133,6 +133,9 @@ def _plan_summary(conn, root: Path) -> None:
     typer.echo(f"To Arsip: {summary.archive_units} units, {human_bytes(summary.archive_bytes)}")
     for cat, (units, size) in summary.review.items():
         typer.echo(f"To {REVIEW_DIR}/{cat}: {units} units, {human_bytes(size)}")
+    for reason, (units, size) in summary.by_reason.items():
+        label = "moved because the date changed" if reason == REDATED_REASON else reason
+        typer.echo(f"Within Arsip ({label}): {units} units, {human_bytes(size)}")
     typer.echo(f"Skipped units: {len(summary.skipped)}")
     for unit_id, reason in summary.skipped:
         typer.echo(f"  skipped {unit_id}: {reason}")
@@ -411,7 +414,20 @@ def report(root: Path = _root_arg()) -> None:
     typer.echo(f"Saved by removing duplicates: {human_bytes(r.bytes_saved_duplicates)}")
     typer.echo(f"Non-media files left: {r.non_media_left}")
     typer.echo(f"Undated: {r.undated}")
+    if r.date_sources:
+        typer.echo("By date source:")
+        for src, n in sorted(r.date_sources.items()):
+            typer.echo(f"  {src}: {n}")
+    typer.echo(f"Event date proposals waiting: {r.date_proposals}")
+    for folder, folder_month, month in r.event_month_mismatch:
+        typer.echo(
+            f"Rename hint: {folder} is named {folder_month}, "
+            f"but most of its photos are from {month}"
+        )
+    typer.echo(f"Outdated .xmp kept: {r.stale_xmp}")
     typer.echo(f"Cache size: {human_bytes(r.cache_bytes)}")
+    for w in r.clock_warnings:
+        typer.echo(f"Warning: {w}")
     typer.echo(f"Verify: {'OK' if v.ok else 'FAILED'} (database {v.db_count}, disk {v.disk_count})")
     for p in v.missing:
         typer.echo(f"  missing: {p}")
@@ -516,6 +532,46 @@ def classify_cmd(
     for cat in CATEGORY_PRIORITY:
         if cat in counts:
             typer.echo(f"  {cat}: {counts[cat]}")
+
+
+@app.command("write-dates")
+def write_dates_cmd(root: Path = _root_arg()) -> None:
+    """Write or refresh the date .xmp sidecars of archive units (media files are not changed)."""
+    from .dating.xmp import MAX_REPORTED, InvalidTimezone, write_dates
+
+    with _root_locked(root):
+        conn = open_db(root)
+        try:
+            journal_errors: list[str] = []
+            try:
+                reconcile_or_refuse(conn, root, journal_errors)
+            except PendingMoves as e:
+                typer.echo(str(e))
+                raise typer.Exit(1)
+            try:
+                res = write_dates(conn, root, load_settings(conn))
+            except InvalidTimezone as e:
+                typer.echo(str(e))
+                raise typer.Exit(1)
+        finally:
+            conn.close()
+    typer.echo(f"Ditulis: {res.written}")
+    typer.echo(f"Ditulis ulang: {res.rewritten}")
+    typer.echo(f"Sudah benar: {res.unchanged}")
+    typer.echo(f"Tidak perlu (EXIF): {res.not_needed}")
+    typer.echo(f"Dilewati (punya XMP sendiri): {len(res.skipped_foreign)}")
+    for rel in res.skipped_foreign[:MAX_REPORTED]:
+        typer.echo(f"  {rel}")
+    if res.stale_own:
+        typer.echo(
+            f"XMP lama dibiarkan (tanggal kini dari EXIF atau kosong): {len(res.stale_own)}"
+        )
+        for rel in res.stale_own[:MAX_REPORTED]:
+            typer.echo(f"  {rel}")
+    for err in journal_errors + res.errors:
+        typer.echo(f"  Gagal: {err}")
+    if res.errors:
+        raise typer.Exit(1)
 
 
 @app.command("ai-report")

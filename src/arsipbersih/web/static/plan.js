@@ -25,6 +25,9 @@ function summaryStats(s) {
   for (const [cat, [units, bytes]] of Object.entries(s.review)) {
     stats.push(stat(`Ke _review/${cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
   }
+  for (const [reason, [units, bytes]] of Object.entries(s.by_reason || {})) {
+    stats.push(stat(`Di Arsip, ${reason}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
+  }
   stats.push(stat("Dilewati", fmtNum(s.skipped.length)));
   return stats;
 }
@@ -44,6 +47,9 @@ function confirmLines(s) {
   const lines = [`Ke Arsip: ${fmtNum(s.archive_units)} unit, ${fmtBytes(s.archive_bytes)}`];
   for (const [cat, [units, bytes]] of Object.entries(s.review)) {
     lines.push(`Ke _review/${cat}: ${fmtNum(units)} unit, ${fmtBytes(bytes)}`);
+  }
+  for (const [reason, [units, bytes]] of Object.entries(s.by_reason || {})) {
+    lines.push(`Di Arsip, ${reason}: ${fmtNum(units)} unit, ${fmtBytes(bytes)}`);
   }
   lines.push(`Unit dilewati: ${fmtNum(s.skipped.length)}`);
   lines.push("Semua perpindahan dicatat dan bisa dibatalkan lewat Riwayat.");

@@ -2,7 +2,13 @@ from datetime import datetime
 
 import pytest
 
-from arsipbersih.dates import parse_exif_datetime, parse_filename_date, pick_taken_at
+from arsipbersih.dates import (
+    filename_has_time,
+    is_whatsapp_name,
+    parse_exif_datetime,
+    parse_filename_date,
+    pick_taken_at,
+)
 
 
 @pytest.mark.parametrize("name,expected", [
@@ -57,3 +63,40 @@ def test_filename_has_time():
     assert filename_has_time("Screenshot_2023-08-12-14-30-22-123_com.whatsapp.jpg")
     assert not filename_has_time("IMG-20230812-WA0001.jpg")
     assert not filename_has_time("DSC_0001.jpg")
+
+
+def test_whatsapp_web_name_parses_with_time():
+    name = "WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg"
+    assert parse_filename_date(name) == datetime(2024, 10, 30, 15, 55, 48)
+    assert filename_has_time(name) is True
+    assert parse_filename_date("WhatsApp Video 2024-11-20 at 10.04.48 PM(1).mp4") == datetime(
+        2024, 11, 20, 22, 4, 48
+    )
+    assert parse_filename_date("WhatsApp Image 2024-01-05 at 12.01.02 AM.jpg") == datetime(
+        2024, 1, 5, 0, 1, 2
+    )
+    assert parse_filename_date("WhatsApp Image 2024-01-05 at 12.01.02 PM.jpg").hour == 12
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("IMG-20230812-WA0001.jpg", True),
+        ("vid-20230812-wa0007.MP4", True),
+        ("WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg", True),
+        ("WhatsApp Video 2024-11-20 at 10.04.48 PM(1).mp4", True),
+        ("IMG_20230812_143022.jpg", False),
+        ("Screenshot_2023-08-12-14-30-22-123_com.whatsapp.jpg", False),
+    ],
+)
+def test_is_whatsapp_name(name, expected):
+    assert is_whatsapp_name(name) is expected
+
+
+def test_whatsapp_web_24_hour_and_narrow_nbsp():
+    name = "WhatsApp Image 2024-10-30 at 15.55.48.jpeg"
+    assert parse_filename_date(name) == datetime(2024, 10, 30, 15, 55, 48)
+    assert filename_has_time(name) is True
+    assert parse_filename_date("WhatsApp Image 2024-10-30 at 3.55.48 PM.jpeg") == datetime(
+        2024, 10, 30, 15, 55, 48
+    )
