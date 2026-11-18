@@ -21,7 +21,7 @@ _KINDS = "('photo','raw','video')"
 _READY = b"{ready}"
 _EXIF_ARGS = [
     "-json", "-G1", "-charset", "filename=utf8",
-    "-DateTimeOriginal", "-CreateDate", "-Make", "-Model",
+    "-DateTimeOriginal", "-CreateDate", "-Make", "-Model", "-AndroidMake", "-AndroidModel",
     "-ImageWidth", "-ImageHeight", "-GPSLatitude", "-GPSCoordinates", "-n",
 ]
 
@@ -222,7 +222,8 @@ def extract_exif_fields(d: dict) -> dict:
         best = min(qt, key=lambda x: (not x.endswith("QuickTime"), x))
         out["qt_datetime"] = qt[best]
     for field, tag in (("make", "Make"), ("model", "Model")):  # EXIF first, then QuickTime/Keys
-        for key in (f"IFD0:{tag}", f"Keys:{tag}", f"QuickTime:{tag}", f"UserData:{tag}"):
+        for key in (f"IFD0:{tag}", f"Keys:{tag}", f"QuickTime:{tag}", f"UserData:{tag}",
+                    f"Keys:Android{tag}"):
             if _present(d.get(key)):
                 out[field] = str(d[key])
                 break

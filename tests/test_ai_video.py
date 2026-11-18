@@ -23,6 +23,13 @@ def test_quicktime_make_model_read():
     assert extract_exif_fields({"IFD0:Make": "samsung", "Keys:Make": "x"})["make"] == "samsung"
 
 
+def test_android_make_model_read():
+    d = {"Keys:AndroidMake": "samsung", "Keys:AndroidModel": "SM-A525F",
+         "UserData:GPSCoordinates": "-6.2 106.8"}
+    f = extract_exif_fields(d)
+    assert (f["make"], f["model"], f["has_gps"]) == ("samsung", "SM-A525F", 1)
+
+
 def _video(conn_with, **kw):
     row = dict(name="clip.mp4", kind="video", w=1280, h=720, duration=30.0, **kw)
     conn = conn_with([row])
