@@ -21,6 +21,7 @@ MAX_RGB_CROPS = 3
 UNKNOWN_DURATION_FRAMES = 3
 SPARSE_STEP_S = 4.0  # beyond this spacing only keyframes are decoded (long videos)
 EXTRACT_TIMEOUT_S = 600
+THUMB_SRC_PX = 512
 
 
 @dataclass
@@ -57,7 +58,7 @@ def _pick_crops(grays: list[np.ndarray], dark_luma: float) -> list[int]:
 
 def extract(
     ffmpeg: str, path: Path, times: list[float], size: int = 64, dark_luma: float = 15.0,
-    errors: list[str] | None = None,
+    errors: list[str] | None = None, thumb_dst: Path | None = None,
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """Decode the frames at `times` (evenly spaced) in one ffmpeg run.
 
@@ -65,14 +66,26 @@ def extract(
     dark frames when others exist). Fewer frames than times may come back when the video breaks
     midway: those are kept and the problem goes into `errors`; no frame at all raises.
     """
-    cmd = [ffmpeg, "-nostdin", "-v", "error", "-ss", f"{times[0]:.3f}", "-i", str(path)]
-    vf = f"crop='min(iw,ih)':'min(iw,ih)',scale={RGB_PX}:{RGB_PX}"
+    # Two outputs of one decode: raw RGB crops on stdout, and (optionally) the full-aspect
+    # frame nearest 50% as a PNG for the thumbnail.
+    pre, fps_part = [ffmpeg, "-nostdin", "-v", "error"], ""
     if len(times) > 1:
         step = (times[-1] - times[0]) / (len(times) - 1)
-        vf = f"fps=1/{step:.6f}," + vf
+        fps_part = f"fps=1/{step:.6f},"
         if step > SPARSE_STEP_S:
-            cmd[1:1] = ["-skip_frame", "nokey"]
-    cmd += ["-vf", vf, "-frames:v", str(len(times)), "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+            pre += ["-skip_frame", "nokey"]
+    cmd = pre + ["-ss", f"{times[0]:.3f}", "-i", str(path)]
+    crop = f"crop='min(iw,ih)':'min(iw,ih)',scale={RGB_PX}:{RGB_PX}"
+    n = str(len(times))
+    if thumb_dst is None:
+        cmd += ["-vf", fps_part + crop]
+        cmd += ["-frames:v", n, "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+    else:
+        mid = round((len(times) - 1) / 2)
+        cmd += ["-filter_complex",
+                f"[0:v]{fps_part}split=2[a][b];[a]{crop}[v];[b]select='eq(n,{mid})',scale={THUMB_SRC_PX}:-2[t]",
+                "-map", "[v]", "-frames:v", n, "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+                "-map", "[t]", "-frames:v", "1", "-y", str(thumb_dst)]
     err = ""
     try:
         proc = subprocess.run(
@@ -86,7 +99,7 @@ def extract(
     count = len(raw) // fb
     if count == 0:
         raise RuntimeError(err or "no frames decoded")
-    if (count < len(times) or err) and errors is not None:
+    if count < len(times) and errors is not None:
         errors.append(f"partial video decode: {count}/{len(times)} frames: {err or 'ended early'}")
     rgb = np.frombuffer(raw, np.uint8, count * fb).reshape(count, RGB_PX, RGB_PX, 3)
     grays = [

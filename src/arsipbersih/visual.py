@@ -8,6 +8,7 @@ import os
 import signal
 import sqlite3
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -273,20 +274,22 @@ def analyze_video(
             duration_s = _probe_duration(path)
         errors: list[str] = []
         dark = settings.dark_video_luma_max
-        try:
-            times = sample_plan(duration_s)
-            grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors)
-        except RuntimeError:  # a wrong duration can seek past the end: sample the start instead
-            if not duration_s:
-                raise
-            times = sample_plan(None)
-            errors.clear()
-            grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors)
-        times = times[: len(grays)]
-        # Thumbnail and the single-frame columns come from a full-aspect grab of the middle.
-        try:
-            mid_png = _grab_frame(ffmpeg, path, duration_s * 0.5 if duration_s else FALLBACK_FRAME_TIMES[0])
-        except RuntimeError:
+        with tempfile.TemporaryDirectory() as tmp:
+            thumb_png = Path(tmp) / "mid.png"
+            try:
+                times = sample_plan(duration_s)
+                grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors,
+                                       thumb_dst=thumb_png)
+            except RuntimeError:  # a wrong duration can seek past the end: sample the start
+                if not duration_s:
+                    raise
+                times = sample_plan(None)  # extra process, only on this failure path
+                errors.clear()
+                grays, crops = extract(ffmpeg, path, times, dark_luma=dark, errors=errors,
+                                       thumb_dst=thumb_png)
+            times = times[: len(grays)]
+            mid_png = thumb_png.read_bytes() if thumb_png.exists() else b""
+        if not mid_png:  # the middle frame was lost to a partial decode; failure path only
             mid_png = _grab_frame(ffmpeg, path, 0.0)
         mid = cv2.imdecode(np.frombuffer(mid_png, np.uint8), cv2.IMREAD_GRAYSCALE)
         if mid is None:

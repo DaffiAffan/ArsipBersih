@@ -67,14 +67,78 @@ def test_static_video_motion_near_zero(root, make_video):
     assert max(m.video_frames.motion) > 1.0
 
 
+def _fake_run(frames: int, stderr: bytes = b"boom"):
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, b"" * (frames * 256 * 256 * 3), stderr)
+    return run
+
+
+def test_partial_decode_keeps_frames_and_records_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(videoframes.subprocess, "run", _fake_run(2))
+    times = sample_plan(5.0)
+    errors: list[str] = []
+    grays, _ = extract("ffmpeg", tmp_path / "v.mp4", times, errors=errors)
+    assert len(grays) == 2 < len(times) and errors and "2/5" in errors[0]
+
+
+def test_no_frames_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(videoframes.subprocess, "run", _fake_run(0))
+    with pytest.raises(RuntimeError, match="boom"):
+        extract("ffmpeg", tmp_path / "v.mp4", [0.0, 1.0])
+
+
+def test_warnings_on_complete_decode_are_not_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(videoframes.subprocess, "run", _fake_run(3, b"some warning"))
+    errors: list[str] = []
+    extract("ffmpeg", tmp_path / "v.mp4", [0.0, 1.0, 2.0], errors=errors)
+    assert errors == []
+
+
 @requires_ffmpeg
-def test_corrupt_tail_still_returns_frames_or_records_error(root, make_video):
+def test_analyze_video_records_partial_error(root, make_video, monkeypatch):
     v = make_video(root / "v.mp4", seconds=6)
-    data = v.read_bytes()
-    v.write_bytes(data[: len(data) * 3 // 4])  # chop the tail, keep the header duration
+    real = videoframes.subprocess.run
+
+    def short(cmd, **kw):  # real decode, but pretend the stream died after 2 frames
+        p = real(cmd, **kw)
+        return subprocess.CompletedProcess(cmd, 1, p.stdout[: 2 * 256 * 256 * 3], b"died")
+
+    monkeypatch.setattr(videoframes.subprocess, "run", short)
     r = analyze_video(v, 6.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
-    assert r.decode_ok is not True or r.video_frames.times
-    assert r.decode_ok is not False or r.error
+    assert r.decode_ok and len(r.video_frames.times) == 2
+    assert "partial video decode: 2/6" in r.error
+
+
+@requires_ffmpeg
+def test_sub_second_video_has_exactly_one_frame(root, make_video):
+    v = make_video(root / "v.mp4", seconds=0.5)
+    grays, crops = extract(find_tool("ffmpeg"), v, sample_plan(0.5))
+    assert len(grays) == 1 and len(crops) == 1
+    r = analyze_video(v, 0.5, Settings(), find_tool("ffmpeg"), root / "v.webp")
+    assert r.decode_ok and len(r.video_frames.times) == 1 and len(r.frame_phashes) == 3
+    assert (root / "v.webp").exists()
+
+
+@requires_ffmpeg
+def test_wrong_duration_falls_back_to_start(root, make_video):
+    v = make_video(root / "v.mp4", seconds=3)
+    r = analyze_video(v, 500.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
+    assert r.decode_ok and len(r.video_frames.times) >= 1 and (root / "v.webp").exists()
+
+
+def test_three_hour_video_args_are_capped_and_keyframe_only(monkeypatch, tmp_path):
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b"" * (256 * 256 * 3), b"")
+
+    monkeypatch.setattr(videoframes.subprocess, "run", run)
+    times = sample_plan(3 * 3600.0)
+    extract("ffmpeg", tmp_path / "v.mp4", times)
+    cmd = seen[0]
+    assert len(times) == 120 and "-skip_frame" in cmd and "nokey" in cmd
+    assert cmd[cmd.index("-frames:v") + 1] == "120"
 
 
 @requires_ffmpeg
@@ -84,3 +148,13 @@ def test_analyze_video_keeps_three_frame_columns(root, make_video):
     assert r.decode_ok and len(r.frame_phashes) == 3 and len(r.frame_lumas) == 3
     assert (root / "v.webp").exists() and r.phash and r.ai_rgb_list is None
     assert len(r.video_frames.phashes) == len(r.video_frames.times) == 5
+
+
+@requires_ffmpeg
+def test_analyze_video_decodes_with_a_single_process(root, make_video, monkeypatch):
+    v = make_video(root / "v.mp4", seconds=4)
+    calls = []
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a) or real(*a, **k))
+    r = analyze_video(v, 4.0, Settings(), find_tool("ffmpeg"), root / "v.webp")
+    assert r.decode_ok and len(calls) == 1 and (root / "v.webp").exists()
