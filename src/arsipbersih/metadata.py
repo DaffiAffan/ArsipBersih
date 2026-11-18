@@ -11,6 +11,7 @@ from pathlib import Path
 
 from arsipbersih.config import Settings
 from arsipbersih.dates import pick_taken_at
+from arsipbersih.db import VIDEO_META_REFRESH_KEY
 from arsipbersih.layout import long_path
 from arsipbersih.tools import NO_CONSOLE_FLAGS, find_tool
 
@@ -366,6 +367,37 @@ def _process(conn, root: Path, et, ffprobe, batch) -> None:
             _store(conn, fid, {}, "error", f"{type(e).__name__}: {e}")
 
 
+def _refresh_video_camera(conn, root: Path, et: ExifTool, stop) -> None:
+    """One-time fill of make/model/has_gps for videos read before Fase 3 (QuickTime/Keys/Android).
+
+    Narrow on purpose: a full re-read would also rewrite files.error (wiping visual errors and
+    the video-backfill marker) and blank media_info when ExifTool fails on a file. Here only
+    empty camera fields are filled; dates, errors and everything else stay untouched.
+    """
+    if conn.execute("select 1 from settings where key = ?", (VIDEO_META_REFRESH_KEY,)).fetchone() is None:
+        return
+    rows = conn.execute(
+        "select id, rel_path from files where kind = 'video' and meta_status = 'done'"
+        " and missing = 0 and purged = 0 order by id"
+    ).fetchall()
+    for i in range(0, len(rows), BATCH):
+        if stop is not None and stop.is_set():
+            return  # the marker stays: the next scan repeats it (filling is idempotent)
+        batch = rows[i : i + BATCH]
+        entries, _ = _read_exif(et, [root / r["rel_path"] for r in batch])
+        for r, entry in zip(batch, entries):
+            if entry:
+                f = extract_exif_fields(entry)
+                conn.execute(
+                    "update media_info set make = coalesce(make, ?), model = coalesce(model, ?),"
+                    " has_gps = max(coalesce(has_gps, 0), ?) where file_id = ?",
+                    (f["make"], f["model"], f["has_gps"], r["id"]),
+                )
+        conn.commit()
+    conn.execute("delete from settings where key = ?", (VIDEO_META_REFRESH_KEY,))
+    conn.commit()
+
+
 def run_metadata(
     conn: sqlite3.Connection,
     root: Path,
@@ -399,6 +431,8 @@ def run_metadata(
             done += len(batch)
             if progress:
                 progress(done, total)
+        if et is not None and not (stop is not None and stop.is_set()):
+            _refresh_video_camera(conn, root, et, stop)
 
     unavailable: ExifToolUnavailable | None = None
     if exe:

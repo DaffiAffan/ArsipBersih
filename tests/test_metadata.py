@@ -107,3 +107,40 @@ def test_unreadable_reply_is_retried_per_file(root, make_image, monkeypatch):
             for r in conn.execute("select rel_path, meta_status, error from files")}
     assert rows["DSC_1.JPG"] == ("done", None)
     assert rows["DSC_2.JPG"][0] == "error" and "unreadable reply" in rows["DSC_2.JPG"][1]
+
+
+@requires_exiftool
+@requires_ffmpeg
+def test_upgrade_refills_old_video_camera_fields_once(root, monkeypatch):
+    import subprocess
+
+    from arsipbersih.db import VIDEO_META_REFRESH_KEY
+
+    v = root / "Sumber/HP/VID_20230812_143022.mp4"
+    v.parent.mkdir(parents=True)
+    subprocess.run([find_tool("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
+                    "-metadata", "com.android.manufacturer=samsung", "-metadata",
+                    "com.android.model=SM-A525F", "-movflags", "use_metadata_tags", str(v)], check=True)
+    conn = open_db(root); run_inventory(conn, root); build_units(conn)
+    run_metadata(conn, root, Settings())
+    marker = "select 1 from settings where key = ?"
+    assert conn.execute(marker, (VIDEO_META_REFRESH_KEY,)).fetchone() is None  # fresh db: nothing to do
+    # Pretend the file was read by schema 4: no camera fields, plus state the refill must keep.
+    conn.execute("update media_info set make = null, model = null")
+    conn.execute("update files set error = 'video: keep me'")
+    conn.execute("pragma user_version = 4")
+    conn.commit(); conn.close()
+
+    conn = open_db(root)
+    assert conn.execute(marker, (VIDEO_META_REFRESH_KEY,)).fetchone()
+    reads = []
+    real = ExifTool.read
+    monkeypatch.setattr(ExifTool, "read", lambda self, paths: reads.append(paths) or real(self, paths))
+    run_metadata(conn, root, Settings())
+    assert conn.execute("select make, model from media_info").fetchone()[:] == ("samsung", "SM-A525F")
+    assert conn.execute("select error from files").fetchone()[0] == "video: keep me"
+    assert conn.execute(marker, (VIDEO_META_REFRESH_KEY,)).fetchone() is None and len(reads) == 1
+    conn.close()
+    conn = open_db(root)  # schema is current now: no second refill
+    run_metadata(conn, root, Settings())
+    assert conn.execute(marker, (VIDEO_META_REFRESH_KEY,)).fetchone() is None and len(reads) == 1
