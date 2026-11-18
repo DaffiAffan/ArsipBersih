@@ -23,7 +23,7 @@ from ..classify import _is_screen_aspect, download_reason
 from ..config import Settings
 from ..formats import Kind
 from ..grouping import UnitView, load_unit_views
-from ..pathrules import has_camera_name, is_chat, segments_of
+from ..pathrules import has_camera_name, is_chat, is_download, segments_of
 from ..tools import find_tool
 from ..videoframes import extract, sample_plan
 from .heads import UnitFacts, get_head
@@ -215,12 +215,23 @@ def is_tall_screen_ratio(w: int | None, h: int | None) -> bool:
     return bool(w and h) and max(w, h) / min(w, h) >= TALL_SCREEN_RATIO
 
 
+def _plausible_date(text: str | None) -> bool:
+    """False for empty or zero-epoch dates (QuickTime 1904-01-01, Unix 1970-01-01)."""
+    return bool(text) and text[:4].isdigit() and int(text[:4]) >= 1971
+
+
 def has_camera_data(u: UnitView) -> bool:
-    """Evidence a video came from a camera: make/model, GPS, QuickTime date, or a camera file name."""
-    return bool(
-        u.make or u.model or u.has_gps or u.qt_datetime
-        or (has_camera_name(u.filename) and not is_chat(segments_of(u.orig_rel_path), u.filename))
-    )
+    """Evidence a video came from a camera: make/model, GPS, a camera file name, or a QuickTime date.
+
+    Chat-named files and files in chat/download folders never count by name or date alone: a
+    forwarded video carries the encode/send time, not a recording time.
+    """
+    if u.make or u.model or u.has_gps:
+        return True
+    segs = segments_of(u.orig_rel_path)
+    if is_chat(segs, u.filename) or is_download(segs):
+        return False
+    return has_camera_name(u.filename) or _plausible_date(u.qt_datetime)
 
 
 def unit_facts(u: UnitView) -> UnitFacts:

@@ -92,3 +92,19 @@ def test_ai_report_counts_video_examples(tmp_path, prompts):  # noqa: F811
     conn.execute("insert into files (id, unit_id, rel_path, kind, missing) values ('f-vid', 'vid', 'v.mp4', 'video', 0)")
     store.add_feedback(conn, "vid", "grafis", "koreksi")
     assert "Contoh koreksi video: 1 (belum dipakai melatih)" in train.ai_report(conn, tmp_path)
+
+
+def test_wa_video_with_only_creation_time_is_flagged_download_meme(conn_with):
+    conn = conn_with([dict(name="VID-20230812-WA0001.mp4", kind="video", path="Sumber/HP/WhatsApp",
+                           w=720, h=1280, duration=12.0)])
+    conn.execute("update media_info set qt_datetime='2023-08-12T10:00:00'")
+    assert not has_camera_data(load_unit_views(conn)[0])
+    _put_label(conn, conn.execute("select id from units").fetchone()[0], "grafis", 0.8, sub="meme")
+    run_classify(conn, Settings())
+    assert "download-meme" in _flags(conn)
+
+
+def test_bogus_creation_time_is_not_camera_data(conn_with):
+    conn = conn_with([dict(name="clip.mp4", kind="video")])
+    conn.execute("update media_info set qt_datetime='1904-01-01T00:00:00'")
+    assert not has_camera_data(load_unit_views(conn)[0])
