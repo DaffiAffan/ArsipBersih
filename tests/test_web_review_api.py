@@ -112,7 +112,7 @@ def test_bulk_discard_records_only_undecided(web, root, review_units):
     assert web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"}).status_code == 200
     r = web.post("/api/review/decisions", json={"unit_ids": [a, b, c], "decision": "discard"})
     assert r.status_code == 200
-    assert r.json() == {"recorded": 2}
+    assert r.json()["recorded"] == 2 and sorted(r.json()["unit_ids"]) == sorted([b, c])
     assert _decisions(root) == {a: "keep", b: "discard", c: "discard"}
 
 
@@ -120,7 +120,7 @@ def test_bulk_discard_skips_group_categories(web, root, review_units):
     (grid_unit,) = review_units(1, category="kiriman-chat")
     (group_unit,) = review_units(1, category="duplikat-persis")
     r = web.post("/api/review/decisions", json={"unit_ids": [grid_unit, group_unit], "decision": "discard"})
-    assert r.json() == {"recorded": 1}
+    assert r.json()["recorded"] == 1
     assert _decisions(root) == {grid_unit: "discard"}
 
 
@@ -203,7 +203,7 @@ def test_accept_page_records_suggestions(web, root):
                      [(gid, keeper), (gid, other)])
     conn.commit()
     conn.close()
-    assert web.post("/api/review/accept", json={"group_ids": [gid]}).json() == {"recorded": 2}
+    assert web.post("/api/review/accept", json={"group_ids": [gid]}).json()["recorded"] == 2
     assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 disimpan, 1 dibuang"
     assert web.get(f"/api/review/group/{gid}").status_code == 200
 
@@ -366,7 +366,7 @@ def test_bulk_discard_skips_identity_documents(web, root, review_units):
     (ident,) = review_units(1, category="dokumen-identitas")
     (money,) = review_units(1, category="dokumen-keuangan")
     r = web.post("/api/review/decisions", json={"unit_ids": [ident, money], "decision": "discard"})
-    assert r.json() == {"recorded": 1}
+    assert r.json()["recorded"] == 1
     assert _decisions(root) == {money: "discard"}
 
 
@@ -422,7 +422,7 @@ def test_apply_refuses_when_units_swapped_with_equal_counts(web, root, review_un
     r = web.post("/api/review/apply/burem",
                  json={"keep": 1, "discard": 1, "fingerprint": pv["fingerprint"]})
     assert r.status_code == 409
-    assert "Isi Apply berubah sejak dilihat" in r.json()["detail"]
+    assert "Isi yang akan diterapkan berubah sejak dilihat" in r.json()["detail"]
     assert _db_row(root, a) == "review" and _db_row(root, b) == "review"
 
 
@@ -496,3 +496,45 @@ def test_video_correction_to_lainnya_removes_flag(web, root):
     assert r.status_code == 200 and r.json()["primary_category"] is None
     assert r.json()["ai"]["label"] == "Video biasa"  # toast and "Dikoreksi: ..." text
     assert web.get(f"/api/review/unit/{v}").json()["ai"]["label"] == "Video biasa"
+
+
+def test_categories_carry_group_and_short_label(web, review_units):
+    review_units(1, category="burem")
+    review_units(1, category="dokumen-keuangan")
+    review_units(1, category="duplikat-persis")
+    cats = web.get("/api/review/categories").json()
+    fin = next(c for c in cats if c["category"] == "dokumen-keuangan")
+    assert (fin["group"], fin["group_title"], fin["short_label"]) == ("dokumen", "Dokumen", "Keuangan")
+    from arsipbersih.web.labels import CATEGORY_GROUPS
+
+    order = [c for _, _, cs in CATEGORY_GROUPS for c in cs]
+    got = [c["category"] for c in cats]
+    assert got == sorted(got, key=order.index)
+
+
+def test_grid_order_views_follow_four_states(web, root, review_units):
+    a, b, c, d = review_units(4, seen={1})
+    web.post("/api/review/decision", json={"unit_id": c, "decision": "keep"})
+    web.post("/api/review/decision", json={"unit_id": d, "decision": "discard"})
+    for view, want in (("unseen", a), ("seen", b), ("keep", c), ("discard", d)):
+        r = web.get(f"/api/review/grid/burem/order?view={view}").json()
+        assert r["unit_ids"] == [want], view
+    assert web.get("/api/review/grid/burem/order?view=bogus").status_code == 400
+
+
+def test_bulk_discard_returns_ids_and_clear_restores_only_those(web, root, review_units):
+    a, b, c = review_units(3, category="kiriman-chat")
+    web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "discard"})
+    r = web.post("/api/review/decisions", json={"unit_ids": [a, b, c], "decision": "discard"}).json()
+    assert r["unit_ids"] == [c] and r["recorded"] == 1
+    r = web.post("/api/review/decisions/clear", json={"unit_ids": [c]}).json()
+    assert r == {"cleared": 1}
+    conn = open_db(root)
+    try:
+        assert dict(conn.execute("select unit_id, decision from decisions").fetchall()) == {a: "keep", b: "discard"}
+        conn.execute("update decisions set applied=1 where unit_id=?", (a,))
+        conn.commit()
+    finally:
+        conn.close()
+    assert web.post("/api/review/decisions/clear", json={"unit_ids": [a]}).json() == {"cleared": 0}

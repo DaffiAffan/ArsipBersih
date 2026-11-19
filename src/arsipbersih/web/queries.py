@@ -13,7 +13,12 @@ from arsipbersih.config import load_settings
 from arsipbersih.decisions import preview_apply
 from arsipbersih.grouping import load_unit_views
 from arsipbersih.pathrules import is_chat, segments_of
-from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+from arsipbersih.web.labels import (
+    CATEGORY_GROUPS,
+    CATEGORY_HELP,
+    CATEGORY_LABELS,
+    CATEGORY_SHORT_LABELS,
+)
 from arsipbersih.web.reasons import suggestion_reason
 
 GROUP_PAGE = 20
@@ -94,7 +99,10 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
         )
     }
     out = []
-    for cat in CATEGORY_PRIORITY:
+    ordered = [
+        (gkey, gtitle, cat) for gkey, gtitle, cats in CATEGORY_GROUPS for cat in cats
+    ]
+    for gkey, gtitle, cat in ordered:
         if cat in GROUP_CATEGORIES:
             mode = "group"
             count = conn.execute(
@@ -112,6 +120,9 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             {
                 "category": cat,
                 "label": CATEGORY_LABELS.get(cat, cat),
+                "short_label": CATEGORY_SHORT_LABELS.get(cat, cat),
+                "group": gkey,
+                "group_title": gtitle,
                 "help": CATEGORY_HELP.get(cat, ""),
                 "mode": mode,
                 "count": count,
@@ -318,7 +329,7 @@ def grid_order(
     conn: sqlite3.Connection,
     category: str,
     sort: Literal["score", "date", "ai_doubt"] = "score",
-    view: Literal["all", "unseen", "keep"] = "all",
+    view: Literal["all", "unseen", "seen", "keep", "discard"] = "all",
     head: str | None = None,
 ) -> list[str]:
     if category not in GRID_CATEGORIES:
@@ -329,8 +340,10 @@ def grid_order(
     cond = ""
     if view == "unseen":
         cond = " and b.seen = 0 and b.decision is null"
-    elif view == "keep":
-        cond = " and b.decision = 'keep'"
+    elif view == "seen":
+        cond = " and b.seen = 1 and b.decision is null"
+    elif view in ("keep", "discard"):
+        cond = f" and b.decision = '{view}'"
     rows = conn.execute(
         f"select b.unit_id {_GRID_FROM}"
         f" where b.location='review' and b.primary_category=?{cond} order by {_grid_order_sql(sort)}",

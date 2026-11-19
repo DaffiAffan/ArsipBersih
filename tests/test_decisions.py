@@ -86,16 +86,16 @@ def test_record_bulk_discard_fills_only_undecided_review_units(review_db):
     record(conn, a, "keep")
     record(conn, b, "discard")
     n = record_bulk_discard(conn, [a, b, c, archived, "missing-id"])
-    assert n == 1
+    assert n == [c]
     assert _decision_map(conn) == {a: "keep", b: "discard", c: "discard"}
-    assert record_bulk_discard(conn, [a, b, c]) == 0  # second call changes nothing
+    assert record_bulk_discard(conn, [a, b, c]) == []  # second call changes nothing
 
 
 def test_record_bulk_discard_skips_group_categories(review_db):
     conn, root, (a, _, _) = review_db("kiriman-chat")
     grouped = _add_unit(conn, root, "_review/duplikat-persis/HP/D.jpg", location="review",
                         category="duplikat-persis")
-    assert record_bulk_discard(conn, [a, grouped]) == 1
+    assert record_bulk_discard(conn, [a, grouped]) == [a]
     assert _decision_map(conn) == {a: "discard"}
 
 
@@ -104,7 +104,7 @@ def test_record_bulk_discard_refills_applied_decision(review_db):
     record(conn, a, "keep")
     conn.execute("update decisions set applied=1 where unit_id=?", (a,))
     conn.commit()
-    assert record_bulk_discard(conn, [a]) == 1
+    assert record_bulk_discard(conn, [a]) == [a]
     row = conn.execute("select decision, applied from decisions where unit_id=?", (a,)).fetchone()
     assert tuple(row) == ("discard", 0)
 
@@ -124,21 +124,21 @@ def _decision_map(conn):
 def test_accept_suggestions_keeps_explicit_unapplied_decision(group_db):
     conn, root, gid, keeper, other = group_db("mirip-beruntun")
     record(conn, other, "keep")  # explicit keep on a non-keeper
-    assert accept_suggestions(conn, [gid]) == 1  # only the keeper was undecided
+    assert accept_suggestions(conn, [gid]) == [keeper]  # only the keeper was undecided
     assert _decision_map(conn) == {keeper: "keep", other: "keep"}
 
 
 def test_accept_suggestions_fills_undecided_members(group_db):
     conn, root, gid, keeper, other = group_db("mirip-beruntun")
-    assert accept_suggestions(conn, [gid]) == 2
+    assert sorted(accept_suggestions(conn, [gid])) == sorted([keeper, other])
     assert _decision_map(conn) == {keeper: "keep", other: "discard"}
-    assert accept_suggestions(conn, [gid]) == 0  # second accept changes nothing
+    assert accept_suggestions(conn, [gid]) == []  # second accept changes nothing
 
 
 def test_accept_suggestions_keeps_explicit_discard_on_keeper(group_db):
     conn, root, gid, keeper, other = group_db("mirip-beruntun")
     record(conn, keeper, "discard")
-    assert accept_suggestions(conn, [gid]) == 1
+    assert accept_suggestions(conn, [gid]) == [other]
     assert _decision_map(conn) == {keeper: "discard", other: "discard"}
 
 
@@ -197,3 +197,9 @@ def test_purge_skips_file_whose_size_changed(root, review_db):
     errors: list[str] = []
     assert purge_trash(conn, root, *totals, errors=errors) == 2
     assert victim.exists() and "differs" in errors[0]
+
+
+def test_accept_returns_recorded_ids(group_db):
+    conn, root, gid, keeper, other = group_db("mirip-beruntun")
+    record(conn, other, "keep")
+    assert accept_suggestions(conn, [gid]) == [keeper]

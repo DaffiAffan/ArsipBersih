@@ -114,16 +114,16 @@ def _confirm_document(conn: sqlite3.Connection, unit_id: str) -> None:
 NO_BULK_DISCARD = frozenset({"dokumen-identitas"})
 
 
-def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
+def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> list[str]:
     """Discard every grid-category unit still in review that has no unapplied decision,
     in one transaction. Group categories are decided per group, never in bulk, and so is
     dokumen-identitas. An explicit Keep or Delete the owner has not applied yet is never
-    overwritten. Returns the number of decisions recorded."""
+    overwritten. Returns the ids of the units actually recorded."""
     ids = list(dict.fromkeys(unit_ids))
     grid = sorted(GRID_CATEGORIES - NO_BULK_DISCARD)
     cats = ",".join("?" * len(grid))
     now = _now()
-    n = 0
+    recorded: list[str] = []
     with conn:
         for i in range(0, len(ids), _CHUNK):
             part = ids[i : i + _CHUNK]
@@ -139,7 +139,22 @@ def record_bulk_discard(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
                 )
             ]
             conn.executemany(_UPSERT_DECISION, [(uid, "discard", now) for uid in todo])
-            n += len(todo)
+            recorded.extend(todo)
+    return recorded
+
+
+def clear_unapplied(conn: sqlite3.Connection, unit_ids: list[str]) -> int:
+    """Remove the unapplied decisions of exactly these units, in one transaction.
+    Applied decisions are history and stay. Returns the number removed."""
+    ids = list(dict.fromkeys(unit_ids))
+    n = 0
+    with conn:
+        for i in range(0, len(ids), _CHUNK):
+            part = ids[i : i + _CHUNK]
+            marks = ",".join("?" * len(part))
+            n += conn.execute(
+                f"delete from decisions where applied=0 and unit_id in ({marks})", part
+            ).rowcount
     return n
 
 
@@ -153,11 +168,11 @@ def mark_seen(conn: sqlite3.Connection, unit_ids: list[str]) -> None:
         conn.executemany("update units set seen=1 where id=?", [(u,) for u in unit_ids])
 
 
-def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
+def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> list[str]:
     """Keeper -> keep, every other member -> discard, but only for units without an
     unapplied decision: an explicit choice the owner made and has not applied yet always
-    wins over the suggestion. Returns the number of decisions actually recorded."""
-    n = 0
+    wins over the suggestion. Returns the ids of the units actually recorded."""
+    recorded: list[str] = []
     for gid in group_ids:
         g = conn.execute(
             "select suggested_keep_unit_id from groups where id=?", (gid,)
@@ -180,8 +195,8 @@ def accept_suggestions(conn: sqlite3.Connection, group_ids: list[str]) -> int:
             if pending is not None:
                 continue
             record(conn, uid, decision)
-            n += 1
-    return n
+            recorded.append(uid)
+    return recorded
 
 
 # --- apply -------------------------------------------------------------------------------

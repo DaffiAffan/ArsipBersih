@@ -33,7 +33,7 @@ def test_counts_hide_empty_and_follow_priority(conn_with):
         {"name": "c.jpg", "loc": "review", "category": "rusak"},
     ])
     got = queries.category_counts(conn)
-    assert [(c["category"], c["count"]) for c in got] == [("rusak", 1), ("burem", 2)]
+    assert [(c["category"], c["count"]) for c in got] == [("burem", 2), ("rusak", 1)]
     assert got[0]["mode"] == "grid"
     json.dumps(got)
 
@@ -136,7 +136,7 @@ def test_counts_report_label_help_and_seen_progress(conn_with):
     conn.execute("update units set seen=1 where id=?", (_unit(conn, "a.jpg")["uid"],))
     decisions.record(conn, _unit(conn, "b.jpg")["uid"], "keep")
     row = next(r for r in queries.category_counts(conn) if r["category"] == "burem")
-    assert (row["count"], row["done"]) == (3, 2)
+    assert (row["count"], row["done"]) == (3, 1)
     assert row["label"] == "Blur" and row["help"]
 
 
@@ -263,3 +263,24 @@ def test_category_has_label_and_help():
 
     assert CATEGORY_LABELS["rekaman-tidak-sengaja"] == "Rekaman tidak sengaja"
     assert "Cek dulu" in CATEGORY_HELP["rekaman-tidak-sengaja"]
+
+
+def test_category_groups_cover_every_category():
+    from arsipbersih.classify import CATEGORY_PRIORITY
+    from arsipbersih.web.labels import CATEGORY_GROUPS
+
+    flat = [c for _, _, cats in CATEGORY_GROUPS for c in cats]
+    assert len(flat) == len(set(flat))
+    assert set(flat) == set(CATEGORY_PRIORITY)
+
+
+def test_help_texts_use_new_terms():
+    from arsipbersih.web import messages
+    from arsipbersih.web.labels import CATEGORY_HELP
+
+    texts = list(CATEGORY_HELP.values()) + [
+        v for k, v in vars(messages).items() if k.isupper() and isinstance(v, str)
+    ] + list(messages._BY_CLASS.values()) + list(messages._BY_NAME.values())
+    for t in texts:
+        for bad in ("Keep", "Delete", "Apply", "_sampah", "—"):
+            assert bad not in t, (bad, t)

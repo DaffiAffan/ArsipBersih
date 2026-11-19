@@ -37,6 +37,10 @@ class BulkDecisionBody(BaseModel):
     decision: str | None = None
 
 
+class ClearDecisionsBody(BaseModel):
+    unit_ids: list[str]
+
+
 class SeenBody(BaseModel):
     unit_ids: list[str]
 
@@ -129,7 +133,7 @@ def grid_order(
     _grid_category(category)
     if sort not in ("score", "date", "ai_doubt"):
         raise UserError("Urutan tidak dikenal", 400)
-    if view not in ("all", "unseen", "keep"):
+    if view not in ("all", "unseen", "seen", "keep", "discard"):
         raise UserError("Tampilan tidak dikenal", 400)
     ids = queries.grid_order(conn, category, sort, view)
     return {"unit_ids": ids, "total": len(ids)}
@@ -201,7 +205,15 @@ def bulk_decisions(body: BulkDecisionBody, conn: sqlite3.Connection = Depends(ge
         raise UserError("Keputusan tidak valid", 400)
     if len(body.unit_ids) > MAX_BULK_DECISIONS:
         raise UserError(f"Maksimal {MAX_BULK_DECISIONS} item per permintaan", 400)
-    return {"recorded": decisions.record_bulk_discard(conn, body.unit_ids)}
+    ids = decisions.record_bulk_discard(conn, body.unit_ids)
+    return {"recorded": len(ids), "unit_ids": ids}
+
+
+@router.post("/decisions/clear")
+def clear_decisions(body: ClearDecisionsBody, conn: sqlite3.Connection = Depends(get_conn)):
+    if len(body.unit_ids) > MAX_BULK_DECISIONS:
+        raise UserError(f"Maksimal {MAX_BULK_DECISIONS} item per permintaan", 400)
+    return {"cleared": decisions.clear_unapplied(conn, body.unit_ids)}
 
 
 @router.post("/seen")
@@ -214,7 +226,8 @@ def seen(body: SeenBody, conn: sqlite3.Connection = Depends(get_conn)):
 
 @router.post("/accept")
 def accept(body: AcceptBody, conn: sqlite3.Connection = Depends(get_conn)):
-    return {"recorded": decisions.accept_suggestions(conn, body.group_ids)}
+    ids = decisions.accept_suggestions(conn, body.group_ids)
+    return {"recorded": len(ids), "unit_ids": ids}
 
 
 @router.get("/apply/{category}")

@@ -296,10 +296,9 @@ _CLASSIFIED_LOCATIONS = ("source", "review", "archive")
 def reset_review_state(conn: sqlite3.Connection, unit_id: str) -> None:
     """Forget what a unit carried from its old review category (call inside a transaction).
 
-    Apply treats a seen grid unit without a decision, and any unapplied Delete, as a discard;
-    neither may follow the unit into a category where the owner never checked it (spec 7.7).
-    `seen` is reset and an unapplied Delete is removed. An unapplied Keep and applied
-    decisions stay: this only ever makes Apply more conservative.
+    An unapplied Delete (discard) must not follow the unit into a category where the owner
+    never checked it (spec 7.7). `seen` is reset and an unapplied Delete is removed. An
+    unapplied Keep and applied decisions stay: this only ever makes Apply more conservative.
     """
     conn.execute("update units set seen=0 where id=?", (unit_id,))
     conn.execute(

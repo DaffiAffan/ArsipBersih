@@ -18,6 +18,10 @@ def home_steps(conn: sqlite3.Connection, *, scanned: bool) -> dict:
     # For group categories `count` is a number of groups; the home card shows it as "menunggu review".
     review = sum(c["count"] for c in cats)
     review_done = sum(c["done"] for c in cats)
+    review_units = conn.execute(
+        "select count(*) from units u where u.location='review'"
+        " and not exists (select 1 from decisions d where d.unit_id = u.id)"
+    ).fetchone()[0]
     trash_files, trash_bytes = trash_totals(conn)
     if not scanned:
         current = 1
@@ -37,6 +41,7 @@ def home_steps(conn: sqlite3.Connection, *, scanned: bool) -> dict:
             "source": by_loc.get("source", 0),
             "review": review,
             "review_done": review_done,
+            "review_units": review_units,
             "trash_files": trash_files,
             "trash_bytes": trash_bytes,
             "events": events,

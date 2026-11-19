@@ -6,7 +6,7 @@ from ..decisions import ApplyContentChanged, PurgeMismatch
 from ..mover import InsufficientSpace, NotUndoable, PendingMoves, UnknownBatch
 from ..pipeline import ScanIncomplete
 
-APPLY_CONTENT_CHANGED_TEXT = "Isi Apply berubah sejak dilihat — buka lagi ringkasannya."
+APPLY_CONTENT_CHANGED_TEXT = "Isi yang akan diterapkan berubah sejak dilihat. Buka lagi ringkasannya."
 APPLY_MISMATCH_TEXT = "Jumlah berubah sejak kamu konfirmasi. Muat ulang, lalu periksa lagi."
 
 
@@ -25,7 +25,7 @@ _BY_CLASS = {
     ),
     ScanIncomplete: "Scan terakhir belum selesai. Jalankan scan lagi sebelum merapikan.",
     InsufficientSpace: "Ruang disk tidak cukup untuk memindah file ini. Tidak ada file yang dipindah.",
-    PurgeMismatch: "Isi _sampah berubah sejak kamu konfirmasi. Muat ulang halaman, lalu konfirmasi lagi.",
+    PurgeMismatch: "Isi Sampah berubah sejak kamu konfirmasi. Muat ulang halaman, lalu konfirmasi lagi.",
     ApplyContentChanged: APPLY_CONTENT_CHANGED_TEXT,
     UnknownBatch: "Batch tidak ditemukan.",
     NotUndoable: "Batch ini tidak bisa dibatalkan.",

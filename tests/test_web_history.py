@@ -104,7 +104,7 @@ def test_purge_with_stale_totals_fails_safely(web, root, trashed_units):
     assert r.status_code == 202
     st = _finish(web)
     assert st.status == "failed"
-    assert st.error.startswith("Isi _sampah berubah")
+    assert st.error.startswith("Isi Sampah berubah")
     assert len(_trash_files(root)) == 3
 
 
