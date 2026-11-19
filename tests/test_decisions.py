@@ -71,13 +71,13 @@ def group_db(root):
     return make
 
 
-def test_grid_default_discard_only_for_seen(review_db):
+def test_grid_apply_moves_only_explicit_decisions(review_db):
     conn, root, (a, b, c) = review_db("burem")
     mark_seen(conn, [a, b]); record(conn, b, "keep")
-    assert preview_apply(conn, "burem") == ApplyPreview(keep=1, discard=1, unseen=1)
+    assert preview_apply(conn, "burem") == ApplyPreview(keep=1, discard=0, unseen=2)
     apply_category(conn, root, "burem")
     loc = dict(conn.execute("select id, location from units").fetchall())
-    assert (loc[a], loc[b], loc[c]) == ("trash", "archive", "review")
+    assert (loc[a], loc[b], loc[c]) == ("review", "archive", "review")
 
 
 def test_record_bulk_discard_fills_only_undecided_review_units(review_db):
@@ -144,7 +144,7 @@ def test_accept_suggestions_keeps_explicit_discard_on_keeper(group_db):
 
 def test_purge_requires_matching_totals(review_db):
     conn, root, (a, b, c) = review_db("burem")
-    mark_seen(conn, [a, b, c]); apply_category(conn, root, "burem")
+    [record(conn, u, "discard") for u in (a, b, c)]; apply_category(conn, root, "burem")
     files, size = trash_totals(conn)
     with pytest.raises(PurgeMismatch):
         purge_trash(conn, root, files + 1, size)
@@ -175,7 +175,7 @@ def test_purge_refuses_when_trash_folder_missing(root):
 
 def test_purge_reports_each_failed_file(root, monkeypatch, review_db):
     conn, root, ids = review_db("burem")
-    mark_seen(conn, list(ids)); apply_category(conn, root, "burem")
+    [record(conn, u, "discard") for u in ids]; apply_category(conn, root, "burem")
     real = decisions._delete
     def flaky(p):
         if p.name == "IMG_1.jpg":
@@ -190,7 +190,7 @@ def test_purge_reports_each_failed_file(root, monkeypatch, review_db):
 
 def test_purge_skips_file_whose_size_changed(root, review_db):
     conn, root, ids = review_db("burem")
-    mark_seen(conn, list(ids)); apply_category(conn, root, "burem")
+    [record(conn, u, "discard") for u in ids]; apply_category(conn, root, "burem")
     totals = trash_totals(conn)
     victim = next((root / "_sampah").rglob("IMG_0.jpg"))
     victim.write_bytes(b"y" * 99)                   # bukan file yang dicatat lagi

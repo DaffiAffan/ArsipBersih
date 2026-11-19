@@ -54,9 +54,10 @@ def _db_row(root, uid):
 def test_grid_apply_never_discards_unseen(web, root, review_units):
     a, b, c = review_units(3, seen={0})
     assert web.post("/api/review/decision", json={"unit_id": b, "decision": "keep"}).status_code == 200
+    assert web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"}).status_code == 200
     r = web.get("/api/review/apply/burem").json()
     assert (r["keep"], r["discard"], r["unseen"]) == (1, 1, 1)
-    assert r["text"] == "1 delete, 1 keep · 1 belum diputuskan (tetap di review)"
+    assert r["text"] == "1 dibuang, 1 disimpan · 1 belum diputuskan (tetap di review)"
     assert web.post("/api/review/apply/burem", json={"keep": 1, "discard": 1}).status_code == 202
     state = web.app_ref.state.jobs.wait()
     assert state.status == "done", state.error
@@ -64,6 +65,16 @@ def test_grid_apply_never_discards_unseen(web, root, review_units):
     assert _db_row(root, b) == "archive"
     assert _db_row(root, c) == "review"
     assert (root / "_review/burem/HP/IMG_2.jpg").exists()
+
+
+def test_seen_undecided_counts_as_remaining(web, root, review_units):
+    a, b, c = review_units(3)
+    assert web.post("/api/review/seen", json={"unit_ids": [a, b]}).status_code == 200
+    assert web.post("/api/review/decision", json={"unit_id": a, "decision": "discard"}).status_code == 200
+    cats = {c_["category"]: c_ for c_ in web.get("/api/review/categories").json()}
+    assert cats["burem"]["done"] == 1
+    text = web.get("/api/review/apply/burem").json()["text"]
+    assert "1 dibuang" in text and "tetap di review" in text
 
 
 def test_decision_null_clears(web, root, review_units):
@@ -193,7 +204,7 @@ def test_accept_page_records_suggestions(web, root):
     conn.commit()
     conn.close()
     assert web.post("/api/review/accept", json={"group_ids": [gid]}).json() == {"recorded": 2}
-    assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 keep, 1 delete"
+    assert web.get("/api/review/apply/duplikat-persis").json()["text"] == "1 disimpan, 1 dibuang"
     assert web.get(f"/api/review/group/{gid}").status_code == 200
 
 
@@ -402,6 +413,7 @@ def test_ai_group_same_category_leaves_seen_and_decision(web, root, review_units
 def test_apply_refuses_when_units_swapped_with_equal_counts(web, root, review_units):
     a, b = review_units(2, seen={0, 1})
     web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "discard"})
     pv = web.get("/api/review/apply/burem").json()
     assert (pv["keep"], pv["discard"]) == (1, 1) and pv["fingerprint"]
     # Another tab swaps the two decisions: same counts, different units.
@@ -417,6 +429,7 @@ def test_apply_refuses_when_units_swapped_with_equal_counts(web, root, review_un
 def test_apply_proceeds_when_fingerprint_matches(web, root, review_units):
     a, b = review_units(2, seen={0, 1})
     web.post("/api/review/decision", json={"unit_id": a, "decision": "keep"})
+    web.post("/api/review/decision", json={"unit_id": b, "decision": "discard"})
     pv = web.get("/api/review/apply/burem").json()
     r = web.post("/api/review/apply/burem",
                  json={"keep": 1, "discard": 1, "fingerprint": pv["fingerprint"]})

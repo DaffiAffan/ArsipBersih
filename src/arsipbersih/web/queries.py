@@ -82,8 +82,8 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
         r[0]: r[1]
         for r in conn.execute(
             "select u.primary_category, count(*) from units u where u.location='review'"
-            " and u.primary_category is not null and (u.seen = 1 or exists"
-            " (select 1 from decisions d where d.unit_id = u.id)) group by u.primary_category"
+            " and u.primary_category is not null and exists"
+            " (select 1 from decisions d where d.unit_id = u.id) group by u.primary_category"
         )
     }
     group_done = {

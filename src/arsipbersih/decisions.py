@@ -76,7 +76,7 @@ def correct_group(conn: sqlite3.Connection, settings, unit_id: str, grp: str) ->
     """Store the owner's AI-group correction and reclassify the unit, in one transaction.
 
     When the unit lands in another category, what it carried from the old one must not
-    decide its fate there: `seen` is reset (a seen grid unit is discarded at Apply) and an
+    decide its fate there: `seen` is reset (it belonged to the old category) and an
     unapplied Delete is cleared (e.g. a bulk Delete, which dokumen-identitas forbids).
     An unapplied Keep stays. No file moves. Returns the new primary category.
     """
@@ -202,15 +202,15 @@ def _group_decisions(conn: sqlite3.Connection, category: str) -> tuple[list[str]
 
 def _grid_lists(conn: sqlite3.Connection, category: str) -> tuple[list[str], list[str], int]:
     rows = conn.execute(
-        "select u.id, u.seen, d.decision from units u left join decisions d on d.unit_id=u.id"
+        "select u.id, d.decision from units u left join decisions d on d.unit_id=u.id"
         " where u.primary_category=? and u.location='review' order by u.rowid",
         (category,),
     ).fetchall()
     keep, discard, unseen = [], [], 0
-    for uid, seen, decision in rows:
+    for uid, decision in rows:
         if decision == "keep":
             keep.append(uid)
-        elif decision == "discard" or seen:
+        elif decision == "discard":
             discard.append(uid)
         else:
             unseen += 1
@@ -285,7 +285,7 @@ def _settle(conn: sqlite3.Connection, keep: list[str], discard: list[str]) -> No
             for uid, loc in _locations(conn, ids).items():
                 if loc != target:
                     continue
-                # A grid discard may be implicit (seen, no row): the row is written only now.
+                # Grid decisions are always explicit rows (D-039); the upsert is a safety net.
                 # A decision the owner changed mid-apply is left unapplied.
                 conn.execute(
                     "insert into decisions (unit_id, decision, decided_at, applied)"
