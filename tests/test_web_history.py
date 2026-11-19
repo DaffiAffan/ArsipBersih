@@ -5,7 +5,7 @@ import os
 import pytest
 
 from arsipbersih.db import new_id, open_db
-from arsipbersih.decisions import apply_category, mark_seen, preview_apply
+from arsipbersih.decisions import apply_category, mark_seen, preview_apply, record
 
 
 def _add_unit(conn, root, rel, *, location, category=None, seen=0):
@@ -41,14 +41,15 @@ def trashed_units(root):
 
 @pytest.fixture
 def applied_units(root):
-    """Three seen review units discarded by a real apply batch (files now in _sampah)."""
+    """Three review units with an explicit discard decision, moved by a real apply batch (files now in _sampah)."""
     conn = open_db(root)
     try:
         ids = [
             _add_unit(conn, root, f"_review/burem/HP/IMG_{i}.jpg", location="review", category="burem")
             for i in range(3)
         ]
-        mark_seen(conn, ids)
+        for uid in ids:
+            record(conn, uid, "discard")
         apply_category(conn, root, "burem")
         assert {r[0] for r in conn.execute("select location from units")} == {"trash"}
         return ids
