@@ -44,3 +44,10 @@ def test_plan_js_shares_modal_and_restores_focus_by_name(web):
     js = web.get("/static/pages/plan.js").text
     assert "modalDialog" in js and 'dlg.showModal' not in js
     assert "restoreFocus(ev.key, " in js
+
+
+def test_plan_rows_use_row_menu(web):
+    page = web.get("/rencana").text
+    assert 'class="card"' not in page
+    js = web.get("/static/pages/plan.js").text
+    assert "Ganti nama" in js and "Gabungkan" in js and "Bukan acara" in js

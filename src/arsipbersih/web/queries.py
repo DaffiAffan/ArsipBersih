@@ -583,14 +583,14 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None)
 def _batch_title(label: str, labels: dict[str, str]) -> str:
     if label.startswith("apply "):
         slug = label[len("apply "):]
-        return f"Apply · {CATEGORY_LABELS.get(slug, slug)}"
+        return f"Terapkan · {CATEGORY_LABELS.get(slug, slug)}"
     if label.startswith("rapikan"):
         return "Rapikan ke Arsip"
     if label == "undo all":
-        return "Undo semua"
+        return "Batalkan semua"
     if label.startswith("undo "):
         target = labels.get(label[len("undo "):])
-        return f"Undo · {_batch_title(target, labels)}" if target else "Undo"
+        return f"Dibatalkan: {_batch_title(target, labels)}" if target else "Dibatalkan"
     if label == "purge trash":
         return "Kosongkan sampah"
     return label

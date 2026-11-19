@@ -34,11 +34,10 @@ function say(text, ok = true) {
   msg.style.color = ok ? "" : "var(--color-danger)";
 }
 
-function numField([name, label, claude]) {
+function numField([name, label]) {
   const input = el("input", { type: "number", step: "any", name, class: "input" });
   inputs[name] = input;
-  return el("label", { class: "field" }, el("span", {}, label),
-    input, claude ? el("small", { class: "muted" }, NOTE) : null);
+  return el("label", { class: "field" }, el("span", {}, label), input);
 }
 
 function thumbRow(title, items) {
@@ -87,25 +86,31 @@ function buildBlur() {
     } catch (e) { say(e.message, false); }
   } }, "Sarankan dari foto saya");
   examplesBox = el("div", { class: "blur-examples" });
-  return el("fieldset", { class: "card" }, el("legend", {}, "Ambang burem"),
-    el("small", { class: "muted" }, `Ambang ini ${NOTE}.`),
+  return el("fieldset", { class: "settings-section" }, el("legend", {}, "Ambang burem"),
+    el("p", { class: "muted section-note" }, `Ambang ini ${NOTE}.`),
     el("div", { class: "blur-controls" }, slider, sliderVal, clearBtn, suggest), examplesBox);
+}
+
+// The "check on real data" hint is written once per section, not once per field.
+function section(g) {
+  const note = g.fields.some((f) => f[2]) ? el("p", { class: "muted section-note" }, `Nilai di bagian ini ${NOTE}.`) : null;
+  return el("fieldset", { class: "settings-section" }, el("legend", {}, g.title), note, g.fields.map(numField));
 }
 
 function build() {
   const blur = buildBlur();
   const first = GROUPS[0];
-  form.append(el("fieldset", { class: "card" }, el("legend", {}, first.title), first.fields.map(numField)));
+  form.append(section(first));
   form.append(blur);
   for (const g of GROUPS.slice(1)) {
-    form.append(el("fieldset", { class: "card" }, el("legend", {}, g.title), g.fields.map(numField)));
+    form.append(section(g));
   }
   folders = el("textarea", { rows: 10, name: "generic_folders", class: "input" });
-  form.append(el("fieldset", { class: "card" }, el("legend", {}, "Acara"),
+  form.append(el("fieldset", { class: "settings-section" }, el("legend", {}, "Acara"),
     el("label", { class: "field" }, el("span", {}, "Folder bawaan (satu nama per baris)"), folders)));
   tz = el("input", { type: "text", name: "timezone", class: "input" });
   workers = el("input", { type: "number", min: 1, max: 8, step: 1, name: "workers", class: "input" });
-  form.append(el("fieldset", { class: "card" }, el("legend", {}, "Umum"),
+  form.append(el("fieldset", { class: "settings-section" }, el("legend", {}, "Umum"),
     el("label", { class: "field" }, el("span", {}, "Zona waktu"), tz),
     el("label", { class: "field" }, el("span", {}, "Jumlah worker (1-8)"), workers)));
 }

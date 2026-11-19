@@ -17,24 +17,12 @@ function showError(msg) {
 }
 
 function stat(label, value, sub) {
-  return el("div", { class: "stat" },
-    el("dd", {}, value), el("dt", {}, label), sub ? el("small", { class: "muted" }, sub) : null);
-}
-
-function summaryStats(s) {
-  const stats = [stat("Ke Arsip", `${fmtNum(s.archive_units)} unit`, fmtBytes(s.archive_bytes))];
-  for (const [cat, [units, bytes]] of Object.entries(s.review)) {
-    stats.push(stat(`Ke _review/${cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
-  }
-  for (const [reason, [units, bytes]] of Object.entries(s.by_reason || {})) {
-    stats.push(stat(`Di Arsip, ${reason}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
-  }
-  stats.push(stat("Dilewati", fmtNum(s.skipped.length)));
-  return stats;
+  return el("li", {}, el("span", {}, label),
+    el("span", { class: "list-meta num" }, sub ? `${value} · ${sub}` : value));
 }
 
 function summaryBlock(s) {
-  const nodes = [el("dl", { class: "plan-stats" }, summaryStats(s))];
+  const nodes = [el("ul", { class: "list plan-stats" }, summaryStats(s))];
   if (s.skipped.length) {
     nodes.push(el("details", {}, el("summary", {}, "Unit dilewati"),
       el("ul", {}, s.skipped.map(([id, why]) => el("li", {}, `${id}: ${why}`)))));
@@ -66,7 +54,7 @@ async function override(kind, name, value) {
   } catch (e) { showError(e.message); }
 }
 
-// Modal with one field (text or select); built on the shared modalDialog in ui.js.
+// Modal with one field (text or select); built on the shared modalDialog in components/dialog.js.
 function fieldDialog({ title, lead, field, okLabel }) {
   return modalDialog({
     title, okLabel, value: () => field.value, cancelValue: null, focus: field, submitOnEnter: field,
@@ -117,9 +105,9 @@ function toggleMenu(btn, ev) {
   if (wasOpen) return;
   const item = (label, fn) => el("button", { type: "button", role: "menuitem", onclick: async () => { closeMenu(); const newName = await fn(); setTimeout(() => restoreFocus(ev.key, typeof newName === "string" ? newName : null), 0); } }, label);
   const menu = el("div", { class: "menu", role: "menu", "aria-label": `Aksi untuk ${ev.name}` },
-    item("Bukan acara", () => override("not_event", ev.name)),
     item("Ganti nama…", () => renameEvent(ev)),
-    item("Gabungkan ke…", () => mergeEvent(ev)));
+    item("Gabungkan ke…", () => mergeEvent(ev)),
+    item("Bukan acara", () => override("not_event", ev.name)));
   document.body.append(menu);
   const r = btn.getBoundingClientRect();
   menu.style.top = `${window.scrollY + r.bottom + 4}px`;

@@ -10,17 +10,18 @@ function row(label, value) {
 }
 
 function table(title, rows) {
-  return el("section", { class: "card" }, el("h2", {}, title), el("table", { class: "table report-table" }, el("tbody", {}, rows)));
+  return el("section", {}, el("h2", {}, title), el("table", { class: "table report-table" }, el("tbody", {}, rows)));
 }
 
 async function load() {
   const r = await api("GET", "/api/report");
   const box = document.getElementById("report");
   box.className = "";
+  document.getElementById("report-total").textContent = `${fmtNum(r.total_media)} file media`;
   box.replaceChildren(
-    el("section", { class: "card report-total" }, el("span", { class: "report-big" }, fmtNum(r.total_media)), el("span", { class: "muted" }, " total file media")),
+    el("div", { class: "report-grid" },
     table("Per lokasi", Object.entries(r.by_location).map(([k, v]) => row(LOCATIONS[k] || k, v))),
-    table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORY_LABELS[k] || k, v))),
+    table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORY_LABELS[k] || k, v)))),
     table("Lainnya", [
       row("Dihemat dari duplikat", fmtBytes(r.bytes_saved_duplicates)),
       row("Ukuran _sampah", fmtBytes(r.bytes_in_trash)),

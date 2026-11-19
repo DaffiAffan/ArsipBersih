@@ -1,6 +1,8 @@
 /* Laporan (report.js): layout */
-.report-total { display: flex; align-items: baseline; gap: var(--space-2); }
-.report-big { font-size: var(--text-2xl); font-weight: 600; }
+.report-grid { display: grid; gap: var(--space-5); margin-bottom: var(--space-5); }
+@media (min-width: 1100px) { .report-grid { grid-template-columns: 1fr 1fr; } }
+.report-section { margin-bottom: var(--space-5); }
+h1 #report-total { font-size: var(--text-md); font-weight: 400; }
 .report-table td:first-child { color: var(--color-text-muted); }
 .report-ok { color: var(--color-keep); }
 .report-bad { color: var(--color-danger); }
