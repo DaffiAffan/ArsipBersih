@@ -2,6 +2,7 @@ import { api, el } from "/static/core/api.js";
 import { fmtBytes, fmtNum } from "/static/core/format.js";
 import { watchJob } from "/static/components/jobbar.js";
 import { confirmDialog, modalDialog } from "/static/components/dialog.js";
+import { CATEGORY_LABELS } from "/static/components/labels.js";
 import { reviewNav } from "/static/components/sidebar.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,7 +25,7 @@ function stat(label, value, sub) {
 function summaryStats(s) {
   const stats = [stat("Ke Arsip", `${fmtNum(s.archive_units)} unit`, fmtBytes(s.archive_bytes))];
   for (const [cat, [units, bytes]] of Object.entries(s.review)) {
-    stats.push(stat(`Ke Perlu Dicek: ${cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
+    stats.push(stat(`Ke Review: ${CATEGORY_LABELS[cat] || cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
   }
   for (const [reason, [units, bytes]] of Object.entries(s.by_reason || {})) {
     stats.push(stat(`Di Arsip, ${reason}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
