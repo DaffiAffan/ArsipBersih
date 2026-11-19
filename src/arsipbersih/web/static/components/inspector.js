@@ -6,7 +6,8 @@ import { CATEGORY_LABELS } from "/static/components/labels.js";
 
 const DATE_SOURCES = { filename: "dari nama file", exif: "EXIF", quicktime: "QuickTime" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-export const DISCARD_EFFECT = "Kalau tidak di-Keep, file pindah ke _sampah saat Apply (bisa di-Undo)";
+export const DECISION_EFFECT = "Saat Terapkan: Simpan masuk Arsip, Buang masuk Sampah (bisa dibatalkan di Riwayat). Yang belum diputuskan tetap di review.";
+export const DISCARD_EFFECT = DECISION_EFFECT; // alias for older callers
 // Same names as AI_GROUP_NAMES in classify.py; the order is the menu order.
 export const AI_GROUPS = [["identitas", "Identitas"], ["keuangan", "Keuangan"], ["kertas", "Kertas & catatan"],
   ["grafis", "Grafis"], ["layar", "Layar"], ["lainnya", "Foto biasa"]];
@@ -95,6 +96,12 @@ function clipsSection(unit, onOpenUnit) {
   return box;
 }
 
+// Format = file extension in capitals ("IMG_1.jpg" -> "JPG").
+function formatOf(name) {
+  const dot = String(name).lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : "";
+}
+
 function folderOf(path) {
   const i = path ? path.lastIndexOf("/") : -1;
   return i > 0 ? path.slice(0, i) : "";
@@ -133,20 +140,22 @@ export function renderInspector(node, unit, { onDecide, onChangeGroup, onOpenUni
         el("strong", {}, CATEGORY_LABELS[f.category] || f.category),
         f.reason ? ` · ${f.reason}` : "")))
       : el("p", { class: "muted" }, "Tidak ada keterangan."),
-    el("p", { class: "insp-effect" }, DISCARD_EFFECT));
+    el("p", { class: "insp-effect" }, DECISION_EFFECT));
 
   const d = unit.decision;
   const decide = (want) => { if (onDecide) onDecide(d === want ? null : want); };
   const keepBtn = el("button", { type: "button", class: "btn btn-keep", "aria-pressed": String(d === "keep"), onclick: () => decide("keep") },
-    "Keep ", el("kbd", { class: "kbd" }, "S"));
+    "Simpan · ", el("kbd", { class: "kbd" }, "S"));
   const delBtn = el("button", { type: "button", class: "btn btn-danger", "aria-pressed": String(d === "discard"), onclick: () => decide("discard") },
-    "Delete ", el("kbd", { class: "kbd" }, "D"));
-  const status = d === "keep" ? el("span", { class: "badge badge-keep" }, "Keep")
-    : d === "discard" ? el("span", { class: "badge badge-danger" }, "Delete") : null;
+    "Buang · ", el("kbd", { class: "kbd" }, "D"));
+  const status = d === "keep" ? el("span", { class: "chip chip-keep" }, "Disimpan")
+    : d === "discard" ? el("span", { class: "chip chip-discard" }, "Dibuang")
+      : unit.seen ? el("span", { class: "chip chip-neutral" }, "Sudah dilihat") : null;
 
   node.replaceChildren(...[
     preview,
-    el("div", { class: "insp-name" }, el("strong", { title: name }, name), status),
+    el("div", { class: "insp-name" }, el("strong", { title: name }, name),
+      formatOf(name) ? el("span", { class: "chip chip-neutral insp-format" }, formatOf(name)) : null, status),
     path ? el("div", { class: "mono insp-path insp-fullpath" }, path) : null,
     facts,
     aiSection(unit, onChangeGroup),

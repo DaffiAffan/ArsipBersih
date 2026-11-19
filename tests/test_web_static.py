@@ -47,3 +47,13 @@ def test_no_side_stripe_markers():
         text = css.read_text(encoding="utf-8")
         assert not re.search(r"border-(left|right):\s*([2-9]|\d{2,})px", text), css
         assert not re.search(r"inset\s+[2-9]px\s+0\s+0", text), css
+
+
+def test_viewer_and_inspector_use_new_terms():
+    base = Path("src/arsipbersih/web/static/components")
+    text = "\n".join((base / n).read_text(encoding="utf-8") for n in ("viewer.js", "inspector.js"))
+    strings = re.findall(r'"[^"\n]*"|`[^`\n]*`', text)
+    for old in ("Keep", "Delete", "Apply", "_sampah", "Undo"):
+        assert not [s for s in strings if old in s], old
+    assert any("Simpan" in s for s in strings)
+    assert any("Buang" in s for s in strings)

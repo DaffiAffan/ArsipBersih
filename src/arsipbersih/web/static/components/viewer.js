@@ -54,7 +54,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const hasVideo = items.flat().some((it) => it && it.media && it.media.kind === "video");
   const hasImage = items.flat().some((it) => it && !(it.media && it.media.kind === "video"));
   // Without onDecide (a clip opened from a link) the viewer only shows: no decision keys.
-  const decideKeys = onDecide ? [["S", "keep"], ["D", "delete"], ["Enter", "ikuti saran"]] : [];
+  const decideKeys = onDecide ? [["S", "simpan"], ["D", "buang"], ["Enter", "ikuti saran"]] : [];
   const hintKeys = [["← →", "pindah"], ...decideKeys,
     ...(hasVideo ? [["Spasi", "play/pause"]] : []), ["Esc", "tutup"]];
   for (const [k, t] of hintKeys) {
@@ -73,7 +73,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   // onDecide as the S/D keys; null (toggle off) means "back to the suggestion".
   function renderSide() {
     const shown = mode === "compare" ? items[i] : [items[i]];
-    // replaceChildren drops the focused Keep/Delete button; remember which one to refocus.
+    // replaceChildren drops the focused Simpan/Buang button; remember which one to refocus.
     const had = document.activeElement && side.contains(document.activeElement) ? document.activeElement : null;
     const hadUnit = had ? [...side.querySelectorAll(".vw-unit")].findIndex((u) => u.contains(had)) : -1;
     const hadCls = had && had.classList.contains("btn-danger") ? ".btn-danger" : ".btn-keep";
@@ -172,7 +172,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   // Viewer keys for the "?" dialog (the page's own sections stay below).
   const unhelp = pushHelp([{ title: "Layar penuh", keys: [
     ["← →", "Foto sebelumnya / berikutnya"],
-    ...(onDecide ? [["S", "Keep foto ini"], ["D", "Delete foto ini"], ["Enter", "Ikuti saran, lalu ke foto berikutnya"]] : []),
+    ...(onDecide ? [["S", "Simpan foto ini"], ["D", "Buang foto ini"], ["Enter", "Ikuti saran, lalu ke foto berikutnya"]] : []),
     ...(hasVideo ? [["Spasi", "Putar / jeda video"]] : []),
     ...(hasImage ? [["Roda mouse", "Zoom foto"], ["Seret", "Geser foto yang di-zoom"], ["Klik ganda", "Kembalikan zoom"]] : []),
     ["Esc", "Tutup layar penuh"], ["?", "Bantuan ini"]] }]);
