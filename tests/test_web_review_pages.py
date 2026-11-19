@@ -85,7 +85,8 @@ def test_grid_page_loads_new_modules(web):
         for sel, body in rule.findall(css.read_text(encoding="utf-8")):
             sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
             # opacity: 1 / filter: none only force full brightness, so they are not dimming.
-            dims = re.search(r"opacity\s*:\s*(?!1\s*(;|$))", body) or re.search(r"filter\s*:\s*(?!none)", body)
+            values = dict(re.findall(r"(opacity|filter)\s*:\s*([^;]+)", body))
+            dims = values.get("opacity", "1").strip() != "1" or values.get("filter", "none").strip() != "none"
             if "img" in sel and dims:
                 assert sel in allowed, f"{css.name}: {sel}"
 
