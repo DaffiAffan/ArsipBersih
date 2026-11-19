@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 IMPORT_RE = re.compile(r'''(?:import|from)\s*(?:[^'"]*?from\s*)?["'](/static/[^"']+|\.{1,2}/[^"']+)["']''')
 
 
@@ -47,3 +49,43 @@ def test_no_side_stripe_markers():
         text = css.read_text(encoding="utf-8")
         assert not re.search(r"border-(left|right):\s*([2-9]|\d{2,})px", text), css
         assert not re.search(r"inset\s+[2-9]px\s+0\s+0", text), css
+
+
+STATIC = Path("src/arsipbersih/web/static")
+# review-groups.js is split in Task 6; drop the xfail there.
+_SPLIT_LATER = {"review-groups.js"}
+
+
+@pytest.mark.parametrize(
+    "js",
+    [
+        pytest.param(p, marks=pytest.mark.xfail(reason="split in Task 6", strict=True)) if p.name in _SPLIT_LATER else p
+        for d in ("pages", "components")
+        for p in sorted((STATIC / d).glob("*.js"))
+    ],
+    ids=lambda p: p.name,
+)
+def test_page_scripts_stay_small(js):
+    lines = len(js.read_text(encoding="utf-8").splitlines())
+    assert lines <= 320, f"{js}: {lines} lines"
+
+
+def _img_opacity_rules(css: Path) -> list[str]:
+    out = []
+    for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css.read_text(encoding="utf-8")):
+        sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
+        if "img" in sel and re.search(r"opacity\s*:", body):
+            out.append(sel)
+    return out
+
+
+def test_only_discarded_thumbs_dim():
+    rules = _img_opacity_rules(CSS / "components" / "thumb.css")
+    assert len(rules) == 1 and ".is-discard" in rules[0], rules
+    assert _img_opacity_rules(CSS / "pages" / "viewer.css") == []
+
+
+def test_segment_buttons_are_big_enough_to_click():
+    css = (CSS / "components" / "segment.css").read_text(encoding="utf-8")
+    heights = [int(h) for h in re.findall(r"min-height:\s*(\d+)px", css)]
+    assert heights and min(heights) >= 32, heights

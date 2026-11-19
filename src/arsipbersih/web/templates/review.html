@@ -3,12 +3,17 @@
 {% block content %}
 <div class="rv-layout">
   {% if category %}
-  <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}">
+  <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}"{% if mode == "grid" and help %} data-help="{{ help }}"{% endif %}>
+    {% if mode == "grid" %}
+    {# Title, count and the category explanation (ⓘ) live in the grid toolbar (review-grid.js). #}
+    <div id="grid-root"></div>
+    {% else %}
     <header class="rv-page-head">
       <h1>{{ label }}</h1>
       {% if help %}<p class="muted">{{ help }}</p>{% endif %}
     </header>
-    {% if mode == "grid" %}<div id="grid-root"></div>{% else %}<div id="group-root"></div>{% endif %}
+    <div id="group-root"></div>
+    {% endif %}
   </section>
   {% else %}
   <section class="rv-main"><p class="muted">Tidak ada yang perlu direview.</p></section>

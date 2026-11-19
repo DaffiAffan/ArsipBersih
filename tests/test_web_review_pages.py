@@ -75,12 +75,37 @@ def test_grid_page_loads_new_modules(web):
     r = web.get("/review/burem")
     assert "/static/pages/review-grid.js" in r.text
     js = web.get("/static/pages/review-grid.js").text
-    for mod in ("seen-dwell.js", "floatbar.js", "inspector.js"):
+    for mod in ("seen-dwell.js", "statusbar.js", "inspector.js"):
         assert mod in js
+    # D-038: only a discarded grid thumbnail is dimmed (Task 6 adds the group-comparison rule).
     css_dir = Path(__file__).parents[1] / "src" / "arsipbersih" / "web" / "static" / "css"
-    dimmed = re.compile(r"img[^{]*\{[^}]*(opacity|filter)")
-    for css in css_dir.glob("*.css"):
-        assert not dimmed.search(css.read_text(encoding="utf-8")), css.name
+    rule = re.compile(r"([^{}]+)\{([^}]*)\}")
+    allowed = {".thumb.is-discard > img"}
+    for css in css_dir.rglob("*.css"):
+        for sel, body in rule.findall(css.read_text(encoding="utf-8")):
+            sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
+            if "img" in sel and re.search(r"(opacity|filter)\s*:", body):
+                assert sel in allowed, f"{css.name}: {sel}"
+
+
+def test_grid_page_uses_v2_components(web):
+    r = web.get("/review/burem")
+    assert "/static/pages/review-grid.js" in r.text
+    js = web.get("/static/pages/review-grid.js").text
+    for mod in ("components/statusbar.js", "components/photo-grid.js", "components/toolbar.js"):
+        assert mod in js
+    assert "components/thumb.js" in web.get("/static/components/photo-grid.js").text  # cells via the grid
+    assert "floatbar.js" not in js
+    for seg in ("Semua", "Belum dilihat", "Sudah dilihat", "Disimpan", "Dibuang"):
+        assert f'"{seg}"' in js
+    assert "ab.help." in js
+    assert "/api/review/decisions/clear" in js
+    assert "Batalkan" in js
+    assert "action" in web.get("/static/components/toast.js").text
+    toolbar = web.get("/static/components/toolbar.js").text
+    assert "Nama file" in toolbar and "aria-pressed" in toolbar
+    status = web.get("/static/components/statusbar.js").text
+    assert "Terapkan" in status and "disimpan" in status and "dibuang" in status
 
 
 def test_grid_counts_seen_only_in_the_viewer(web):
@@ -88,18 +113,17 @@ def test_grid_counts_seen_only_in_the_viewer(web):
     assert "createSeenTracker" not in js
     assert "queueSeenIfShown" not in js
     assert "createSeenQueue" in js
-    assert "Delete yang belum di-Keep di layar ini" in js
+    assert "Buang yang belum disimpan di layar ini" in js
     assert "/api/review/decisions" in js
     assert "Shift+D" in js
-    assert "Titik biru = sudah dibuka di detail." in js
+    assert "Titik = sudah dibuka di layar penuh." in js
     dwell = web.get("/static/components/seen-dwell.js").text
     assert "createSeenTracker" not in dwell
 
 
 def test_grid_tab_and_viewer_follow_detail_only_seen(web):
     grid = web.get("/static/pages/review-grid.js").text
-    assert "Belum diputuskan" in grid
-    assert "Belum dilihat" not in grid
+    assert "Belum dilihat" in grid and "Sudah dilihat" in grid
     assert "onShown" in grid
     viewer = web.get("/static/components/viewer.js").text
     assert "shiftKey" in viewer  # Shift+D is inert in the viewer
@@ -108,7 +132,7 @@ def test_grid_tab_and_viewer_follow_detail_only_seen(web):
 
 
 def test_grid_releases_thumbnails_far_from_viewport(web):
-    js = web.get("/static/pages/review-grid.js").text
+    js = web.get("/static/components/photo-grid.js").text
     assert "thumbObserver" in js
     assert 'rootMargin: "200% 0px"' in js
     assert 'removeAttribute("src")' in js

@@ -15,10 +15,16 @@
 .thumb.is-keep .thumb-mark { background: var(--color-keep); color: var(--color-on-keep); }
 .thumb.is-discard .thumb-mark { background: var(--color-danger); color: var(--color-on-danger); }
 .thumb.is-seen .thumb-mark:empty { top: var(--space-2); right: var(--space-2); width: 8px; height: 8px; background: var(--color-accent); }
+/* Strip nama file (N): menimpa bagian bawah foto, ukuran sel tidak berubah (D-040). */
 .thumb-caption {
-  position: absolute; left: 0; right: 0; bottom: 0; padding: 2px var(--space-2);
-  font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: var(--space-2); align-items: baseline;
+  padding: 2px var(--space-2); font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text);
+}
+.thumb-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-format { flex: none; color: var(--color-text-muted); }
+.thumb-noprev {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  padding: var(--space-1); text-align: center; font-size: var(--text-xs); color: var(--color-text-muted);
 }
 
 /* Sel foto lama (review grid dan Tanggal) sampai dipindah ke .thumb. */

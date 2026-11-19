@@ -4,7 +4,7 @@
   background: var(--color-surface-2); border-radius: var(--radius-control);
 }
 .segment > button, .segment > a {
-  min-height: 28px; padding: var(--space-1) var(--space-3);
+  min-height: 32px; padding: var(--space-1) var(--space-2);
   background: transparent; border: 0; border-radius: var(--radius-sm);
   color: var(--color-text-muted); font-size: var(--text-sm); text-decoration: none;
 }
@@ -15,7 +15,7 @@
 
 /* Pil lama (tab grid review) sampai halaman review dipindah ke .segment. */
 .pill {
-  min-height: 28px; padding: var(--space-1) var(--space-3);
+  min-height: 32px; padding: var(--space-1) var(--space-3);
   background: var(--color-surface-2); color: var(--color-text-muted);
   border: 1px solid transparent; border-radius: var(--radius-control);
   font-size: var(--text-sm);
