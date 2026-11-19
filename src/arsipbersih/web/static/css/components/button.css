@@ -25,3 +25,7 @@ button:disabled, .btn:disabled, .btn[aria-disabled="true"] { opacity: var(--opac
 .btn-keep:hover, .btn-danger:hover, button.danger:hover { border-color: var(--color-text); }
 .btn-icon { width: 32px; height: 32px; padding: 0; background: transparent; border-color: transparent; color: var(--color-text-muted); }
 .btn-icon:hover { background: var(--color-surface-2); color: var(--color-text); border-color: transparent; }
+
+/* Tombol berupa tautan teks (aksi baris tabel). */
+.link { background: none; border: 0; padding: 0; color: var(--color-accent); cursor: pointer; font: inherit; }
+.link:hover { text-decoration: underline; }

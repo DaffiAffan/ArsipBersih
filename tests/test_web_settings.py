@@ -60,3 +60,11 @@ def test_partial_put_keeps_other_fields(web):
     after = web.get("/api/settings").json()
     assert after["workers"] == 2
     assert {k: v for k, v in after.items() if k != "workers"} == {k: v for k, v in before.items() if k != "workers"}
+
+
+def test_settings_repeats_hint_once(web):
+    js = web.get("/static/pages/settings.js").text
+    note = "perlu dicek pada data asli"
+    assert js.count(note) == 1  # defined once, used per section (not per field)
+    assert js.count("${NOTE}") == 2  # one generic section note + the blur section
+    assert 'class: "card"' not in js

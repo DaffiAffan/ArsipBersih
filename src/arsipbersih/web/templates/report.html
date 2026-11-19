@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Laporan - ArsipBersih{% endblock %}
 {% block content %}
-<h1>Laporan</h1>
+<h1>Laporan <span id="report-total" class="muted"></span></h1>
 <div id="report" class="muted">Memuat...</div>
-<section class="card">
+<section class="report-section">
   <h2>Verifikasi</h2>
   <p class="muted">Mencocokkan file media di database dengan file di disk.</p>
   <button type="button" id="verify-btn" class="btn btn-secondary">Verifikasi</button>
   <div id="verify-result"></div>
 </section>
-<section class="card">
+<section class="report-section">
   <h2>Cache</h2>
   <p>Ukuran cache: <strong id="cache-size">-</strong>. Thumbnail dan preview dibuat ulang otomatis saat dibutuhkan.</p>
   <button type="button" id="cache-btn" class="btn btn-secondary">Hapus cache</button>

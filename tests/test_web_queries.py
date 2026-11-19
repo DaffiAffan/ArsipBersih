@@ -254,8 +254,8 @@ def test_batch_titles_are_readable(conn_with):
                  (new_id(), "undo", f"undo {ids['apply kiriman-chat']}", "2026-11-16T11:00:00"))
     conn.commit()
     titles = [b["title"] for b in queries.list_batches(conn)]
-    assert titles == ["Undo · Apply · Chat (WA/Telegram)", "Kosongkan sampah",
-                      "Rapikan ke Arsip", "Apply · Chat (WA/Telegram)"]
+    assert titles == ["Dibatalkan: Terapkan · Chat (WA/Telegram)", "Kosongkan sampah",
+                      "Rapikan ke Arsip", "Terapkan · Chat (WA/Telegram)"]
 
 
 def test_category_has_label_and_help():

@@ -4,7 +4,7 @@ import { watchJob } from "/static/components/jobbar.js";
 import { confirmDialog } from "/static/components/dialog.js";
 import { reviewNav } from "/static/components/sidebar.js";
 
-const KIND = { rapikan: "Rapikan", apply: "Apply", undo: "Undo", purge: "Kosongkan sampah" };
+const KIND = { rapikan: "Rapikan", apply: "Terapkan", undo: "Dibatalkan", purge: "Kosongkan Sampah" };
 const $ = (id) => document.getElementById(id);
 let data = null;
 let lastJobKey = null;
@@ -30,14 +30,13 @@ async function post(url, body) {
 }
 
 function renderBatches() {
-  const rows = data.batches.map((b) => el("tr", {},
+  const rows = data.batches.map((b) => el("tr", { class: b.undone > 0 && !b.undoable && (b.kind === "rapikan" || b.kind === "apply") ? "is-undone" : "" },
     el("td", {}, fmtTime(b.created_at)),
-    el("td", {}, el("span", { class: "badge badge-muted" }, KIND[b.kind] || b.kind)),
-    el("td", {}, b.title || b.label || ""),
+    el("td", {}, b.title || b.label || KIND[b.kind] || b.kind),
     el("td", { class: "num" }, fmtNum(b.done)),
     el("td", { class: "num" }, fmtNum(b.undone)),
     el("td", { class: "num" }, fmtNum(b.failed)),
-    el("td", { class: "num" }, b.undoable ? el("button", { type: "button", class: "btn btn-secondary", onclick: () => undoBatch(b) }, "Undo batch ini") : ""),
+    el("td", { class: "num" }, b.undoable ? el("button", { type: "button", class: "link", onclick: () => undoBatch(b) }, "Batalkan") : ""),
   ));
   $("batch-rows").replaceChildren(...rows);
   $("batch-empty").hidden = rows.length > 0;
@@ -46,18 +45,18 @@ function renderBatches() {
 
 async function undoBatch(b) {
   const ok = await confirmDialog({
-    title: "Undo batch ini?",
+    title: "Batalkan batch ini?",
     body: `File dari batch "${b.title || b.label || KIND[b.kind] || b.kind}" kembali ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
-    okLabel: "Undo",
+    okLabel: "Batalkan",
   });
   if (ok) await post("/api/undo", { batch_id: b.id });
 }
 
 async function undoAll() {
   const ok = await confirmDialog({
-    title: "Undo semua? Semua file kembali ke posisi asal di Sumber.",
-    body: "Semua batch rapikan dan apply yang masih bisa dibatalkan di-undo, dari yang terbaru.",
-    okLabel: "Undo semua",
+    title: "Batalkan semua? Semua file kembali ke posisi asal di Sumber.",
+    body: "Semua batch rapikan dan apply yang masih bisa dibatalkan dibatalkan, dari yang terbaru.",
+    okLabel: "Batalkan semua",
   });
   if (ok) await post("/api/undo", { all: true });
 }
@@ -103,14 +102,14 @@ async function forget(m) {
 
 function renderTrash() {
   const t = data.trash;
-  $("trash-info").textContent = t.files ? `${fmtNum(t.files)} file (${fmtBytes(t.bytes)}) di _sampah.` : "_sampah kosong.";
+  $("trash-info").textContent = t.files ? `${fmtNum(t.files)} file (${fmtBytes(t.bytes)}) di Sampah.` : "Sampah kosong.";
   $("purge-btn").disabled = t.files === 0;
 }
 
 async function purge() {
   const { files, bytes } = data.trash; // the numbers shown in the dialog are the ones sent
   const first = await confirmDialog({
-    title: "Kosongkan _sampah?",
+    title: "Kosongkan Sampah?",
     body: `${fmtNum(files)} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dipulihkan.`,
     okLabel: "Lanjut",
     danger: true,
@@ -144,7 +143,7 @@ function showResult(st) {
   const r = st.result || {};
   const errors = (r.errors || []).map(String);
   const errs = errors.length;
-  if (st.kind === "undo") say(`Undo selesai: ${r.moved_units ?? 0} unit kembali, ${r.failed_units ?? 0} gagal${errs ? ` (${errs} catatan)` : ""}.`, errors);
+  if (st.kind === "undo") say(`Pembatalan selesai: ${r.moved_units ?? 0} unit kembali, ${r.failed_units ?? 0} gagal${errs ? ` (${errs} catatan)` : ""}.`, errors);
   else if (st.kind === "purge") say(`Dihapus permanen: ${r.deleted ?? 0} file${errs ? `, ${errs} masalah` : ""}.`, errors);
   else say("Selesai.");
 }

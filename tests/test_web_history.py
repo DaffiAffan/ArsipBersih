@@ -116,7 +116,7 @@ def test_undo_requires_exactly_one_target(web, applied_units):
 
 def test_undo_all_job_restores(web, root, applied_units):
     r = web.post("/api/undo", json={"all": True})
-    assert r.status_code == 202 and r.json()["label"] == "Undo semua"
+    assert r.status_code == 202 and r.json()["label"] == "Batalkan semua"
     st = _finish(web)
     assert st.status == "done" and st.result["moved_units"] == 3 and st.result["failed_units"] == 0
     conn = open_db(root)
@@ -133,7 +133,7 @@ def test_undo_all_job_restores(web, root, applied_units):
 def test_undo_one_batch_job(web, root, applied_units):
     batch = web.get("/api/history").json()["batches"][0]
     r = web.post("/api/undo", json={"batch_id": batch["id"]})
-    assert r.status_code == 202 and r.json()["label"] == "Undo batch"
+    assert r.status_code == 202 and r.json()["label"] == "Batalkan batch"
     assert _finish(web).status == "done"
     assert web.get("/api/history").json()["trash"]["files"] == 0
 
@@ -215,3 +215,13 @@ def test_purge_rejects_bad_totals(web, trashed_units, bad):
 def test_forget_unknown_file_is_404(web):
     r = web.post("/api/files/forget", json={"file_id": "nope"})
     assert r.status_code == 404 and r.json()["detail"] == "File tidak ditemukan"
+
+
+def test_history_uses_new_terms_and_danger_zone(web, applied_units):
+    page = web.get("/riwayat").text
+    js = web.get("/static/pages/history.js").text
+    assert 'class="danger-zone"' in page and "Kosongkan Sampah" in page
+    assert "Batalkan" in page and "Batalkan" in js
+    assert "Undo" not in page and "Undo" not in js
+    titles = [b["title"] for b in web.get("/api/history").json()["batches"]]
+    assert titles and all("Apply" not in t and "Undo" not in t for t in titles)

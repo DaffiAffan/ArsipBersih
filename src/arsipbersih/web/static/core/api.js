@@ -12,7 +12,7 @@ export async function api(method, url, body) {
 }
 
 // The same location names everywhere in the UI (folder names on disk).
-export const LOCATION_LABELS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
+export const LOCATION_LABELS = { source: "Sumber", archive: "Arsip", review: "Review", trash: "Sampah" };
 
 export function el(tag, attrs, ...children) {
   const node = document.createElement(tag);

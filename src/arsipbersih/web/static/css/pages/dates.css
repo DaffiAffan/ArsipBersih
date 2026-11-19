@@ -4,8 +4,8 @@
 .dt-head p { margin: 0; max-width: 680px; }
 .dt-write { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); max-width: 320px; text-align: right; }
 #dt-error { white-space: pre-line; }
-.dt-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-3); }
-.dt-event { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.dt-events { display: flex; flex-direction: column; }
+.dt-event { border-bottom: 1px solid var(--color-border); padding: var(--space-3) 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .dt-event p { margin: 0; }
 .dt-event-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .dt-event-head h3 { margin: 0; font-size: var(--text-md); flex: 1; }
@@ -23,7 +23,7 @@
 .dt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-2); }
 .dt-cell.is-selected { border-color: var(--color-accent); }
 .dt-cell:focus-visible { box-shadow: 0 0 0 2px var(--color-accent); }
-.dt-check { position: absolute; left: 6px; top: 6px; width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--color-text); background: var(--scrim-photo); }
+.dt-check { position: absolute; left: 6px; top: 6px; width: 18px; height: 18px; border-radius: var(--radius-sm); border: 2px solid var(--color-text); background: var(--scrim-photo); }
 .dt-cell.is-selected .dt-check { background: var(--color-accent); border-color: var(--color-accent); }
 .dt-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 6px; font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dt-more { display: flex; justify-content: center; margin-top: var(--space-3); }
