@@ -74,7 +74,9 @@ def _img_opacity_rules(css: Path) -> list[str]:
     out = []
     for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css.read_text(encoding="utf-8")):
         sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
-        if "img" in sel and re.search(r"opacity\s*:", body):
+        m = re.search(r"opacity\s*:\s*([^;]+)", body)
+        # opacity: 1 only forces full brightness, so it is not dimming.
+        if "img" in sel and m and m.group(1).strip() not in ("1", "1.0"):
             out.append(sel)
     return out
 
@@ -89,3 +91,13 @@ def test_segment_buttons_are_big_enough_to_click():
     css = (CSS / "components" / "segment.css").read_text(encoding="utf-8")
     heights = [int(h) for h in re.findall(r"min-height:\s*(\d+)px", css)]
     assert heights and min(heights) >= 32, heights
+
+
+def test_viewer_and_inspector_use_new_terms():
+    base = Path("src/arsipbersih/web/static/components")
+    text = "\n".join((base / n).read_text(encoding="utf-8") for n in ("viewer.js", "inspector.js"))
+    strings = re.findall(r'"[^"\n]*"|`[^`\n]*`', text)
+    for old in ("Keep", "Delete", "Apply", "_sampah", "Undo"):
+        assert not [s for s in strings if old in s], old
+    assert any("Simpan" in s for s in strings)
+    assert any("Buang" in s for s in strings)
