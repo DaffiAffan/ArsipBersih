@@ -17,8 +17,14 @@ code, pre, .mono { font-family: var(--font-mono); }
 
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
+/* Same-origin page loads cross-fade instead of flashing; the sidebar stays put. */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 120ms; }
+.sidebar { view-transition-name: sidebar; }
+.topbar { view-transition-name: topbar; }
+
 .sidebar {
-  width: 220px; flex: none; overflow-y: auto;
+  width: 240px; flex: none; overflow-y: auto;
   background: var(--color-surface); border-right: 1px solid var(--color-border);
   padding: var(--space-4) var(--space-3);
 }
@@ -40,9 +46,18 @@ code, pre, .mono { font-family: var(--font-mono); }
 }
 .nav-sub a:hover, .nav-sub a.is-active { background: var(--color-surface-2); color: var(--color-text); }
 
+.sidebar-collapsed .sidebar { display: none; }
+.sidebar-toggle {
+  flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; margin-left: calc(-1 * var(--space-2)); padding: 0;
+  background: none; border: 0; border-radius: var(--radius-control);
+  color: var(--color-text-muted); cursor: pointer;
+}
+.sidebar-toggle:hover { background: var(--color-surface-2); color: var(--color-text); }
+
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
-  display: flex; align-items: baseline; gap: var(--space-3); min-width: 0;
+  display: flex; align-items: center; gap: var(--space-3); min-width: 0;
   padding: var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--color-border); background: var(--color-surface);
 }
@@ -64,7 +79,7 @@ code, pre, .mono { font-family: var(--font-mono); }
 /* Kategori review di sidebar */
 .nav-sub a.nav-item { flex-direction: column; gap: 4px; }
 .nav-cat-row { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
-.nav-cat-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-cat-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .nav-cat-count { flex: none; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .nav-sub .progress { height: 3px; }
 .rv-page-head h1 { margin: 0 0 var(--space-1); font-size: 22px; }

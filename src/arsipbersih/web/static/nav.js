@@ -21,6 +21,17 @@ function loadCategories() {
   return p;
 }
 
+// Per-tab cache of the sidebar counts and scroll position, so page loads feel seamless.
+const CATS_KEY = "arsipbersih.nav.cats";
+const DATES_KEY = "arsipbersih.nav.dates";
+const SCROLL_KEY = "arsipbersih.nav.scroll";
+function load(key) {
+  try { return JSON.parse(sessionStorage.getItem(key) || "null"); } catch (_) { return null; }
+}
+function store(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* best effort */ }
+}
+
 export function mountReviewNav(ul) {
   // Resolves to the category list (null when the request failed), for other widgets to reuse.
   async function refresh() {
@@ -28,7 +39,12 @@ export function mountReviewNav(ul) {
     try {
       cats = await loadCategories();
     } catch (_) { return null; } // keep the previous list
-    if (!ul) return cats;
+    store(CATS_KEY, cats);
+    render(cats);
+    return cats;
+  }
+  function render(cats) {
+    if (!ul) return;
     const current = decodeURIComponent(location.pathname.split("/")[2] || "");
     ul.replaceChildren(...cats.map((c) => {
       const active = location.pathname.startsWith("/review/") && c.category === current;
@@ -47,8 +63,10 @@ export function mountReviewNav(ul) {
           el("span", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(c.count), "aria-valuenow": String(done), "aria-label": `${done} dari ${c.count} sudah ditangani` },
             el("i", { style: `width:${pct}%` }))));
     }));
-    return cats;
   }
+  // Draw the last known list right away so the sidebar does not pop in after every page load.
+  const cached = load(CATS_KEY);
+  if (Array.isArray(cached)) render(cached);
   return { refresh };
 }
 
@@ -58,10 +76,16 @@ export function mountDatesNav(countEl) {
     if (!countEl) return null;
     let c;
     try { c = await api("GET", "/api/dates/counts"); } catch (_) { return null; }
-    countEl.textContent = c.undated ? `${fmtNum(c.proposals)} · ${fmtNum(c.undated)}` : fmtNum(c.proposals);
-    countEl.title = `${fmtNum(c.proposals)} acara menunggu keputusan, ${fmtNum(c.undated)} foto tanpa tanggal`;
+    store(DATES_KEY, c);
+    render(c);
     return c;
   }
+  function render(c) {
+    if (!countEl || !c) return;
+    countEl.textContent = c.undated ? `${fmtNum(c.proposals)} · ${fmtNum(c.undated)}` : fmtNum(c.proposals);
+    countEl.title = `${fmtNum(c.proposals)} acara menunggu keputusan, ${fmtNum(c.undated)} foto tanpa tanggal`;
+  }
+  render(load(DATES_KEY));
   return { refresh };
 }
 
@@ -81,5 +105,28 @@ if (ul) {
     lastKey = key;
     if (!first) { reviewNav.refresh(); datesNav.refresh(); }
     first = false;
+  });
+}
+
+const sidebar = document.getElementById("sidebar");
+if (sidebar) {
+  const top = load(SCROLL_KEY);
+  if (typeof top === "number") sidebar.scrollTop = top;
+  addEventListener("pagehide", () => store(SCROLL_KEY, sidebar.scrollTop));
+}
+
+const toggle = document.getElementById("sidebar-toggle");
+if (toggle) {
+  const root = document.documentElement;
+  const sync = () => {
+    const collapsed = root.classList.contains("sidebar-collapsed");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", collapsed ? "Tampilkan menu" : "Sembunyikan menu");
+  };
+  sync();
+  toggle.addEventListener("click", () => {
+    const collapsed = root.classList.toggle("sidebar-collapsed");
+    try { localStorage.setItem("arsipbersih.sidebar", collapsed ? "collapsed" : "open"); } catch (_) { /* best effort */ }
+    sync();
   });
 }

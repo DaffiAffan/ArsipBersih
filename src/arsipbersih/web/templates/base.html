@@ -11,9 +11,13 @@
   <link rel="stylesheet" href="/static/css/viewer.css">
   <link rel="stylesheet" href="/static/css/review.css">
   <link rel="stylesheet" href="/static/css/pages.css">
+  <script>
+    // Apply the saved sidebar state before first paint so it never flashes open.
+    try { if (localStorage.getItem("arsipbersih.sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed"); } catch (_) {}
+  </script>
 </head>
 <body>
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand">ArsipBersih</div>
     <nav>
       {% for key, href, label in [
@@ -35,6 +39,9 @@
   </aside>
   <div class="main">
     <header class="topbar">
+      <button type="button" id="sidebar-toggle" class="sidebar-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Sembunyikan menu" title="Sembunyikan/tampilkan menu">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4.5h12M3 9h12M3 13.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
       <span class="root-label">Folder kerja</span>
       <code class="root-path">{{ root }}</code>
     </header>
