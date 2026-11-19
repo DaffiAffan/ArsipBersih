@@ -5,5 +5,3 @@
 .hist-row .path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); }
 .hist-head h1 { margin: 0; }
 .table tr.is-undone td { opacity: 0.55; }
-.link { background: none; border: 0; padding: 0; color: var(--color-accent); cursor: pointer; font: inherit; }
-.link:hover { text-decoration: underline; }

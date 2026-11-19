@@ -21,6 +21,18 @@ function stat(label, value, sub) {
     el("span", { class: "list-meta num" }, sub ? `${value} · ${sub}` : value));
 }
 
+function summaryStats(s) {
+  const stats = [stat("Ke Arsip", `${fmtNum(s.archive_units)} unit`, fmtBytes(s.archive_bytes))];
+  for (const [cat, [units, bytes]] of Object.entries(s.review)) {
+    stats.push(stat(`Ke Perlu Dicek: ${cat}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
+  }
+  for (const [reason, [units, bytes]] of Object.entries(s.by_reason || {})) {
+    stats.push(stat(`Di Arsip, ${reason}`, `${fmtNum(units)} unit`, fmtBytes(bytes)));
+  }
+  stats.push(stat("Dilewati", fmtNum(s.skipped.length)));
+  return stats;
+}
+
 function summaryBlock(s) {
   const nodes = [el("ul", { class: "list plan-stats" }, summaryStats(s))];
   if (s.skipped.length) {

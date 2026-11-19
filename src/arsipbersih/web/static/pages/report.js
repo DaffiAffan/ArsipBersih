@@ -24,7 +24,7 @@ async function load() {
     table("Per kategori", Object.entries(r.by_category).map(([k, v]) => row(CATEGORY_LABELS[k] || k, v)))),
     table("Lainnya", [
       row("Dihemat dari duplikat", fmtBytes(r.bytes_saved_duplicates)),
-      row("Ukuran _sampah", fmtBytes(r.bytes_in_trash)),
+      row("Ukuran Sampah", fmtBytes(r.bytes_in_trash)),
       row("File non-media tertinggal", r.non_media_left),
       row("File tanpa tanggal", r.undated),
     ]),
