@@ -39,7 +39,7 @@ def test_scan_tidy_review_apply_undo_roundtrip(web, mini_collection):
 
     items = web.get("/api/review/grid/burem").json()["items"]
     assert items
-    web.post("/api/review/seen", json={"unit_ids": [i["unit_id"] for i in items]})
+    web.post("/api/review/decisions", json={"unit_ids": [i["unit_id"] for i in items], "decision": "discard"})
     apply("burem")
 
     assert web.post("/api/report/verify").status_code == 202
