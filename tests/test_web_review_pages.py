@@ -84,7 +84,9 @@ def test_grid_page_loads_new_modules(web):
     for css in css_dir.rglob("*.css"):
         for sel, body in rule.findall(css.read_text(encoding="utf-8")):
             sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
-            if "img" in sel and re.search(r"(opacity|filter)\s*:", body):
+            # opacity: 1 / filter: none only force full brightness, so they are not dimming.
+            dims = re.search(r"opacity\s*:\s*(?!1\s*(;|$))", body) or re.search(r"filter\s*:\s*(?!none)", body)
+            if "img" in sel and dims:
                 assert sel in allowed, f"{css.name}: {sel}"
 
 
@@ -194,5 +196,5 @@ def test_inspector_js_has_clip_strings(web):
 
 def test_viewer_without_ondecide_hides_decision_actions(web):
     viewer = web.get("/static/components/viewer.js").text
-    assert 'onDecide ? [["S", "keep"]' in viewer and "onDecide: onDecide ?" in viewer
+    assert 'onDecide ? [["S", "simpan"]' in viewer and "onDecide: onDecide ?" in viewer
     assert 'onDecide ? el("div", { class: "insp-actions" }' in web.get("/static/components/inspector.js").text
