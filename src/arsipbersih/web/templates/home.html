@@ -3,7 +3,7 @@
 {% block content %}
 <header class="home-head">
   <h1 class="home-root" title="{{ root }}">{{ root }}</h1>
-  <p class="home-sub muted"><span id="last-scan">&nbsp;</span> · <button id="root-toggle" class="btn btn-ghost home-link" type="button" aria-expanded="false" aria-controls="root-form">Ganti folder</button></p>
+  <p class="home-sub muted"><button id="root-toggle" class="btn btn-ghost home-link" type="button" aria-expanded="false" aria-controls="root-form">Ganti folder</button></p>
   <form id="root-form" class="home-rootform" hidden>
     <input id="root-input" type="text" value="{{ root }}" aria-label="Path folder kerja">
     <button type="submit" class="btn btn-secondary">Ganti</button>
@@ -13,8 +13,17 @@
 <p id="source-warning" class="home-alert" role="alert" hidden></p>
 <ul id="warnings" class="home-warnings"></ul>
 <p id="scan-announce" class="sr-only" role="status" aria-live="polite"></p>
-<ol id="steps" class="home-steps" aria-label="Langkah kerja"></ol>
-<dl id="summary" class="home-summary"></dl>
+<section class="home-hero">
+  <h2 id="home-title" class="home-title">&nbsp;</h2>
+  <p id="home-line" class="muted"></p>
+</section>
+<div class="home-cols">
+  <ol id="steps" class="steps" aria-label="Langkah kerja"></ol>
+  <aside class="home-side">
+    <section><h3 class="list-title">Paling banyak belum diputuskan</h3><ul id="top-cats" class="list"></ul></section>
+    <section><h3 class="list-title">Perlu keputusanmu</h3><ul id="needs" class="list"></ul></section>
+  </aside>
+</div>
 <footer class="home-status">
   <p id="tools-line"></p>
   <p class="muted">Offline · 127.0.0.1</p>

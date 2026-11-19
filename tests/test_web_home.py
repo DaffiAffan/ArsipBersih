@@ -57,6 +57,12 @@ def test_home_page_has_step_cards(web):
     assert 'id="steps"' in html and 'id="stages"' not in html
 
 
+def test_home_shows_steps_without_metric_tiles(web):
+    html = web.get("/").text
+    assert 'class="steps"' in html and "home-summary" not in html
+    assert "review_units" in web.get("/api/home").json()["steps"]["totals"]
+
+
 def test_root_switch_rejects_bad_paths(web, tmp_path):
     f = tmp_path / "berkas.txt"
     f.write_text("x")
@@ -213,3 +219,8 @@ def test_home_review_units_counts_photos_not_groups(conn_with):
     conn.execute("insert into decisions(unit_id, decision, applied, decided_at) values(?,?,0,'x')", (ids[4], "keep"))
     conn.commit()
     assert home_steps(conn, scanned=True)["totals"]["review_units"] == 6
+
+
+def test_home_js_keeps_scan_controls_and_no_jargon(web):
+    js = web.get("/static/pages/home.js").text
+    assert "act(1, scanBtn)" not in js and "_sampah/" not in js and '"Pause"' not in js
