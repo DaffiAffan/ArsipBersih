@@ -1,0 +1,14 @@
+/* Toast: pesan singkat di bawah tengah, boleh membawa aksi "Batalkan". */
+.toast {
+  position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%); z-index: 120;
+  display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - var(--space-6));
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-card); padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-float); font-size: var(--text-sm);
+  animation: toast-in var(--duration-slow) var(--ease-out);
+}
+.toast-ok::before { content: "✓"; color: var(--color-keep); font-weight: 700; }
+.toast-error { border-color: var(--color-danger); }
+.toast-error::before { content: "!"; color: var(--color-danger); font-weight: 700; }
+.toast-action { margin-left: var(--space-2); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }

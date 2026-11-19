@@ -1,0 +1,34 @@
+/* Tanggal (dates.js): layout */
+.dt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-4); }
+.dt-head h1 { margin: 0 0 var(--space-1); }
+.dt-head p { margin: 0; max-width: 680px; }
+.dt-write { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); max-width: 320px; text-align: right; }
+#dt-error { white-space: pre-line; }
+.dt-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-3); }
+.dt-event { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.dt-event p { margin: 0; }
+.dt-event-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.dt-event-head h3 { margin: 0; font-size: var(--text-md); flex: 1; }
+.dt-changed { border-color: var(--color-accent); color: var(--color-accent); }
+.dt-changed[hidden], .dt-range[hidden] { display: none; }
+.dt-event-meta { font-size: var(--text-sm); }
+.dt-samples { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.dt-samples img { width: 88px; height: 88px; object-fit: cover; border-radius: var(--radius-control); background: var(--color-surface); }
+.dt-range { display: flex; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-sm); color: var(--color-text-muted); }
+.dt-range label, .dt-field { display: flex; flex-direction: column; gap: var(--space-1); }
+.dt-range input { background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 4px 8px; font: inherit; color-scheme: dark; }
+.dt-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.dt-section-head { display: flex; align-items: baseline; gap: var(--space-3); }
+.dt-toolbar { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; flex-wrap: wrap; }
+.dt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-2); }
+.dt-cell.is-selected { border-color: var(--color-accent); }
+.dt-cell:focus-visible { box-shadow: 0 0 0 2px var(--color-accent); }
+.dt-check { position: absolute; left: 6px; top: 6px; width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--color-text); background: var(--scrim-photo); }
+.dt-cell.is-selected .dt-check { background: var(--color-accent); border-color: var(--color-accent); }
+.dt-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 6px; font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-more { display: flex; justify-content: center; margin-top: var(--space-3); }
+.dt-more [hidden] { display: none; }
+.dt-field { margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-text-muted); }
+.dt-field .input { margin-top: 0; }
+.dt-dialog-error:empty { display: none; }
+@media (max-width: 900px) { .dt-head { flex-direction: column; } .dt-write { align-items: flex-start; text-align: left; } }

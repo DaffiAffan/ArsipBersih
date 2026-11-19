@@ -1,17 +1,24 @@
-/* Lapisan primitif */
+/* Design system v2 "Ruang gelap". Only this file may hold raw colors, sizes for type and shadows;
+   everything else uses the semantic tokens below and the component classes in components/. */
+
+/* Lapisan primitif: abu-abu dingin bernada biru, satu aksen biru lembut */
 :root {
-  --p-gray-950: #111215;
-  --p-gray-900: #18191d;
-  --p-gray-800: #24262c;
-  --p-gray-700: #2b2e35;
-  --p-gray-100: #e8e9ec;
-  --p-gray-400: #8e919a;
-  --p-blue-400: #7aa7ff;
-  --p-blue-950: #0b1220;
-  --p-green-400: #6cc497;
-  --p-red-400: #e0786e;
+  --p-gray-950: oklch(18.2% 0.007 268);
+  --p-gray-900: oklch(21.4% 0.008 268);
+  --p-gray-800: oklch(26.9% 0.012 268);
+  --p-gray-700: oklch(30.1% 0.013 268);
+  --p-gray-600: oklch(36% 0.014 268);
+  --p-gray-400: oklch(68.5% 0.016 266); /* teks redup: >= 5:1 di atas gray-800 */
+  --p-gray-100: oklch(93.4% 0.004 268);
+  --p-blue-400: oklch(73.3% 0.137 263);
+  --p-blue-950: oklch(18.3% 0.031 263);
+  --p-green-400: oklch(75.3% 0.108 160);
+  --p-green-950: oklch(20% 0.03 160);
+  --p-red-400: oklch(68.7% 0.131 27);
+  --p-red-950: oklch(20% 0.035 27);
 
   --p-space-unit: 4px;
+  --p-radius-4: 4px;
   --p-radius-6: 6px;
   --p-radius-10: 10px;
   --p-radius-full: 999px;
@@ -26,12 +33,26 @@
   --color-surface: var(--p-gray-900);
   --color-surface-2: var(--p-gray-800);
   --color-border: var(--p-gray-700);
+  --color-border-strong: var(--p-gray-600);
   --color-text: var(--p-gray-100);
   --color-text-muted: var(--p-gray-400);
   --color-accent: var(--p-blue-400);
   --color-on-accent: var(--p-blue-950);
   --color-keep: var(--p-green-400);
+  --color-on-keep: var(--p-green-950);
   --color-danger: var(--p-red-400);
+  --color-on-danger: var(--p-red-950);
+  --color-keep-tint: oklch(75.3% 0.108 160 / .18);
+  --color-danger-tint: oklch(68.7% 0.131 27 / .18);
+  --color-accent-tint: oklch(73.3% 0.137 263 / .18);
+
+  /* Skala huruf, rasio +-1,25; tidak ada teks di bawah 12 px */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
 
   --space-1: calc(var(--p-space-unit) * 1);
   --space-2: calc(var(--p-space-unit) * 2);
@@ -41,7 +62,9 @@
   --space-6: calc(var(--p-space-unit) * 6);
   --space-7: calc(var(--p-space-unit) * 8);
   --space-8: calc(var(--p-space-unit) * 12);
+  --space-section: calc(var(--p-space-unit) * 10); /* jarak antarbagian halaman */
 
+  --radius-sm: var(--p-radius-4);
   --radius-control: var(--p-radius-6);
   --radius-card: var(--p-radius-10);
   --radius-pill: var(--p-radius-full);
@@ -49,10 +72,19 @@
   --font-ui: var(--p-font-ui);
   --font-mono: var(--p-font-mono);
 
-  --duration-fast: 150ms;
-  --shadow-float: 0 8px 24px rgba(0, 0, 0, .45), 0 0 0 1px var(--color-border);
-  --scrim: rgba(0, 0, 0, .6);
-  --scrim-photo: rgba(0, 0, 0, .78); /* teks di atas foto: >= 7:1 walau fotonya putih */
-  --scrim-kbd: rgba(0, 0, 0, .2);
-  --scrim-kbd-border: rgba(0, 0, 0, .25);
+  --sidebar-width: 216px;
+  --opacity-discarded: 0.35;
+  --opacity-disabled: 0.5;
+
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-slow: 200ms;
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1); /* ease-out-quart */
+
+  --shadow-float: 0 8px 24px oklch(0% 0 0 / .45), 0 0 0 1px var(--color-border);
+  --shadow-overlay: 0 0 32px oklch(0% 0 0 / .5);
+  --scrim: oklch(0% 0 0 / .6);
+  --scrim-photo: oklch(0% 0 0 / .78); /* teks di atas foto: >= 7:1 walau fotonya putih */
+  --scrim-kbd: oklch(0% 0 0 / .2);
+  --scrim-kbd-border: oklch(0% 0 0 / .25);
 }

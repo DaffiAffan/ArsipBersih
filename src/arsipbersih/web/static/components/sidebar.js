@@ -26,7 +26,9 @@ function loadCategories() {
 const CATS_KEY = "arsipbersih.nav.cats";
 const DATES_KEY = "arsipbersih.nav.dates";
 const SCROLL_KEY = "arsipbersih.nav.scroll";
-export function mountReviewNav(ul) {
+// Review categories as sidebar groups ("Duplikat", "Dokumen", ...), in the server's order.
+// Each item shows what is still undecided (count - done), or a check mark once nothing is left.
+export function mountReviewNav(box) {
   // Resolves to the category list (null when the request failed), for other widgets to reuse.
   async function refresh() {
     let cats;
@@ -37,25 +39,35 @@ export function mountReviewNav(ul) {
     render(cats);
     return cats;
   }
+  function item(c, current) {
+    const active = location.pathname.startsWith("/review/") && c.category === current;
+    const left = Math.max(0, (c.count ?? 0) - (c.done ?? 0));
+    return el("li", {},
+      el("a", {
+        class: `nav-item${active ? " is-active" : ""}`,
+        href: `/review/${c.category}`,
+        "aria-current": active ? "page" : false,
+        title: c.label || false,
+      },
+        el("span", { class: "nav-label" }, c.short_label || c.label || c.category),
+        el("span", { class: `nav-count${left ? "" : " is-done"}`, "aria-hidden": "true" }, left ? fmtNum(left) : "✓"),
+        el("span", { class: "sr-only" }, left ? `, ${fmtNum(left)} belum diputuskan` : ", selesai")));
+  }
   function render(cats) {
-    if (!ul) return;
+    if (!box) return;
     const current = decodeURIComponent(location.pathname.split("/")[2] || "");
-    ul.replaceChildren(...cats.map((c) => {
-      const active = location.pathname.startsWith("/review/") && c.category === current;
-      const done = c.done ?? 0;
-      const pct = c.count ? Math.min(100, Math.round((done / c.count) * 100)) : 0;
-      return el("li", {},
-        el("a", {
-          class: `nav-item nav-cat${active ? " is-active" : ""}`,
-          href: `/review/${c.category}`,
-          "aria-current": active ? "page" : false,
-          title: c.help || false,
-        },
-          el("span", { class: "nav-cat-row" },
-            el("span", { class: "nav-cat-label" }, c.label || c.category),
-            el("span", { class: "nav-cat-count" }, fmtNum(c.count))),
-          el("span", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(c.count), "aria-valuenow": String(done), "aria-label": `${done} dari ${c.count} sudah ditangani` },
-            el("i", { style: `width:${pct}%` }))));
+    const groups = [];
+    for (const c of cats) {
+      const key = c.group || "lain";
+      let g = groups.find((x) => x.key === key);
+      if (!g) groups.push(g = { key, title: c.group_title || "Review", items: [] });
+      g.items.push(c);
+    }
+    box.replaceChildren(...groups.map((g) => {
+      const id = `nav-group-${g.key}`;
+      return el("div", { class: "nav-group" },
+        el("div", { class: "nav-group-title", id }, g.title),
+        el("ul", { class: "nav-list", "aria-labelledby": id }, ...g.items.map((c) => item(c, current))));
     }));
   }
   // Draw the last known list right away so the sidebar does not pop in after every page load.
@@ -83,11 +95,11 @@ export function mountDatesNav(countEl) {
   return { refresh };
 }
 
-const ul = document.getElementById("nav-review");
-export const reviewNav = mountReviewNav(ul);
+const navBox = document.getElementById("nav-review");
+export const reviewNav = mountReviewNav(navBox);
 export const datesNav = mountDatesNav(document.getElementById("nav-dates-count"));
 
-if (ul) {
+if (navBox) {
   let lastKey = null;
   let first = true;
   reviewNav.refresh();
@@ -109,18 +121,38 @@ if (sidebar) {
   addEventListener("pagehide", () => save("session", SCROLL_KEY, sidebar.scrollTop));
 }
 
+// The menu button. Wide screens: show/hide in the page flow and remember the choice. Below
+// 1000 px the sidebar is an overlay over the content: closed by default, never remembered, so it
+// is closed again after every page load.
 const toggle = document.getElementById("sidebar-toggle");
 if (toggle) {
   const root = document.documentElement;
+  const narrow = matchMedia("(max-width: 999.98px)");
+  const scrim = document.getElementById("sidebar-scrim");
+  const isOpen = () => (narrow.matches ? root.classList.contains("sidebar-open") : !root.classList.contains("sidebar-collapsed"));
   const sync = () => {
-    const collapsed = root.classList.contains("sidebar-collapsed");
-    toggle.setAttribute("aria-expanded", String(!collapsed));
-    toggle.setAttribute("aria-label", collapsed ? "Tampilkan menu" : "Sembunyikan menu");
+    const open = isOpen();
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Sembunyikan menu" : "Tampilkan menu");
+  };
+  const closeOverlay = (refocus) => {
+    if (!root.classList.contains("sidebar-open")) return;
+    root.classList.remove("sidebar-open");
+    sync();
+    if (refocus) toggle.focus();
   };
   sync();
   toggle.addEventListener("click", () => {
-    const collapsed = root.classList.toggle("sidebar-collapsed");
-    save("local", "arsipbersih.sidebar", collapsed ? "collapsed" : "open");
+    if (narrow.matches) {
+      root.classList.toggle("sidebar-open");
+    } else {
+      const collapsed = root.classList.toggle("sidebar-collapsed");
+      save("local", "arsipbersih.sidebar", collapsed ? "collapsed" : "open");
+    }
     sync();
   });
+  if (scrim) scrim.addEventListener("click", () => closeOverlay(true));
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && narrow.matches) closeOverlay(true); });
+  if (sidebar) sidebar.addEventListener("click", (e) => { if (e.target.closest("a")) closeOverlay(false); });
+  narrow.addEventListener("change", () => { root.classList.remove("sidebar-open"); sync(); });
 }

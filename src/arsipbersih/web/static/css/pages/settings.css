@@ -1,0 +1,13 @@
+/* Pengaturan (settings.js): layout */
+.settings-form fieldset { max-width: 760px; }
+.settings-form legend { padding: 0 var(--space-2); font-weight: 600; }
+.settings-form .field { display: grid; grid-template-columns: 1fr 160px; gap: var(--space-1) var(--space-3); align-items: center; margin: var(--space-2) 0; }
+.settings-form .field small { grid-column: 1 / -1; }
+.settings-form .input, .settings-form input { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 6px 8px; font: inherit; }
+.settings-form textarea { grid-column: 1 / -1; width: 100%; }
+.blur-controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin: var(--space-2) 0; }
+.blur-controls input[type=range] { flex: 1; min-width: 200px; padding: 0; }
+.blur-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.blur-row figure { margin: 0; text-align: center; font-size: var(--text-xs); }
+.blur-row img { display: block; border-radius: 4px; background: var(--color-surface-2); }
+.settings-actions { margin-bottom: var(--space-6); }

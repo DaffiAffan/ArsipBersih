@@ -1,71 +1,68 @@
+/* Dasar dan kerangka halaman: sidebar | (bilah atas, bilah job, konten). */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
   display: flex;
   background: var(--color-bg);
   color: var(--color-text);
-  font: 15px/1.5 var(--font-ui);
+  font: var(--text-md)/1.5 var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
-h1 { margin: 0 0 var(--space-3); font-size: 24px; font-weight: 600; }
-h2 { font-weight: 600; }
+h1 { margin: 0 0 var(--space-3); font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: var(--text-lg); font-weight: 600; }
+h3 { font-size: var(--text-md); font-weight: 600; }
+h4 { font-size: var(--text-sm); font-weight: 600; }
+a { color: var(--color-accent); }
 /* Author display rules (e.g. button { display: inline-flex }) must not defeat the hidden attribute. */
 [hidden] { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
 .muted { color: var(--color-text-muted); }
 code, pre, .mono { font-family: var(--font-mono); }
+small { font-size: var(--text-xs); }
 
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
 /* Same-origin page loads cross-fade instead of flashing; the sidebar stays put. */
 @view-transition { navigation: auto; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 120ms; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--duration-fast); animation-timing-function: var(--ease-out); }
 .sidebar { view-transition-name: sidebar; }
 .topbar { view-transition-name: topbar; }
 
-.sidebar {
-  width: 240px; flex: none; overflow-y: auto;
-  background: var(--color-surface); border-right: 1px solid var(--color-border);
-  padding: var(--space-4) var(--space-3);
-}
-.brand { font-weight: 700; font-size: 18px; padding: var(--space-1) var(--space-3) var(--space-4); }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-item {
-  display: block; color: var(--color-text-muted); text-decoration: none;
-  padding: var(--space-2) var(--space-3); border-radius: var(--radius-control);
-  transition: background var(--duration-fast), color var(--duration-fast);
-}
-.nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
-.nav-item.is-active { background: var(--color-surface-2); color: var(--color-text); box-shadow: inset 3px 0 0 var(--color-accent); }
-.nav-sub { list-style: none; margin: 0 0 var(--space-1); padding: 0 0 0 var(--space-4); display: flex; flex-direction: column; gap: 2px; }
-.nav-sub:empty { display: none; }
-.nav-sub a {
-  display: flex; justify-content: space-between; gap: var(--space-2);
-  color: var(--color-text-muted); text-decoration: none; font-size: 14px;
-  padding: var(--space-1) var(--space-3); border-radius: var(--radius-control);
-}
-.nav-sub a:hover, .nav-sub a.is-active { background: var(--color-surface-2); color: var(--color-text); }
-
-.sidebar-collapsed .sidebar { display: none; }
-.sidebar-toggle {
-  flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; margin-left: calc(-1 * var(--space-2)); padding: 0;
-  background: none; border: 0; border-radius: var(--radius-control);
-  color: var(--color-text-muted); cursor: pointer;
-}
-.sidebar-toggle:hover { background: var(--color-surface-2); color: var(--color-text); }
-
+/* Kerangka */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
-  display: flex; align-items: center; gap: var(--space-3); min-width: 0;
+  display: flex; align-items: center; gap: var(--space-3); min-width: 0; min-height: 48px;
   padding: var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--color-border); background: var(--color-surface);
 }
-.root-label { color: var(--color-text-muted); font-size: 13px; flex: none; }
-.root-path { font-family: var(--font-mono); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job-status { padding: var(--space-2) var(--space-5); background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); font-size: 14px; }
-.job-status[hidden] { display: none; }
+.root-label { color: var(--color-text-muted); font-size: var(--text-sm); flex: none; }
+.root-path { flex: 0 1 auto; font-family: var(--font-mono); font-size: var(--text-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.job-status { padding: var(--space-2) var(--space-5); background: var(--color-surface-2); border-bottom: 1px solid var(--color-border); font-size: var(--text-sm); }
 .content { flex: 1; overflow: auto; padding: var(--space-6) var(--space-7); }
+@media (max-width: 999.98px) {
+  .topbar { padding: var(--space-2) var(--space-4); }
+  .content { padding: var(--space-5) var(--space-4); }
+}
+
+/* Keyboard key, spinner, progres */
+.kbd {
+  font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5;
+  background: var(--color-surface-2); color: var(--color-text-muted);
+  border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: var(--radius-sm); padding: 0 var(--space-1);
+}
+.spinner {
+  display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--color-border); border-top-color: var(--color-accent);
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress { display: block; height: 4px; border-radius: var(--radius-pill); background: var(--color-surface-2); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--color-accent); transition: width var(--duration-base) var(--ease-out); }
+
+/* Permukaan lama untuk halaman yang belum dipindah ke v2 (dirapikan per halaman di Fase 1.2). */
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.card h2 { margin: 0 0 var(--space-2); font-size: var(--text-md); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -75,12 +72,3 @@ code, pre, .mono { font-family: var(--font-mono); }
     scroll-behavior: auto !important;
   }
 }
-
-/* Kategori review di sidebar */
-.nav-sub a.nav-item { flex-direction: column; gap: 4px; }
-.nav-cat-row { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
-.nav-cat-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.nav-cat-count { flex: none; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
-.nav-sub .progress { height: 3px; }
-.rv-page-head h1 { margin: 0 0 var(--space-1); font-size: 22px; }
-.rv-page-head p { margin: 0 0 var(--space-4); }

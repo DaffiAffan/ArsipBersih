@@ -1,0 +1,12 @@
+/* Menu titik tiga: daftar aksi kecil yang muncul di bawah pemicunya. */
+.menu {
+  position: absolute; z-index: 60; min-width: 180px; padding: var(--space-1);
+  display: flex; flex-direction: column;
+  background: var(--color-surface-2); border-radius: var(--radius-card); box-shadow: var(--shadow-float);
+}
+.menu button, .menu a {
+  display: flex; width: 100%; justify-content: flex-start;
+  background: transparent; border-color: transparent; color: var(--color-text);
+}
+.menu button:hover, .menu a:hover, .menu button:focus-visible { background: var(--color-surface); border-color: transparent; }
+.menu .is-danger { color: var(--color-danger); }

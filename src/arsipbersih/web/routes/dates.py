@@ -158,7 +158,7 @@ def _exclusive(request: Request):
 
 @router.get("/tanggal")
 def dates_page(request: Request):
-    return render(request, "dates.html", active="review", subactive="tanggal")
+    return render(request, "dates.html", active="tanggal")
 
 
 # --- read ----------------------------------------------------------------------------------

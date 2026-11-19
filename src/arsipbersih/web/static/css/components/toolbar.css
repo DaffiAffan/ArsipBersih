@@ -1,0 +1,9 @@
+/* Bilah alat: satu baris tipis di atas isi halaman (judul, ringkasan, filter, aksi). */
+.toolbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3);
+  min-height: 48px; padding: var(--space-2) var(--space-4);
+  background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+}
+.toolbar-title { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.toolbar-meta { color: var(--color-text-muted); font-size: var(--text-sm); }
+.toolbar-spacer { flex: 1; }

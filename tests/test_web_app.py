@@ -40,8 +40,10 @@ def test_favicon_is_served_locally(web):
 
 def test_shell_uses_token_stylesheets(web):
     html = web.get("/").text
-    for css in ("tokens.css", "base.css", "components.css"):
+    for css in ("tokens.css", "base.css", "components/button.css", "components/sidebar.css"):
         assert f'href="/static/css/{css}"' in html
+    for gone in ("components.css", "review.css", "pages.css"):
+        assert f'href="/static/css/{gone}"' not in html
     assert "/static/app.css" not in html
     assert 'id="nav-review"' in html
     assert web.get("/static/css/tokens.css").status_code == 200
@@ -59,4 +61,16 @@ def test_reduced_motion_is_respected(web):
 
 def test_sr_only_utility_lives_in_base_css_only(web):
     assert ".sr-only" in web.get("/static/css/base.css").text
-    assert ".sr-only" not in web.get("/static/css/pages.css").text
+    for page in ("home", "review", "dates", "plan", "history", "report", "settings", "viewer"):
+        r = web.get(f"/static/css/pages/{page}.css")
+        assert r.status_code == 200 and ".sr-only" not in r.text
+
+
+def test_sidebar_has_groups_and_no_progress(web):
+    html = web.get("/").text
+    aside = html.split("<aside", 1)[1].split("</aside>", 1)[0]
+    assert 'class="nav-group"' in aside
+    assert "Lainnya" in aside
+    assert 'role="progressbar"' not in aside
+    for label in ("Beranda", "Rencana", "Tanggal", "Riwayat", "Laporan", "Pengaturan"):
+        assert label in aside

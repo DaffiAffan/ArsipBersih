@@ -1,0 +1,6 @@
+/* Laporan (report.js): layout */
+.report-total { display: flex; align-items: baseline; gap: var(--space-2); }
+.report-big { font-size: var(--text-2xl); font-weight: 600; }
+.report-table td:first-child { color: var(--color-text-muted); }
+.report-ok { color: var(--color-keep); }
+.report-bad { color: var(--color-danger); }

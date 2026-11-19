@@ -1,0 +1,28 @@
+{# Sidebar v2: Beranda, Rencana; review groups (drawn by components/sidebar.js); then "Lainnya". #}
+{% macro nav_item(key, href, label, active, count_id=None) -%}
+<li><a class="nav-item{% if active == key %} is-active{% endif %}" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>
+  <span class="nav-label">{{ label }}</span>{% if count_id %}<span id="{{ count_id }}" class="nav-count"></span>{% endif %}
+</a></li>
+{%- endmacro %}
+
+{% macro sidebar(active) -%}
+<aside class="sidebar" id="sidebar">
+  <div class="brand">ArsipBersih</div>
+  <nav aria-label="Menu utama">
+    <ul class="nav-list">
+      {{ nav_item("beranda", "/", "Beranda", active) }}
+      {{ nav_item("rencana", "/rencana", "Rencana", active) }}
+    </ul>
+    <div id="nav-review" class="nav-groups"></div>
+    <div class="nav-group">
+      <div class="nav-group-title" id="nav-group-lainnya">Lainnya</div>
+      <ul class="nav-list" aria-labelledby="nav-group-lainnya">
+        {{ nav_item("tanggal", "/tanggal", "Tanggal", active, "nav-dates-count") }}
+        {{ nav_item("riwayat", "/riwayat", "Riwayat", active) }}
+        {{ nav_item("laporan", "/laporan", "Laporan", active) }}
+        {{ nav_item("pengaturan", "/pengaturan", "Pengaturan", active) }}
+      </ul>
+    </div>
+  </nav>
+</aside>
+{%- endmacro %}

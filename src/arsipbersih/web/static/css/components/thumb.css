@@ -1,0 +1,43 @@
+/* Thumbnail di grid: status tidak hanya lewat warna (tanda + redup + teks di aria-label). */
+.thumb {
+  position: relative; aspect-ratio: 1; overflow: hidden; cursor: pointer;
+  background: var(--color-surface-2);
+}
+.thumb > img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity var(--duration-base) var(--ease-out); }
+.thumb.is-discard > img { opacity: var(--opacity-discarded); }
+.thumb.is-focused { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.thumb-mark {
+  position: absolute; top: var(--space-1); right: var(--space-1);
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: var(--text-xs); font-weight: 700; line-height: 1;
+  background: var(--color-surface-2); color: var(--color-text);
+}
+.thumb.is-keep .thumb-mark { background: var(--color-keep); color: var(--color-on-keep); }
+.thumb.is-discard .thumb-mark { background: var(--color-danger); color: var(--color-on-danger); }
+.thumb.is-seen .thumb-mark:empty { top: var(--space-2); right: var(--space-2); width: 8px; height: 8px; background: var(--color-accent); }
+.thumb-caption {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 2px var(--space-2);
+  font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Sel foto lama (review grid dan Tanggal) sampai dipindah ke .thumb. */
+.photo-cell {
+  position: relative; aspect-ratio: 1; overflow: hidden; cursor: pointer; outline: none;
+  background: var(--color-surface-2); border-radius: var(--radius-control); border: 3px solid transparent;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+.photo-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-cell.is-keep { border-color: var(--color-keep); }
+.photo-cell.is-focused { border-color: var(--color-accent); }
+.photo-cell.is-keep.is-focused { border-color: var(--color-keep); box-shadow: 0 0 0 2px var(--color-accent); }
+.photo-cell .seen-dot { position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 0 2px var(--color-bg); }
+.photo-cell .cell-mark { position: absolute; left: 4px; top: 4px; background: var(--scrim-photo); color: var(--color-text); }
+.photo-cell .cell-mark.badge-keep { background: var(--color-keep); color: var(--color-on-keep); }
+.photo-cell .cell-mark.badge-danger { background: var(--color-danger); color: var(--color-on-danger); }
+.photo-cell .cell-caption {
+  position: absolute; left: 0; right: 0; bottom: 0; display: block;
+  padding: 2px 6px; font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.photo-cell .cell-noprev { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; font-size: var(--text-xs); color: var(--color-text-muted); }

@@ -1,49 +1,37 @@
 <!doctype html>
+{% from "partials/sidebar.html" import sidebar %}
 <html lang="id">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ArsipBersih{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/tokens.css">
-  <link rel="stylesheet" href="/static/css/base.css">
-  <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/css/viewer.css">
-  <link rel="stylesheet" href="/static/css/review.css">
-  <link rel="stylesheet" href="/static/css/pages.css">
+  {% for css in ["tokens", "base",
+      "components/button", "components/segment", "components/toolbar", "components/statusbar",
+      "components/table", "components/list", "components/chip", "components/thumb",
+      "components/toast", "components/dialog", "components/popover", "components/menu",
+      "components/steps", "components/danger-zone", "components/sidebar",
+      "pages/home", "pages/review", "pages/viewer", "pages/plan", "pages/history",
+      "pages/report", "pages/dates", "pages/settings"] %}
+  <link rel="stylesheet" href="/static/css/{{ css }}.css">
+  {% endfor %}
   <script>
-    // Apply the saved sidebar state before first paint so it never flashes open.
-    try { if (localStorage.getItem("arsipbersih.sidebar") === "collapsed" || localStorage.getItem("arsipbersih.sidebar") === '"collapsed"') document.documentElement.classList.add("sidebar-collapsed"); } catch (_) {}
+    // Apply the saved sidebar choice before first paint so it never flashes open. Below 1000 px
+    // the sidebar is an overlay that always starts closed (CSS), so only wide screens read it.
+    try { var s = localStorage.getItem("arsipbersih.sidebar"); if (s === '"collapsed"' || s === "collapsed") document.documentElement.classList.add("sidebar-collapsed"); } catch (_) {}
   </script>
 </head>
 <body>
-  <aside class="sidebar" id="sidebar">
-    <div class="brand">ArsipBersih</div>
-    <nav>
-      {% for key, href, label in [
-        ("beranda", "/", "Beranda"),
-        ("rencana", "/rencana", "Rencana Rapikan"),
-        ("review", "/review", "Review"),
-        ("riwayat", "/riwayat", "Riwayat"),
-        ("laporan", "/laporan", "Laporan"),
-        ("pengaturan", "/pengaturan", "Pengaturan")] %}
-      <a class="nav-item{% if active == key %} is-active{% endif %}" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
-      {% if key == "review" %}<ul id="nav-review" class="nav-sub" aria-label="Kategori review"></ul>
-      <ul class="nav-sub" aria-label="Koreksi tanggal">
-        <li><a id="nav-dates" class="nav-item nav-cat{% if subactive == 'tanggal' %} is-active{% endif %}" href="/tanggal"{% if subactive == 'tanggal' %} aria-current="page"{% endif %}>
-          <span class="nav-cat-row"><span class="nav-cat-label">Tanggal</span><span id="nav-dates-count" class="nav-cat-count"></span></span>
-        </a></li>
-      </ul>{% endif %}
-      {% endfor %}
-    </nav>
-  </aside>
+  {{ sidebar(active) }}
+  <div id="sidebar-scrim" class="sidebar-scrim"></div>
   <div class="main">
     <header class="topbar">
       <button type="button" id="sidebar-toggle" class="sidebar-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Sembunyikan menu" title="Sembunyikan/tampilkan menu">
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4.5h12M3 9h12M3 13.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
       <span class="root-label">Folder kerja</span>
-      <code class="root-path">{{ root }}</code>
+      <code class="root-path" title="{{ root }}">{{ root }}</code>
+      <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
     </header>
     <div id="job-status" class="job-status" hidden></div>
     <main class="content">

@@ -23,3 +23,27 @@ def test_static_root_holds_only_folders_and_assets():
 def test_inspector_never_passes_null_children():
     src = Path("src/arsipbersih/web/static/components/inspector.js").read_text(encoding="utf-8")
     assert ".filter(Boolean)" in src
+
+
+CSS = Path("src/arsipbersih/web/static/css")
+
+
+def test_font_sizes_only_from_tokens():
+    for css in CSS.rglob("*.css"):
+        if css.name == "tokens.css":
+            continue
+        assert not re.search(r"font-size:\s*[\d.]+(px|rem|em)", css.read_text(encoding="utf-8")), css
+
+
+def test_colors_only_from_tokens():
+    for css in CSS.rglob("*.css"):
+        if css.name == "tokens.css":
+            continue
+        assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|oklch\(", css.read_text(encoding="utf-8")), css
+
+
+def test_no_side_stripe_markers():
+    for css in CSS.rglob("*.css"):
+        text = css.read_text(encoding="utf-8")
+        assert not re.search(r"border-(left|right):\s*([2-9]|\d{2,})px", text), css
+        assert not re.search(r"inset\s+[2-9]px\s+0\s+0", text), css

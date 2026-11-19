@@ -1,4 +1,5 @@
-/* Review: kerangka dan mode grup (review-groups.js) */
+/* Review (layout halaman; komponen ada di components/).
+   Kerangka dan mode grup (review-groups.js) */
 .rv-layout { display: flex; gap: var(--space-5); align-items: flex-start; }
 .rv-main { flex: 1; min-width: 0; }
 
@@ -13,14 +14,14 @@
 .grp-thumbs { display: flex; gap: 4px; align-items: center; }
 .grp-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; background: var(--color-bg); border: 2px solid transparent; flex: none; }
 .grp-thumb.is-keeper { border-color: var(--color-keep); }
-.grp-more { font-size: 12px; }
-.grp-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: 13px; }
-.grp-sub { font-size: 12px; }
-.grp-status { font-size: 11px; padding: 0 6px; flex: none; }
-.grp-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: 13px; }
+.grp-more { font-size: var(--text-xs); }
+.grp-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
+.grp-sub { font-size: var(--text-xs); }
+.grp-status { font-size: var(--text-xs); padding: 0 6px; flex: none; }
+.grp-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
 .grp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.grp-meta { font-size: 13px; overflow-wrap: anywhere; }
-.grp-reason { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); font-size: 14px; }
+.grp-meta { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.grp-reason { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); font-size: var(--text-sm); }
 .grp-reason[hidden] { display: none; }
 .grp-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .grp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
@@ -37,8 +38,8 @@
 .cmp-body { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
 .cmp-state { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .cmp-name { font-weight: 600; overflow-wrap: anywhere; margin-top: var(--space-1); }
-.cmp-facts { font-size: 12px; overflow-wrap: anywhere; }
-.cmp-origin { font-size: 12px; color: var(--color-accent); }
+.cmp-facts { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.cmp-origin { font-size: var(--text-xs); color: var(--color-accent); }
 .cmp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .cmp-actions[hidden] { display: none; }
 .cmp-actions .btn { flex: 1; }
@@ -53,31 +54,21 @@
   padding: var(--space-2) 0; background: var(--color-bg);
 }
 .grid-tabs { display: flex; gap: var(--space-2); }
-.grid-count { font-size: 13px; }
+.grid-count { font-size: var(--text-sm); }
 .grid-spacer { flex: 1; }
-.grid-ctl { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
+.grid-ctl { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--color-text-muted); }
 .grid-ctl input[type=range] { width: 90px; accent-color: var(--color-accent); }
-.grid-select { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 4px 8px; font: inherit; font-size: 13px; }
+.grid-select { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 4px 8px; font: inherit; font-size: var(--text-sm); }
 .grid-toolbar .btn[aria-pressed="true"] { background: var(--color-surface-2); color: var(--color-text); }
-.grid-hint { font-size: 12px; margin: 0 0 var(--space-3); }
-.grid-hint .kbd { font-size: 11px; }
+.grid-hint { font-size: var(--text-xs); margin: 0 0 var(--space-3); }
+.grid-hint .kbd { font-size: var(--text-xs); }
 .grid-layout { display: flex; gap: var(--space-4); align-items: flex-start; }
 .grid-col { flex: 1; min-width: 0; }
 .photo-grid { --cell-min: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr)); gap: var(--space-2); }
 .photo-grid.is-dense { gap: var(--space-1); }
-.photo-cell.is-keep.is-focused { border-color: var(--color-keep); box-shadow: 0 0 0 2px var(--color-accent); }
-.photo-cell .seen-dot[hidden], .photo-cell .cell-mark[hidden] { display: none; }
-.photo-cell .cell-mark { position: absolute; left: 4px; top: 4px; font-size: 11px; padding: 0 6px; }
-.photo-grid.is-dense .cell-mark { font-size: 10px; padding: 0 4px; }
-.photo-cell .cell-caption {
-  position: absolute; left: 0; right: 0; bottom: 0; display: block;
-  padding: 2px 6px; font-size: 11px; background: var(--scrim-photo); color: var(--color-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+.photo-grid.is-dense .cell-mark { font-size: var(--text-xs); padding: 0 4px; }
 .photo-grid.is-dense .cell-caption { display: none; } /* mode cepat: nama hanya saat hover/fokus */
 .photo-grid.is-dense .photo-cell:hover .cell-caption, .photo-grid.is-dense .photo-cell.is-focused .cell-caption { display: block; }
-.photo-cell .cell-noprev { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; font-size: 12px; color: var(--color-text-muted); }
-.photo-cell .cell-noprev[hidden] { display: none; }
 .grid-more { text-align: center; padding: var(--space-4) 0; color: var(--color-text-muted); }
 
 /* Panel info (inspector.js) */
@@ -86,14 +77,14 @@
 .insp-preview { width: 100%; height: min(200px, 26vh); object-fit: contain; display: block; background: var(--color-bg); border-radius: var(--radius-control); }
 .insp-noprev { display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); }
 .insp-name { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); }
-.insp-name strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
-.insp-path { font-size: 12px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.insp-name strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.insp-path { font-size: var(--text-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
 .insp-fullpath { margin-top: var(--space-1); }
 .insp-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: var(--space-3) 0; }
 .insp-facts dt { color: var(--color-text-muted); }
 .insp-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .insp-why { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); }
-.insp-why h4 { margin: 0 0 var(--space-2); font-size: 13px; }
+.insp-why h4 { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
 .insp-why ul { margin: 0; padding-left: var(--space-4); }
 .insp-effect { margin: var(--space-2) 0 0; color: var(--color-text-muted); }
 .insp-ai { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-3); }
@@ -111,9 +102,10 @@
 .insp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
 .insp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
 
-/* Bilah Apply melayang (floatbar.js) */
-.floatbar-summary { font-size: 14px; white-space: nowrap; }
-.floatbar-keep { color: var(--color-keep); font-weight: 600; }
-.floatbar-trash { color: var(--color-danger); font-weight: 600; }
 .insp-clips p, .insp-clips ul { margin: 0 0 var(--space-2); }
 .insp-clip-link { padding: 0; text-align: left; overflow-wrap: anywhere; }
+
+/* Panel info (inspector.js), dipakai grid dan layar penuh */
+.inspector { width: 300px; flex: none; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-left: 1px solid var(--color-border); font-size: var(--text-sm); }
+.rv-page-head h1 { margin: 0 0 var(--space-1); }
+.rv-page-head p { margin: 0 0 var(--space-4); }

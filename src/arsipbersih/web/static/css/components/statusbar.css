@@ -1,0 +1,21 @@
+/* Bilah status: baris bawah dengan pintasan di kiri dan ringkasan + aksi di kanan. */
+.statusbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
+  min-height: 40px; padding: var(--space-1) var(--space-4);
+  background: var(--color-surface); border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted); font-size: var(--text-xs);
+}
+.statusbar-spacer { flex: 1; }
+.statusbar-keep { color: var(--color-keep); font-weight: 600; }
+.statusbar-discard { color: var(--color-danger); font-weight: 600; }
+
+/* Bilah Terapkan melayang lama (floatbar.js) sampai halaman review memakai .statusbar. */
+.floatbar {
+  position: fixed; left: 50%; bottom: var(--space-5); transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - var(--space-6));
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); box-shadow: var(--shadow-float);
+}
+.floatbar-summary { font-size: var(--text-sm); white-space: nowrap; }
+.floatbar-keep { color: var(--color-keep); font-weight: 600; }
+.floatbar-trash { color: var(--color-danger); font-weight: 600; }
