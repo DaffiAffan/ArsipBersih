@@ -77,7 +77,7 @@ def test_history_lists_batches_and_trash(web, root, applied_units):
 def test_history_page_renders(web):
     r = web.get("/riwayat")
     assert r.status_code == 200
-    assert "Riwayat" in r.text and "/static/history.js" in r.text
+    assert "Riwayat" in r.text and "/static/pages/history.js" in r.text
 
 
 def test_purge_requires_typed_confirmation(web, trashed_units):

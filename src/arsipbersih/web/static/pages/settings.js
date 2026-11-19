@@ -1,4 +1,4 @@
-import { api, el } from "/static/api.js";
+import { api, el } from "/static/core/api.js";
 
 const NOTE = "perlu dicek pada data asli";
 const GROUPS = [

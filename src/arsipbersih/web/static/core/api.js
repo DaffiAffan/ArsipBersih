@@ -14,15 +14,6 @@ export async function api(method, url, body) {
 // The same location names everywhere in the UI (folder names on disk).
 export const LOCATION_LABELS = { source: "Sumber", archive: "Arsip", review: "_review", trash: "_sampah" };
 
-export function fmtBytes(n) {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  let v = Number(n) || 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  const s = i === 0 ? String(Math.round(v)) : v.toFixed(1).replace(".", ",");
-  return `${s} ${units[i]}`;
-}
-
 export function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {

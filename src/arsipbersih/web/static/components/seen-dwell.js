@@ -1,4 +1,4 @@
-import { api } from "/static/api.js";
+import { api } from "/static/core/api.js";
 
 // "Seen" ids come only from the fullscreen viewer (D-033); the grid dwell tracker is gone.
 

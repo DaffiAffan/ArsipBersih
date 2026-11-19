@@ -1,6 +1,6 @@
-import { api, el } from "/static/api.js";
-import { stageLabel, watchJob } from "/static/job.js";
-import { fmtBytes, fmtNum, fmtTime } from "/static/ui.js";
+import { api, el } from "/static/core/api.js";
+import { stageLabel, watchJob } from "/static/components/jobbar.js";
+import { fmtBytes, fmtNum, fmtTime } from "/static/core/format.js";
 
 const $ = (id) => document.getElementById(id);
 const TOOL_NAMES = { exiftool: "ExifTool", ffmpeg: "ffmpeg", ffprobe: "ffprobe" };

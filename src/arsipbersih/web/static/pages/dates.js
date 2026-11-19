@@ -1,7 +1,9 @@
-import { api, el } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { datesNav } from "/static/nav.js";
-import { fmtNum, modalDialog, toast } from "/static/ui.js";
+import { api, el } from "/static/core/api.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { datesNav } from "/static/components/sidebar.js";
+import { fmtNum } from "/static/core/format.js";
+import { modalDialog } from "/static/components/dialog.js";
+import { toast } from "/static/components/toast.js";
 
 const $ = (id) => document.getElementById(id);
 const MOVE_NOTE = "Foto pindah ke folder yang benar saat Rapikan berikutnya.";

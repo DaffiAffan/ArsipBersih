@@ -1,7 +1,8 @@
-import { api, el, fmtBytes } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { confirmDialog, fmtNum, modalDialog } from "/static/ui.js";
-import { reviewNav } from "/static/nav.js";
+import { api, el } from "/static/core/api.js";
+import { fmtBytes, fmtNum } from "/static/core/format.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { confirmDialog, modalDialog } from "/static/components/dialog.js";
+import { reviewNav } from "/static/components/sidebar.js";
 
 const $ = (id) => document.getElementById(id);
 const checked = new Set();

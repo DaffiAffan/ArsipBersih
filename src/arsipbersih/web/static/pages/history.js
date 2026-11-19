@@ -1,7 +1,8 @@
-import { api, el, fmtBytes } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { confirmDialog, fmtNum, fmtTime } from "/static/ui.js";
-import { reviewNav } from "/static/nav.js";
+import { api, el } from "/static/core/api.js";
+import { fmtBytes, fmtNum, fmtTime } from "/static/core/format.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { reviewNav } from "/static/components/sidebar.js";
 
 const KIND = { rapikan: "Rapikan", apply: "Apply", undo: "Undo", purge: "Kosongkan sampah" };
 const $ = (id) => document.getElementById(id);

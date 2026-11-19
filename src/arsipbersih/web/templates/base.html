@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/css/pages.css">
   <script>
     // Apply the saved sidebar state before first paint so it never flashes open.
-    try { if (localStorage.getItem("arsipbersih.sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed"); } catch (_) {}
+    try { if (localStorage.getItem("arsipbersih.sidebar") === "collapsed" || localStorage.getItem("arsipbersih.sidebar") === '"collapsed"') document.documentElement.classList.add("sidebar-collapsed"); } catch (_) {}
   </script>
 </head>
 <body>
@@ -52,10 +52,10 @@
   </div>
   <script type="application/json" id="category-labels">{{ category_labels_json|safe }}</script>
   <script type="module">
-    import { mountJobBar } from "/static/job.js";
+    import { mountJobBar } from "/static/components/jobbar.js";
     mountJobBar(document.getElementById("job-status"));
   </script>
-  <script type="module" src="/static/nav.js"></script>
+  <script type="module" src="/static/components/sidebar.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

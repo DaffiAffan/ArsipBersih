@@ -1,7 +1,8 @@
 // Info panel for one unit (shape of GET /api/review/unit/{id}). Used by the grid, the group
 // screen and the fullscreen viewer.
-import { api, el, fmtBytes } from "/static/api.js";
-import { CATEGORY_LABELS } from "/static/labels.js";
+import { api, el } from "/static/core/api.js";
+import { fmtBytes } from "/static/core/format.js";
+import { CATEGORY_LABELS } from "/static/components/labels.js";
 
 const DATE_SOURCES = { filename: "dari nama file", exif: "EXIF", quicktime: "QuickTime" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -143,7 +144,7 @@ export function renderInspector(node, unit, { onDecide, onChangeGroup, onOpenUni
   const status = d === "keep" ? el("span", { class: "badge badge-keep" }, "Keep")
     : d === "discard" ? el("span", { class: "badge badge-danger" }, "Delete") : null;
 
-  node.replaceChildren(
+  node.replaceChildren(...[
     preview,
     el("div", { class: "insp-name" }, el("strong", { title: name }, name), status),
     path ? el("div", { class: "mono insp-path insp-fullpath" }, path) : null,
@@ -152,7 +153,7 @@ export function renderInspector(node, unit, { onDecide, onChangeGroup, onOpenUni
     clipsSection(unit, onOpenUnit),
     why,
     onDecide ? el("div", { class: "insp-actions" }, keepBtn, delBtn) : null, // view-only without onDecide
-  );
+  ].filter(Boolean)); // replaceChildren turns a null into the text "null"
 }
 
 // Shows the card of one unit in `node`, fetched from GET /api/review/unit/{id}. Arrow-key

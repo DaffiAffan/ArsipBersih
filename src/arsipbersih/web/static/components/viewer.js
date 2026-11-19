@@ -1,10 +1,11 @@
-import { api, el } from "./api.js";
-import { bindKeys } from "./keys.js";
-import { renderInspector } from "./inspector.js";
-import { createZoom } from "./zoom.js";
-import { toast, pushHelp } from "./ui.js";
+import { api, el } from "/static/core/api.js";
+import { bindKeys } from "/static/core/keys.js";
+import { renderInspector } from "/static/components/inspector.js";
+import { createZoom } from "/static/components/zoom.js";
+import { toast } from "/static/components/toast.js";
+import { pushHelp } from "/static/components/help.js";
 
-export { CATEGORY_LABELS } from "./labels.js";
+export { CATEGORY_LABELS } from "/static/components/labels.js";
 
 function preload(item) {
   if (item && item.media && item.media.kind !== "video" && item.media.view) new Image().src = item.media.view;

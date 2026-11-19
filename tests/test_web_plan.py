@@ -41,6 +41,6 @@ def test_get_plan_does_not_write(web, conn_with):
 
 
 def test_plan_js_shares_modal_and_restores_focus_by_name(web):
-    js = web.get("/static/plan.js").text
+    js = web.get("/static/pages/plan.js").text
     assert "modalDialog" in js and 'dlg.showModal' not in js
     assert "restoreFocus(ev.key, " in js

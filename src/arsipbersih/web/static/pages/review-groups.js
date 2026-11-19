@@ -1,13 +1,16 @@
 // Review of groups (duplikat-persis, duplikat-versi, mirip-beruntun): group list on the left,
 // members of the active group side by side on the right. Decisions are never applied here;
 // the floating bar does that (floatbar.js).
-import { api, el, fmtBytes, LOCATION_LABELS } from "/static/api.js";
-import { bindKeys } from "/static/keys.js";
-import { openViewer } from "/static/viewer.js";
-import { reviewNav } from "/static/nav.js";
-import { confirmDialog, fmtNum, registerHelp, toast } from "/static/ui.js";
-import { createZoom } from "/static/zoom.js";
-import { mountFloatBar } from "/static/floatbar.js";
+import { api, el, LOCATION_LABELS } from "/static/core/api.js";
+import { fmtBytes, fmtNum } from "/static/core/format.js";
+import { bindKeys } from "/static/core/keys.js";
+import { openViewer } from "/static/components/viewer.js";
+import { reviewNav } from "/static/components/sidebar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { registerHelp } from "/static/components/help.js";
+import { toast } from "/static/components/toast.js";
+import { createZoom } from "/static/components/zoom.js";
+import { mountFloatBar } from "/static/components/floatbar.js";
 
 const main = document.getElementById("rv-main");
 const root = document.getElementById("group-root");

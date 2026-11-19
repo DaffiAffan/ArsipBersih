@@ -1,10 +1,12 @@
 // Floating Apply bar: "N Keep · M ke _sampah" (grid) or "N dari M grup diputuskan" (group).
 // Apply asks for confirmation with the server's preview text and sends the counts the owner
 // saw; the server answers 409 when they changed in between (D-024).
-import { api, el } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { reviewNav } from "/static/nav.js";
-import { confirmDialog, fmtNum, toast } from "/static/ui.js";
+import { api, el } from "/static/core/api.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { reviewNav } from "/static/components/sidebar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { fmtNum } from "/static/core/format.js";
+import { toast } from "/static/components/toast.js";
 
 function count(v) { return Array.isArray(v) ? v.length : Number(v) || 0; }
 

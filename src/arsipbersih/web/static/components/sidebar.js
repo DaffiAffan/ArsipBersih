@@ -1,6 +1,7 @@
-import { api, el } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { fmtNum } from "/static/ui.js";
+import { api, el } from "/static/core/api.js";
+import { load, save } from "/static/core/storage.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { fmtNum } from "/static/core/format.js";
 
 // One /api/review/categories request serves every caller (the sidebar and the group floating
 // bar both refresh after each decision). Calls made before a request starts share it; a call
@@ -25,13 +26,6 @@ function loadCategories() {
 const CATS_KEY = "arsipbersih.nav.cats";
 const DATES_KEY = "arsipbersih.nav.dates";
 const SCROLL_KEY = "arsipbersih.nav.scroll";
-function load(key) {
-  try { return JSON.parse(sessionStorage.getItem(key) || "null"); } catch (_) { return null; }
-}
-function store(key, value) {
-  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* best effort */ }
-}
-
 export function mountReviewNav(ul) {
   // Resolves to the category list (null when the request failed), for other widgets to reuse.
   async function refresh() {
@@ -39,7 +33,7 @@ export function mountReviewNav(ul) {
     try {
       cats = await loadCategories();
     } catch (_) { return null; } // keep the previous list
-    store(CATS_KEY, cats);
+    save("session", CATS_KEY, cats);
     render(cats);
     return cats;
   }
@@ -65,7 +59,7 @@ export function mountReviewNav(ul) {
     }));
   }
   // Draw the last known list right away so the sidebar does not pop in after every page load.
-  const cached = load(CATS_KEY);
+  const cached = load("session", CATS_KEY);
   if (Array.isArray(cached)) render(cached);
   return { refresh };
 }
@@ -76,7 +70,7 @@ export function mountDatesNav(countEl) {
     if (!countEl) return null;
     let c;
     try { c = await api("GET", "/api/dates/counts"); } catch (_) { return null; }
-    store(DATES_KEY, c);
+    save("session", DATES_KEY, c);
     render(c);
     return c;
   }
@@ -85,7 +79,7 @@ export function mountDatesNav(countEl) {
     countEl.textContent = c.undated ? `${fmtNum(c.proposals)} · ${fmtNum(c.undated)}` : fmtNum(c.proposals);
     countEl.title = `${fmtNum(c.proposals)} acara menunggu keputusan, ${fmtNum(c.undated)} foto tanpa tanggal`;
   }
-  render(load(DATES_KEY));
+  render(load("session", DATES_KEY));
   return { refresh };
 }
 
@@ -110,9 +104,9 @@ if (ul) {
 
 const sidebar = document.getElementById("sidebar");
 if (sidebar) {
-  const top = load(SCROLL_KEY);
+  const top = load("session", SCROLL_KEY);
   if (typeof top === "number") sidebar.scrollTop = top;
-  addEventListener("pagehide", () => store(SCROLL_KEY, sidebar.scrollTop));
+  addEventListener("pagehide", () => save("session", SCROLL_KEY, sidebar.scrollTop));
 }
 
 const toggle = document.getElementById("sidebar-toggle");
@@ -126,7 +120,7 @@ if (toggle) {
   sync();
   toggle.addEventListener("click", () => {
     const collapsed = root.classList.toggle("sidebar-collapsed");
-    try { localStorage.setItem("arsipbersih.sidebar", collapsed ? "collapsed" : "open"); } catch (_) { /* best effort */ }
+    save("local", "arsipbersih.sidebar", collapsed ? "collapsed" : "open");
     sync();
   });
 }

@@ -1,12 +1,16 @@
 // Review grid: tabs, density, inspector, floating Apply bar; "seen" only from the viewer (D-033).
-import { api, el } from "/static/api.js";
-import { bindKeys } from "/static/keys.js";
-import { openViewer, CATEGORY_LABELS } from "/static/viewer.js";
-import { reviewNav } from "/static/nav.js";
-import { confirmDialog, fmtNum, registerHelp, toast } from "/static/ui.js";
-import { createSeenQueue } from "/static/seen-dwell.js";
-import { createInspectorLoader } from "/static/inspector.js";
-import { mountFloatBar } from "/static/floatbar.js";
+import { api, el } from "/static/core/api.js";
+import { load, save } from "/static/core/storage.js";
+import { bindKeys } from "/static/core/keys.js";
+import { openViewer, CATEGORY_LABELS } from "/static/components/viewer.js";
+import { reviewNav } from "/static/components/sidebar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { fmtNum } from "/static/core/format.js";
+import { registerHelp } from "/static/components/help.js";
+import { toast } from "/static/components/toast.js";
+import { createSeenQueue } from "/static/components/seen-dwell.js";
+import { createInspectorLoader } from "/static/components/inspector.js";
+import { mountFloatBar } from "/static/components/floatbar.js";
 
 const main = document.getElementById("rv-main");
 const root = document.getElementById("grid-root");
@@ -33,7 +37,7 @@ const NO_BULK_TEXT = "Delete massal dimatikan di kategori Identitas. Cek tebakan
 function loadPrefs() {
   const prefs = { size: 1, inspector: false };
   try {
-    const raw = JSON.parse(localStorage.getItem(PREF_KEY) || "null");
+    const raw = load("local", PREF_KEY);
     if (raw && SIZES[raw.size] !== undefined) prefs.size = raw.size;
     if (raw && typeof raw.inspector === "boolean") prefs.inspector = raw.inspector;
   } catch (_) { /* storage blocked or corrupt: defaults */ }
@@ -41,7 +45,7 @@ function loadPrefs() {
 }
 
 function savePrefs() {
-  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (_) { /* best effort */ }
+  save("local", PREF_KEY, prefs);
 }
 
 const prefs = loadPrefs();

@@ -23,7 +23,7 @@ def test_post_without_header_is_rejected(web):
 
 
 def test_static_files_are_local(web):
-    assert web.get("/static/api.js").status_code == 200
+    assert web.get("/static/core/api.js").status_code == 200
     assert "http" not in web.get("/").text.split("<body", 1)[0].replace("http-equiv", "")
 
 

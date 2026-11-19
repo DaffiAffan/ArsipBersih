@@ -1,7 +1,9 @@
-import { api, el, fmtBytes, LOCATION_LABELS as LOCATIONS } from "/static/api.js";
-import { watchJob } from "/static/job.js";
-import { confirmDialog, fmtNum, toast } from "/static/ui.js";
-import { CATEGORY_LABELS } from "./viewer.js";
+import { api, el, LOCATION_LABELS as LOCATIONS } from "/static/core/api.js";
+import { fmtBytes, fmtNum } from "/static/core/format.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { toast } from "/static/components/toast.js";
+import { CATEGORY_LABELS } from "/static/components/viewer.js";
 
 function row(label, value) {
   return el("tr", {}, el("td", {}, label), el("td", { class: "num" }, typeof value === "number" ? fmtNum(value) : String(value)));
@@ -40,11 +42,11 @@ function showVerify(res) {
         el("ul", {}, items.map((p) => el("li", {}, el("code", {}, p)))),
         total > items.length ? el("p", { class: "muted" }, `Menampilkan ${items.length} pertama dari ${total}.`) : null)
     : null;
-  box.replaceChildren(
+  box.replaceChildren(...[
     el("p", {}, `Tidak cocok: ${fmtNum(res.db_count)} file di DB, ${fmtNum(res.disk_count)} file di disk`),
     list("File hilang", res.missing, res.missing_total),
     list("File tak terduga", res.unexpected, res.unexpected_total),
-  );
+  ].filter(Boolean));
 }
 
 let lastSeen = null;
