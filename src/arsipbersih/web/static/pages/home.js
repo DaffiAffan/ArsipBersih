@@ -39,12 +39,12 @@ function stepList(d) {
   const scanRunning = job.status === "running" && job.kind === "scan";
   const scanLabel = d.scan_incomplete ? "Lanjutkan scan" : (scanned ? "Scan ulang" : "Mulai scan");
   const scanBtn = scanRunning ? scanLive() : el("button", {
-    type: "button", id: "scan-btn", disabled: !d.has_source, class: "btn btn-primary", onclick: startScan,
+    type: "button", id: "scan-btn", disabled: !d.has_source, class: cur === 1 ? "btn btn-primary" : "btn btn-secondary", onclick: startScan,
   }, scanLabel);
   const top = topCats(d)[0];
   const reviewPct = t.review > 0 ? Math.round((t.review_done / t.review) * 100) : 100;
   return [
-    { title: "Scan", state: state(1), action: act(1, scanBtn),
+    { title: "Scan", state: state(1), action: scanBtn,
       text: scanRunning ? "Scan sedang berjalan." : (t.units > 0 ? `${fmtNum(t.units)} item sudah dipindai.` : "Belum ada yang dipindai.") },
     { title: "Cek acara & Rapikan", state: state(2), action: act(2, link("Buka rencana", "/rencana")),
       text: t.source > 0
@@ -54,7 +54,7 @@ function stepList(d) {
       action: act(3, link(top ? `Lanjutkan review: ${top.label}` : "Mulai review", reviewHref(top))),
       text: t.review > 0 ? `${fmtNum(Math.max(t.review - t.review_done, 0))} dari ${fmtNum(t.review)} masih menunggu review.` : "Tidak ada yang perlu di-review." },
     { title: "Kosongkan sampah", state: state(4), action: act(4, link("Buka riwayat", "/riwayat")),
-      text: t.trash_files > 0 ? `${fmtNum(t.trash_files)} file (${fmtBytes(t.trash_bytes)}) menunggu di _sampah/.` : "_sampah/ kosong." },
+      text: t.trash_files > 0 ? `${fmtNum(t.trash_files)} file (${fmtBytes(t.trash_bytes)}) menunggu di Sampah.` : "Sampah kosong." },
   ];
 }
 
@@ -74,7 +74,7 @@ function scanLive() {
     el("p", { id: "scan-stage" }, liveText()),
     el("span", { id: "scan-bar", class: "progress", role: "progressbar", "aria-label": "Progres scan", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": pct ?? undefined },
       el("i", { style: `width:${pct ?? 100}%${pct == null ? ";opacity:.4" : ""}` })),
-    el("button", { id: "pause-btn", type: "button", class: "btn btn-secondary", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"));
+    el("button", { id: "pause-btn", type: "button", class: "btn btn-secondary", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"));
 }
 
 // Patches the running Scan card in place so keyboard focus (Pause) survives every tick.

@@ -219,3 +219,8 @@ def test_home_review_units_counts_photos_not_groups(conn_with):
     conn.execute("insert into decisions(unit_id, decision, applied, decided_at) values(?,?,0,'x')", (ids[4], "keep"))
     conn.commit()
     assert home_steps(conn, scanned=True)["totals"]["review_units"] == 6
+
+
+def test_home_js_keeps_scan_controls_and_no_jargon(web):
+    js = web.get("/static/pages/home.js").text
+    assert "act(1, scanBtn)" not in js and "_sampah/" not in js and '"Pause"' not in js
