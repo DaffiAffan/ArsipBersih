@@ -57,6 +57,12 @@ def test_home_page_has_step_cards(web):
     assert 'id="steps"' in html and 'id="stages"' not in html
 
 
+def test_home_shows_steps_without_metric_tiles(web):
+    html = web.get("/").text
+    assert 'class="steps"' in html and "home-summary" not in html
+    assert "review_units" in web.get("/api/home").json()["steps"]["totals"]
+
+
 def test_root_switch_rejects_bad_paths(web, tmp_path):
     f = tmp_path / "berkas.txt"
     f.write_text("x")

@@ -1,49 +1,60 @@
 import { api, el } from "/static/core/api.js";
 import { stageLabel, watchJob } from "/static/components/jobbar.js";
+import { renderSteps } from "/static/components/steps.js";
 import { fmtBytes, fmtNum, fmtTime } from "/static/core/format.js";
 
 const $ = (id) => document.getElementById(id);
 const TOOL_NAMES = { exiftool: "ExifTool", ffmpeg: "ffmpeg", ffprobe: "ffprobe" };
 let data = null;
+let dateProposals = 0;
 let job = { status: "idle" };
 
-function reviewTarget(d) {
-  const cats = d.categories || [];
-  const open = cats.find((c) => c.count > c.done) || cats[0];
-  return open ? `/review/${encodeURIComponent(open.category)}` : "/review";
+const left = (c) => Math.max(c.count - c.done, 0);
+function topCats(d) {
+  return (d.categories || []).filter((c) => left(c) > 0).sort((a, b) => left(b) - left(a));
+}
+function reviewHref(c) { return c ? `/review/${encodeURIComponent(c.category)}` : "/review"; }
+
+function title(d) {
+  const t = d.steps.totals;
+  switch (d.steps.current) {
+    case 1: return "Mulai dengan scan";
+    case 2: return "Siap merapikan";
+    case 3: return `${fmtNum(t.review_units)} foto & video menunggu review`;
+    case 4: return "Kosongkan sampah bila sudah yakin";
+    default: return "Semua sudah direview";
+  }
 }
 
-function steps(d) {
+function link(label, href) {
+  return el("a", { href, class: "btn btn-primary" }, label);
+}
+
+function stepList(d) {
   const t = d.steps.totals;
+  const cur = d.steps.current;
   const scanned = !!d.last_scan_at || d.scan_incomplete || t.units > 0;
-  const left = Math.max(t.review - t.review_done, 0);
+  const state = (n) => (cur === n ? "current" : (cur === 0 || n < cur ? "done" : "later"));
+  const act = (n, node) => (cur === n ? node : null);
+  const scanRunning = job.status === "running" && job.kind === "scan";
+  const scanLabel = d.scan_incomplete ? "Lanjutkan scan" : (scanned ? "Scan ulang" : "Mulai scan");
+  const scanBtn = scanRunning ? scanLive() : el("button", {
+    type: "button", id: "scan-btn", disabled: !d.has_source, class: "btn btn-primary", onclick: startScan,
+  }, scanLabel);
+  const top = topCats(d)[0];
+  const reviewPct = t.review > 0 ? Math.round((t.review_done / t.review) * 100) : 100;
   return [
-    {
-      title: "Scan",
-      text: t.units > 0 ? `${fmtNum(t.units)} item sudah dipindai.` : "Belum ada yang dipindai.",
-      action: { label: d.scan_incomplete ? "Lanjutkan scan" : (scanned ? "Scan ulang" : "Mulai scan"), scan: true },
-    },
-    {
-      title: "Cek acara & Rapikan",
+    { title: "Scan", state: state(1), action: act(1, scanBtn),
+      text: scanRunning ? "Scan sedang berjalan." : (t.units > 0 ? `${fmtNum(t.units)} item sudah dipindai.` : "Belum ada yang dipindai.") },
+    { title: "Cek acara & Rapikan", state: state(2), action: act(2, link("Buka rencana", "/rencana")),
       text: t.source > 0
         ? `${fmtNum(t.source)} item di Sumber menunggu dirapikan${t.events > 0 ? `, terbagi dalam ${fmtNum(t.events)} acara` : ""}.`
-        : `${fmtNum(t.archive)} item sudah rapi di Arsip.`,
-      action: { label: "Buka rencana", href: "/rencana" },
-    },
-    {
-      title: "Review",
-      text: t.review > 0
-        ? `${fmtNum(left)} dari ${fmtNum(t.review)} masih menunggu review.`
-        : "Tidak ada yang perlu di-review.",
-      action: { label: "Mulai review", href: reviewTarget(d) },
-    },
-    {
-      title: "Kosongkan sampah",
-      text: t.trash_files > 0
-        ? `${fmtNum(t.trash_files)} file (${fmtBytes(t.trash_bytes)}) menunggu di _sampah/.`
-        : "_sampah/ kosong.",
-      action: { label: "Buka riwayat", href: "/riwayat" },
-    },
+        : `${fmtNum(t.archive)} item sudah rapi di Arsip.` },
+    { title: "Review", state: state(3), meter: cur === 3 ? reviewPct : undefined,
+      action: act(3, link(top ? `Lanjutkan review: ${top.label}` : "Mulai review", reviewHref(top))),
+      text: t.review > 0 ? `${fmtNum(Math.max(t.review - t.review_done, 0))} dari ${fmtNum(t.review)} masih menunggu review.` : "Tidak ada yang perlu di-review." },
+    { title: "Kosongkan sampah", state: state(4), action: act(4, link("Buka riwayat", "/riwayat")),
+      text: t.trash_files > 0 ? `${fmtNum(t.trash_files)} file (${fmtBytes(t.trash_bytes)}) menunggu di _sampah/.` : "_sampah/ kosong." },
   ];
 }
 
@@ -83,63 +94,49 @@ function patchLive() {
 let announcedStage = null;
 function announce(text) { $("scan-announce").textContent = text; }
 
-function renderSteps() {
-  const d = data;
-  if (!d) return;
-  const scanRunning = job.status === "running" && job.kind === "scan";
-  $("steps").replaceChildren(...steps(d).map((s, i) => {
-    const n = i + 1;
-    const cur = d.steps.current;
-    const state = cur === n ? "now" : (cur === 0 || n < cur ? "done" : "later");
-    const stateText = { now: "Sekarang", done: "Selesai", later: "Nanti" }[state];
-    const live = n === 1 && scanRunning;
-    let action;
-    if (live) action = scanLive();
-    else if (s.action.scan) {
-      action = el("button", {
-        type: "button", id: "scan-btn", disabled: !d.has_source,
-        class: state === "now" ? "btn btn-primary" : "btn btn-secondary", onclick: startScan,
-      }, s.action.label);
-    } else {
-      action = el("a", { href: s.action.href, class: state === "now" ? "btn btn-primary" : "btn btn-secondary" }, s.action.label);
-    }
-    return el("li", { class: `step step-${state}`, "aria-current": state === "now" ? "step" : undefined },
-      el("div", { class: "step-head" },
-        el("span", { class: "step-num", "aria-hidden": "true" }, state === "done" ? "✓" : String(n)),
-        el("h2", {}, s.title),
-        el("span", { class: state === "now" ? "badge" : "badge badge-muted" }, stateText)),
-      el("p", { class: "step-text" }, live ? "Scan sedang berjalan." : s.text),
-      action);
-  }));
+function renderTimeline() {
+  if (!data) return;
+  renderSteps($("steps"), stepList(data));
+}
+
+function renderSide(d) {
+  const top = topCats(d).slice(0, 5);
+  $("top-cats").replaceChildren(...(top.length
+    ? top.map((c) => el("li", {}, el("a", { href: reviewHref(c) }, c.label), el("span", { class: "list-meta" }, fmtNum(left(c)))))
+    : [el("li", { class: "muted" }, "Tidak ada yang tersisa.")]));
+  $("needs").replaceChildren(...(dateProposals > 0
+    ? [el("li", {}, el("a", { href: "/tanggal" }, "Usulan tanggal acara"), el("span", { class: "list-meta" }, fmtNum(dateProposals)))]
+    : [el("li", { class: "muted" }, "Tidak ada.")]));
 }
 
 function render() {
   const d = data;
-  $("last-scan").textContent = d.last_scan_at ? `Scan terakhir: ${fmtTime(d.last_scan_at)}`
+  $("home-title").textContent = title(d);
+  const t = d.steps.totals;
+  const lastScan = d.last_scan_at ? `Scan terakhir: ${fmtTime(d.last_scan_at)}`
     : (d.scan_incomplete ? "Scan terakhir belum selesai" : "Belum pernah di-scan");
+  const missing = Object.keys(d.tools).filter((k) => !d.tools[k]);
+  const toolText = missing.length ? `Alat belum terpasang: ${missing.map((k) => TOOL_NAMES[k] || k).join(", ")}` : "Alat siap";
+  $("home-line").textContent = `${lastScan} · ${fmtNum(t.units)} file · ${toolText}`;
   const w = $("source-warning");
   w.hidden = d.has_source;
   w.textContent = d.has_source ? "" : d.source_missing_text;
   $("warnings").replaceChildren(...[...d.warnings, ...(d.clock_warnings || [])].map((x) => el("li", {}, x)));
-  const t = d.steps.totals;
-  $("summary").replaceChildren(...[
-    ["Sumber", t.source], ["Arsip", t.archive], ["Menunggu review", Math.max(t.review - t.review_done, 0)], ["Sampah", t.trash_files],
-  ].map(([k, v]) => el("div", { class: "stat" }, el("dd", {}, fmtNum(v)), el("dt", {}, k))));
-  const missing = Object.keys(d.tools).filter((k) => !d.tools[k]);
   $("tools-line").replaceChildren(...(missing.length
-    ? [el("span", { class: "tools-bad" }, `Alat belum terpasang: ${missing.map((k) => TOOL_NAMES[k] || k).join(", ")}. `),
-       ...missing.map((k) => el("code", { class: "hint" }, d.hints[k] || ""))]
-    : ["Alat: ExifTool, ffmpeg, ffprobe siap"]),
+    ? missing.map((k) => el("code", { class: "hint" }, d.hints[k] || ""))
+    : []),
     ...(d.ai_model.ready
-      ? [" · Model AI: siap"]
-      : [el("span", { class: "tools-bad" }, " · Model AI: belum disiapkan — jalankan "), el("code", { class: "hint" }, "arsipbersih setup-models")]));
+      ? ["Model AI: siap"]
+      : [el("span", { class: "tools-bad" }, "Model AI: belum disiapkan. Jalankan "), el("code", { class: "hint" }, "arsipbersih setup-models")]));
   $("tools").replaceChildren(...Object.entries(d.tools).map(([k, v]) =>
     el("li", {}, `${TOOL_NAMES[k] || k}: ${v || "belum terpasang"}`)));
-  renderSteps();
+  renderSide(d);
+  renderTimeline();
 }
 
 async function load() {
   data = await api("GET", "/api/home");
+  try { dateProposals = (await api("GET", "/api/dates/counts")).proposals || 0; } catch { dateProposals = 0; }
   render();
 }
 
@@ -148,7 +145,7 @@ async function startScan() {
     await api("POST", "/api/scan");
     job = { status: "running", kind: "scan" };
     last = "running";
-    renderSteps();
+    renderTimeline();
   } catch (e) {
     const w = $("source-warning");
     w.hidden = false;
@@ -173,7 +170,7 @@ watchJob((st) => {
     }
     load();
   } else if (data && is && was && patchLive()) { /* in-place update */ }
-  else if (data && (was || is)) renderSteps();
+  else if (data && (was || is)) renderTimeline();
   last = st.status;
 });
 
