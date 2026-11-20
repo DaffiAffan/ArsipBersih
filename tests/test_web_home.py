@@ -219,6 +219,10 @@ def test_home_review_units_counts_photos_not_groups(conn_with):
     conn.execute("insert into decisions(unit_id, decision, applied, decided_at) values(?,?,0,'x')", (ids[4], "keep"))
     conn.commit()
     assert home_steps(conn, scanned=True)["totals"]["review_units"] == 6
+    # A review unit without a category is not in the sidebar, so it is not counted either.
+    conn.execute("update units set primary_category = null where id = ?", (ids[6],))
+    conn.commit()
+    assert home_steps(conn, scanned=True)["totals"]["review_units"] == 5
 
 
 def test_home_js_keeps_scan_controls_and_no_jargon(web):

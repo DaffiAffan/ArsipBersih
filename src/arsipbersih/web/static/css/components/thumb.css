@@ -34,16 +34,3 @@
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 .photo-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photo-cell.is-keep { border-color: var(--color-keep); }
-.photo-cell.is-focused { border-color: var(--color-accent); }
-.photo-cell.is-keep.is-focused { border-color: var(--color-keep); box-shadow: 0 0 0 2px var(--color-accent); }
-.photo-cell .seen-dot { position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 0 2px var(--color-bg); }
-.photo-cell .cell-mark { position: absolute; left: 4px; top: 4px; background: var(--scrim-photo); color: var(--color-text); }
-.photo-cell .cell-mark.badge-keep { background: var(--color-keep); color: var(--color-on-keep); }
-.photo-cell .cell-mark.badge-danger { background: var(--color-danger); color: var(--color-on-danger); }
-.photo-cell .cell-caption {
-  position: absolute; left: 0; right: 0; bottom: 0; display: block;
-  padding: 2px 6px; font-size: var(--text-xs); background: var(--scrim-photo); color: var(--color-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.photo-cell .cell-noprev { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; font-size: var(--text-xs); color: var(--color-text-muted); }

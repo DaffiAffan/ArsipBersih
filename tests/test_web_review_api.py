@@ -156,7 +156,7 @@ def test_apply_validation(web, review_units):
     assert web.get("/api/review/apply/nope").status_code == 400
     r = web.post("/api/review/apply/burem", json=body)
     assert r.status_code == 400
-    assert r.json()["detail"] == "Belum ada keputusan untuk di-apply"
+    assert r.json()["detail"] == "Belum ada keputusan untuk diterapkan"
 
 
 def test_apply_refuses_changed_counts(web, root, review_units):

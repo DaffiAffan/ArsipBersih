@@ -68,10 +68,6 @@ small { font-size: var(--text-xs); }
 .progress { display: block; height: 4px; border-radius: var(--radius-pill); background: var(--color-surface-2); overflow: hidden; }
 .progress > i { display: block; height: 100%; background: var(--color-accent); } /* no width transition: layout properties are not animated */
 
-/* Permukaan lama untuk halaman yang belum dipindah ke v2 (dirapikan per halaman di Fase 1.2). */
-.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
-.card h2 { margin: 0 0 var(--space-2); font-size: var(--text-md); }
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

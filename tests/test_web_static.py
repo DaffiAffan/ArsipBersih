@@ -97,6 +97,16 @@ def test_viewer_and_inspector_use_new_terms():
 
 WEB = Path("src/arsipbersih/web")
 OLD_TERMS = re.compile(r"\b(Keep|Delete|Apply|Undo)\b")
+# Lowercase "apply"/"di-apply" in prose; identifiers, URLs and kinds like "apply" or /api/review/apply
+# are not prose (no space, or a slash), so only strings with a space and no slash count.
+LOWER_APPLY = re.compile(r"(?:di-)?apply", re.I)
+
+
+def _old_term(s: str) -> bool:
+    prose = " " in s and "/" not in s
+    return bool(OLD_TERMS.search(s) or (prose and LOWER_APPLY.search(s)))
+
+
 JS_STRING = re.compile(r"""("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)""")
 PY_STRING = re.compile(r"""("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')""")
 
@@ -110,16 +120,16 @@ def test_ui_text_has_no_old_terms_or_em_dash():
     found = []
     for tpl in (WEB / "templates").rglob("*.html"):
         text = _strip_comments(tpl.read_text(encoding="utf-8"))
-        found += [(tpl.name, m) for m in OLD_TERMS.findall(text)] + [(tpl.name, "—")] * text.count("—")
+        found += [(tpl.name, m) for m in OLD_TERMS.findall(text)] + [(tpl.name, m) for m in re.findall(r">([^<>{}]*(?:di-)?apply[^<>{}]*)<", text, flags=re.I)] + [(tpl.name, "—")] * text.count("—")
     for js in STATIC.rglob("*.js"):
         for s in JS_STRING.findall(_strip_comments(js.read_text(encoding="utf-8"))):
-            if "—" in s or OLD_TERMS.search(s):
+            if "—" in s or _old_term(s):
                 found.append((js.name, s))
     py_files = [WEB / n for n in ("labels.py", "messages.py", "reasons.py", "home_state.py")]
     for py in py_files + sorted((WEB / "routes").glob("*.py")):
         text = re.sub(r"(?m)#.*$", "", py.read_text(encoding="utf-8"))
         text = re.sub(r'""".*?"""', "", text, flags=re.S)
         for s in PY_STRING.findall(text):
-            if "—" in s or OLD_TERMS.search(s) or "Trash" in s:
+            if "—" in s or _old_term(s) or "Trash" in s:
                 found.append((py.name, s))
     assert not found, found

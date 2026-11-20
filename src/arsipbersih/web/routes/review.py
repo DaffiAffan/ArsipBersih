@@ -278,7 +278,7 @@ def apply(
     if body.fingerprint is not None and p.fingerprint != body.fingerprint:
         raise UserError(APPLY_CONTENT_CHANGED_TEXT, 409)
     if p.keep + p.discard == 0:
-        raise UserError("Belum ada keputusan untuk di-apply", 400)
+        raise UserError("Belum ada keputusan untuk diterapkan", 400)
     job = _apply_job(root, category, body.keep, body.discard, body.fingerprint)
     return start_job(request, "apply", f"Terapkan {CATEGORY_LABELS.get(category, category)}", job)
 
