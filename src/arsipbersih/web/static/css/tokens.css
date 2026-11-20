@@ -84,6 +84,7 @@
   --shadow-float: 0 8px 24px oklch(0% 0 0 / .45), 0 0 0 1px var(--color-border);
   --shadow-overlay: 0 0 32px oklch(0% 0 0 / .5);
   --scrim: oklch(0% 0 0 / .6);
+  --color-photo-bg: oklch(12% 0.004 268); /* panggung foto pembanding, hampir hitam */
   --scrim-photo: oklch(0% 0 0 / .78); /* teks di atas foto: >= 7:1 walau fotonya putih */
   --scrim-kbd: oklch(0% 0 0 / .2);
   --scrim-kbd-border: oklch(0% 0 0 / .25);

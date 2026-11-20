@@ -77,10 +77,10 @@ def test_grid_page_loads_new_modules(web):
     js = web.get("/static/pages/review-grid.js").text
     for mod in ("seen-dwell.js", "statusbar.js", "inspector.js"):
         assert mod in js
-    # D-038: only a discarded grid thumbnail is dimmed (Task 6 adds the group-comparison rule).
+    # D-038: only a discarded grid thumbnail or comparison photo is dimmed.
     css_dir = Path(__file__).parents[1] / "src" / "arsipbersih" / "web" / "static" / "css"
     rule = re.compile(r"([^{}]+)\{([^}]*)\}")
-    allowed = {".thumb.is-discard > img"}
+    allowed = {".thumb.is-discard > img", ".cmp-photo.is-discard .cmp-pane img"}
     for css in css_dir.rglob("*.css"):
         for sel, body in rule.findall(css.read_text(encoding="utf-8")):
             sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
@@ -102,8 +102,9 @@ def test_grid_page_uses_v2_components(web):
     for seg in ("Semua", "Belum dilihat", "Sudah dilihat", "Disimpan", "Dibuang"):
         assert f'"{seg}"' in js
     assert "ab.help." in js
-    assert "/api/review/decisions/clear" in js
-    assert "Batalkan" in js
+    assert "components/undo.js" in js and "offerUndo" in js
+    undo = web.get("/static/components/undo.js").text
+    assert "/api/review/decisions/clear" in undo and "Batalkan" in undo
     assert "action" in web.get("/static/components/toast.js").text
     toolbar = web.get("/static/components/toolbar.js").text
     assert "Nama file" in toolbar and "aria-pressed" in toolbar
@@ -154,8 +155,40 @@ def test_group_page_loads_new_modules(web, root):
     assert r.status_code == 200
     assert "/static/pages/review-groups.js" in r.text
     js = web.get("/static/pages/review-groups.js").text
-    assert "floatbar.js" in js
+    assert "floatbar.js" not in js
     assert "ArrowUp" in js
+
+
+def test_group_page_uses_compare_components(web, root):
+    import re
+    from pathlib import Path
+
+    _make_group(root, "duplikat-versi")
+    r = web.get("/review/duplikat-versi")
+    assert r.status_code == 200
+    assert "/static/pages/review-groups.js" in r.text
+    js = web.get("/static/pages/review-groups.js").text
+    for mod in ("components/compare.js", "components/group-list.js", "components/statusbar.js",
+                "components/toolbar.js"):
+        assert mod in js
+    assert "components/undo.js" in js and "offerUndo" in js
+    assert "mengikuti saran" in js
+    cmp = web.get("/static/components/compare.js").text
+    for s in ("Saran: simpan", "Saran: buang", "Disimpan", "Dibuang", "Batalkan keputusan", "is-better"):
+        assert s in cmp
+    assert "Muat 20 grup berikutnya" in web.get("/static/components/group-list.js").text
+    # D-038: before a decision nothing is dimmed; only .is-discard dims a photo, never a suggestion.
+    comp = Path(__file__).parents[1] / "src" / "arsipbersih" / "web" / "static" / "css" / "components"
+    dimming = []
+    for css in comp.glob("*.css"):
+        for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css.read_text(encoding="utf-8")):
+            sel = re.sub(r"/\*.*?\*/", "", sel, flags=re.S).strip()
+            values = dict(re.findall(r"(opacity|filter)\s*:\s*([^;]+)", body))
+            if "img" in sel and (values.get("opacity", "1").strip() != "1" or values.get("filter", "none").strip() != "none"):
+                dimming.append(sel)
+    assert any(".cmp-photo" in s for s in dimming), dimming
+    for sel in dimming:
+        assert ".is-discard" in sel and "suggest" not in sel and "keeper" not in sel, sel
 
 
 def test_grid_js_has_change_group_and_doubt_sort(web):

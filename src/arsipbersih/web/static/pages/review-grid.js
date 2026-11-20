@@ -9,6 +9,7 @@ import { reviewNav } from "/static/components/sidebar.js";
 import { confirmDialog } from "/static/components/dialog.js";
 import { registerHelp } from "/static/components/help.js";
 import { toast } from "/static/components/toast.js";
+import { offerUndo, clearDecisions } from "/static/components/undo.js";
 import { createSeenQueue } from "/static/components/seen-dwell.js";
 import { createInspectorLoader } from "/static/components/inspector.js";
 import { mountToolbar } from "/static/components/toolbar.js";
@@ -232,15 +233,19 @@ function markAll(ids, decision) {
   showInspector();
 }
 
-async function undoBulk(ids) {
-  if (blocked()) return;
-  busy = true;
-  try {
-    const res = await api("POST", "/api/review/decisions/clear", { unit_ids: ids });
-    markAll(ids, null);
-    toast(`${fmtNum(res.cleared)} keputusan dibatalkan`);
-  } catch (e) { fail(e); } finally { busy = false; changed(); }
-}
+// Batalkan after Shift+D: only ids still discarded by it; while busy the toast comes back.
+const UNDO = {
+  busyText: () => (bar.applying ? BUSY_APPLY : busy ? BUSY_SAVE : null),
+  stillIds: (ids) => ids.filter((id) => grid.byId(id)?.decision === "discard"),
+  run: async (ids) => {
+    busy = true;
+    try {
+      const cleared = await clearDecisions(ids);
+      markAll(ids, null);
+      toast(`${fmtNum(cleared)} keputusan dibatalkan`);
+    } catch (e) { fail(e); } finally { busy = false; changed(); }
+  },
+};
 
 async function bulkDiscardOnScreen() {
   if (viewer.isOpen || document.querySelector("dialog[open]")) return;
@@ -261,8 +266,7 @@ async function bulkDiscardOnScreen() {
     // The server skips units decided elsewhere meanwhile and returns the ids it really stored.
     const res = await api("POST", "/api/review/decisions", { unit_ids: targets.map((it) => it.unit_id), decision: "discard" });
     markAll(res.unit_ids, "discard");
-    toast(`${fmtNum(res.recorded)} foto dibuang`, res.unit_ids.length
-      ? { action: { label: "Batalkan", onClick: () => { undoBulk(res.unit_ids); } } } : {});
+    offerUndo(`${fmtNum(res.recorded)} foto dibuang`, res.unit_ids, UNDO);
   } finally { busy = false; changed(); }
 }
 

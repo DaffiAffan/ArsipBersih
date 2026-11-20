@@ -7,9 +7,10 @@ import { attachMenu } from "/static/components/menu.js";
 function pressed(btn, on) { btn.setAttribute("aria-pressed", String(Boolean(on))); }
 
 // sort: {options: Array<{value, label}>, value}; size: {value, max}; help: {content, storageKey}
-// (ⓘ popover, opened once per storageKey); menuItems: see attachMenu.
+// (ⓘ popover, opened once per storageKey); menuItems: see attachMenu; actions: extra buttons placed
+// right after the spacer (e.g. "Ikuti saran" on the group page).
 export function mountToolbar(container, { title, countText = "", segments = [], active, onSegment,
-  sort = null, onSort, size = null, onSize, captions = false, onCaptions, onInfo, help = null, menuItems = [] }) {
+  sort = null, onSort, size = null, onSize, captions = false, onCaptions, onInfo, help = null, menuItems = [], actions = [] }) {
   const count = el("span", { class: "toolbar-meta" }, countText);
   const segBtns = segments.map((s) => el("button", {
     type: "button", "data-value": s.value, onclick: () => { if (s.value !== current) { setActive(s.value); onSegment(s.value); } },
@@ -18,7 +19,7 @@ export function mountToolbar(container, { title, countText = "", segments = [], 
 
   const parts = [el("h1", { class: "toolbar-title" }, title), count];
   if (segBtns.length) parts.push(el("div", { class: "segment", role: "group", "aria-label": "Tampilkan" }, ...segBtns));
-  parts.push(el("span", { class: "toolbar-spacer" }));
+  parts.push(el("span", { class: "toolbar-spacer" }), ...actions);
 
   let sortSel = null;
   if (sort) {

@@ -3,59 +3,17 @@
 .rv-layout { display: flex; gap: var(--space-5); align-items: flex-start; }
 .rv-main { flex: 1; min-width: 0; }
 
-/* Daftar grup + perbandingan besar (review-groups.js): foto tidak pernah diredupkan */
-.grp-root { padding-bottom: 96px; }
-.grp-layout { display: flex; gap: var(--space-4); align-items: flex-start; }
-.grp-side { width: 240px; flex: none; position: sticky; top: 56px; display: flex; flex-direction: column; gap: var(--space-2); max-height: calc(100vh - 190px); }
-.grp-list { display: flex; flex-direction: column; gap: var(--space-2); overflow: auto; min-height: 0; padding: 2px; }
-.grp-row { display: flex; flex-direction: column; gap: var(--space-2); text-align: left; width: 100%; padding: var(--space-2); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); color: var(--color-text); cursor: pointer; font: inherit; }
-.grp-row:hover { background: var(--color-surface-2); }
-.grp-row.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); background: var(--color-surface-2); }
-.grp-thumbs { display: flex; gap: 4px; align-items: center; }
-.grp-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: var(--radius-sm); background: var(--color-bg); border: 2px solid transparent; flex: none; }
-.grp-thumb.is-keeper { border-color: var(--color-keep); }
-.grp-more { font-size: var(--text-xs); }
-.grp-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
-.grp-sub { font-size: var(--text-xs); }
-.grp-status { font-size: var(--text-xs); padding: 0 6px; flex: none; }
-.grp-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
-.grp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.grp-meta { font-size: var(--text-sm); overflow-wrap: anywhere; }
-.grp-reason { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); font-size: var(--text-sm); }
-.grp-reason[hidden] { display: none; }
-.grp-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.grp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
-.cmp-cards { display: flex; gap: var(--space-3); overflow-x: auto; align-items: flex-start; padding: 2px 2px var(--space-2); }
-.cmp-card { flex: 1 0 300px; max-width: 560px; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-card); overflow: hidden; }
-.cmp-card.is-focused { border-color: var(--color-accent); }
-.cmp-card.is-keep { border-color: var(--color-keep); }
-.cmp-card.is-discard { border-color: var(--color-danger); }
-.cmp-card.is-focused.is-keep, .cmp-card.is-focused.is-discard { box-shadow: 0 0 0 2px var(--color-accent); }
-.cmp-img { height: min(40vh, 380px); overflow: hidden; background: var(--color-bg); display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
-.cmp-img img { width: 100%; height: 100%; object-fit: contain; display: block; will-change: transform; }
-.cmp-img.zoomed { cursor: grab; }
-.cmp-img.dragging { cursor: grabbing; }
-.cmp-body { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
-.cmp-state { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.cmp-name { font-weight: 600; overflow-wrap: anywhere; margin-top: var(--space-1); }
-.cmp-facts { font-size: var(--text-xs); overflow-wrap: anywhere; }
-.cmp-origin { font-size: var(--text-xs); color: var(--color-accent); }
-.cmp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
-.cmp-actions[hidden] { display: none; }
-.cmp-actions .btn { flex: 1; }
-.cmp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
-.cmp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
-
-/* Bilah alat + petunjuk lama review-groups.js (sampai Task 6 memakai toolbar/statusbar) */
-.grid-toolbar {
-  position: sticky; top: calc(var(--space-6) * -1); z-index: 20; /* sticky ignores .content padding */
-  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-  padding: var(--space-2) 0; background: var(--color-bg);
-}
-.grid-count { font-size: var(--text-sm); }
-.grid-spacer { flex: 1; }
-.grid-hint { font-size: var(--text-xs); margin: 0 0 var(--space-3); }
-.grid-hint .kbd { font-size: var(--text-xs); }
+/* Review grup (review-groups.js): bilah alat, daftar grup kiri + perbandingan kanan, bilah status.
+   Halaman memenuhi area konten tanpa padding; komponen ada di components/compare.css dan group-list.css. */
+.content:has(> .rv-layout .grp-root) { padding: 0; }
+.rv-layout:has(.grp-root) { height: 100%; align-items: stretch; gap: 0; }
+.rv-layout:has(.grp-root) > .rv-main { height: 100%; }
+.grp-root { display: flex; flex-direction: column; height: 100%; min-height: 480px; }
+.grp-layout { flex: 1; min-height: 0; display: flex; }
+.grp-compare { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.grp-compare > .empty { margin: auto; }
+.grp-inspector { min-height: 0; }
+.grid-spacer { flex: 1; } /* dates.html */
 
 /* Review grid (review-grid.js), gaya ruang gelap: bilah alat di atas, grid rapat, bilah status
    di bawah, panel info di kanan. Halaman memenuhi area konten tanpa padding. */
@@ -105,5 +63,3 @@
 
 /* Panel info (inspector.js), dipakai grid dan layar penuh */
 .inspector { width: 300px; flex: none; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-left: 1px solid var(--color-border); font-size: var(--text-sm); }
-.rv-page-head h1 { margin: 0 0 var(--space-1); }
-.rv-page-head p { margin: 0 0 var(--space-4); }

@@ -52,17 +52,9 @@ def test_no_side_stripe_markers():
 
 
 STATIC = Path("src/arsipbersih/web/static")
-# review-groups.js is split in Task 6; drop the xfail there.
-_SPLIT_LATER = {"review-groups.js"}
-
-
 @pytest.mark.parametrize(
     "js",
-    [
-        pytest.param(p, marks=pytest.mark.xfail(reason="split in Task 6", strict=True)) if p.name in _SPLIT_LATER else p
-        for d in ("pages", "components")
-        for p in sorted((STATIC / d).glob("*.js"))
-    ],
+    [p for d in ("pages", "components") for p in sorted((STATIC / d).glob("*.js"))],
     ids=lambda p: p.name,
 )
 def test_page_scripts_stay_small(js):
