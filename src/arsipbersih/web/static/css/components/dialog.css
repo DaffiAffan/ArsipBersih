@@ -1,0 +1,18 @@
+/* Dialog konfirmasi (dialog.js) dan daftar pintasan (help.js). */
+.dialog, dialog {
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  padding: var(--space-5); max-width: min(480px, calc(100vw - var(--space-6))); box-shadow: var(--shadow-float);
+}
+.dialog::backdrop, dialog::backdrop { background: var(--scrim); }
+dialog h3 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
+dialog .input {
+  width: 100%; margin-top: var(--space-3); padding: var(--space-2);
+  background: var(--color-bg); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-control); font: inherit;
+}
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); }
+.help-dialog { min-width: min(320px, calc(100vw - var(--space-6))); }
+.help-section h4 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.help-list { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0; align-items: center; }
+.help-list dd { margin: 0; }

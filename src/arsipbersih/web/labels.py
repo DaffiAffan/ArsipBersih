@@ -14,7 +14,7 @@ CATEGORY_LABELS = {
     "kiriman-chat": "Chat (WA/Telegram)",
     "download-meme": "Download / meme / grafis",
     "pendamping-gopro": "File GoPro (LRV/THM)",
-    "sampah-hp": "Trash HP",
+    "sampah-hp": "Sampah HP",
     "rekaman-tidak-sengaja": "Rekaman tidak sengaja",
     "video-pendek-gelap": "Video pendek / gelap",
     "kepencet": "Kepencet (tidak sengaja)",
@@ -22,11 +22,34 @@ CATEGORY_LABELS = {
     "gelap-terang": "Terlalu gelap / terang",
 }
 
-_GRID_TAIL = (
-    "Saat Apply, yang pindah ke _sampah hanya yang di-Delete atau sudah dibuka di detail"
-    " dan tidak di-Keep; sisanya tetap di review."
+CATEGORY_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("duplikat", "Duplikat", ("duplikat-persis", "duplikat-versi", "mirip-beruntun")),
+    ("dokumen", "Dokumen", ("dokumen-identitas", "dokumen-keuangan", "dokumen-kertas")),
+    ("kiriman", "Kiriman & layar", ("kiriman-chat", "screenshot", "download-meme")),
+    (
+        "kualitas",
+        "Kualitas",
+        ("burem", "gelap-terang", "kepencet", "video-pendek-gelap", "rekaman-tidak-sengaja"),
+    ),
+    ("sistem", "File sistem", ("rusak", "pendamping-gopro", "sampah-hp")),
 )
-_GROUP_TAIL = "Saran kami: Keep satu, sisanya pindah ke _sampah saat Apply."
+
+CATEGORY_SHORT_LABELS = {
+    **CATEGORY_LABELS,
+    "duplikat-persis": "Identik",
+    "duplikat-versi": "Beda versi",
+    "dokumen-identitas": "Identitas",
+    "dokumen-keuangan": "Keuangan",
+    "dokumen-kertas": "Kertas & catatan",
+    "kiriman-chat": "Chat WA/Telegram",
+    "download-meme": "Download / meme",
+}
+
+_GRID_TAIL = (
+    "Saat Terapkan, yang kamu Simpan masuk Arsip dan yang kamu Buang masuk Sampah;"
+    " sisanya tetap di sini."
+)
+_GROUP_TAIL = "Saran kami: simpan satu, buang sisanya."
 
 CATEGORY_HELP = {
     "rusak": f"File yang tidak bisa dibuka atau rusak. {_GRID_TAIL}",
@@ -35,16 +58,16 @@ CATEGORY_HELP = {
     "mirip-beruntun": f"Jepretan beruntun yang hampir sama (burst). {_GROUP_TAIL}",
     "dokumen-identitas": (
         "Foto yang ditebak sebagai KTP, SIM, paspor, atau kartu identitas lain. Tebakan ini harus"
-        " dicek satu per satu. Yang di-Keep disimpan terpisah di Arsip/_Dokumen/Identitas, tidak"
+        " dicek satu per satu. Yang kamu Simpan masuk terpisah ke Arsip/_Dokumen/Identitas, tidak"
         f" bercampur dengan foto kenangan. {_GRID_TAIL}"
     ),
     "dokumen-keuangan": (
-        "Foto yang ditebak sebagai struk, nota, tagihan, atau bukti transfer. Yang di-Keep disimpan"
+        "Foto yang ditebak sebagai struk, nota, tagihan, atau bukti transfer. Yang kamu Simpan masuk"
         f" terpisah di Arsip/_Dokumen/Keuangan. {_GRID_TAIL}"
     ),
     "dokumen-kertas": (
         "Foto yang ditebak sebagai kertas atau catatan: dokumen, papan tulis, buku, atau tulisan"
-        f" tangan. Yang di-Keep disimpan terpisah di Arsip/_Dokumen/Kertas. {_GRID_TAIL}"
+        f" tangan. Yang kamu Simpan masuk terpisah di Arsip/_Dokumen/Kertas. {_GRID_TAIL}"
     ),
     "screenshot": f"Tangkapan layar HP. {_GRID_TAIL}",
     "kiriman-chat": f"Foto dan video kiriman WhatsApp/Telegram. {_GRID_TAIL}",
@@ -57,6 +80,6 @@ CATEGORY_HELP = {
     ),
     "video-pendek-gelap": f"Video yang sangat pendek atau gelap, biasanya tidak sengaja terekam. {_GRID_TAIL}",
     "kepencet": f"Foto yang kemungkinan terjepret tidak sengaja. {_GRID_TAIL}",
-    "burem": f"Foto yang Blur atau tidak fokus. {_GRID_TAIL}",
+    "burem": f"Foto yang buram atau tidak fokus. {_GRID_TAIL}",
     "gelap-terang": f"Foto yang terlalu gelap atau terlalu terang. {_GRID_TAIL}",
 }

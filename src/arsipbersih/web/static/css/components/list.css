@@ -1,0 +1,12 @@
+/* Daftar: baris dipisah garis tipis, tanpa kartu. */
+.list { list-style: none; margin: 0; padding: 0; }
+.list > li, .list-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);
+}
+.list-title { margin: 0 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.list-meta { margin-left: auto; color: var(--color-text-muted); }
+
+/* Keadaan kosong: satu kalimat + satu aksi, tanpa kotak. */
+.empty { color: var(--color-text-muted); text-align: center; padding: var(--space-8) var(--space-5); }
+.empty p { margin: 0 0 var(--space-3); }

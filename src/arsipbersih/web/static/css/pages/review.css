@@ -1,0 +1,70 @@
+/* Review (layout halaman; komponen ada di components/).
+   Kerangka dan mode grup (review-groups.js) */
+.rv-layout { display: flex; gap: var(--space-5); align-items: flex-start; }
+.rv-main { flex: 1; min-width: 0; }
+
+/* Review grup (review-groups.js): bilah alat, daftar grup kiri + perbandingan kanan, bilah status.
+   Halaman memenuhi area konten tanpa padding; komponen ada di components/compare.css dan group-list.css. */
+.content:has(> .rv-layout .grp-root) { padding: 0; }
+.rv-layout:has(.grp-root) { height: 100%; align-items: stretch; gap: 0; }
+.rv-layout:has(.grp-root) > .rv-main { height: 100%; }
+.grp-root { display: flex; flex-direction: column; height: 100%; min-height: 480px; }
+.grp-layout { flex: 1; min-height: 0; display: flex; }
+.grp-compare { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.grp-compare > .empty { margin: auto; }
+.grp-inspector { min-height: 0; }
+.grid-spacer { flex: 1; } /* dates.html */
+
+/* Review grid (review-grid.js), gaya ruang gelap: bilah alat di atas, grid rapat, bilah status
+   di bawah, panel info di kanan. Halaman memenuhi area konten tanpa padding. */
+.content:has(> .rv-layout .grid-root) { padding: 0; }
+.rv-layout:has(.grid-root) { min-height: 100%; align-items: stretch; gap: 0; }
+.grid-root { display: flex; flex-direction: column; min-height: 100%; }
+.grid-root > .toolbar { position: sticky; top: 0; z-index: 20; }
+.grid-root > .statusbar { position: sticky; bottom: 0; z-index: 20; }
+.grid-layout { flex: 1; display: flex; align-items: flex-start; }
+.grid-col { flex: 1; min-width: 0; padding: var(--grid-gap); }
+.photo-grid { --cell-min: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr)); gap: var(--grid-gap); }
+.grid-more { text-align: center; padding: var(--space-4) 0; color: var(--color-text-muted); }
+.grid-more .empty { margin: var(--space-section) auto; }
+
+/* Panel info (inspector.js) */
+/* --toolbar-h, --statusbar-h and --content-h come from core/size-var.js, so the panel follows a toolbar
+   that wraps to two rows at narrow widths. */
+.grid-inspector {
+  position: sticky; top: var(--toolbar-h, 48px); align-self: flex-start;
+  max-height: calc(var(--content-h, 100vh) - var(--toolbar-h, 48px) - var(--statusbar-h, 40px));
+}
+.grid-inspector[hidden] { display: none; }
+.insp-preview { width: 100%; height: min(200px, 26vh); object-fit: contain; display: block; background: var(--color-bg); border-radius: var(--radius-control); }
+.insp-noprev { display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); }
+.insp-name { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); }
+.insp-name strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.insp-path { font-size: var(--text-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.insp-fullpath { margin-top: var(--space-1); }
+.insp-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: var(--space-3) 0; }
+.insp-facts dt { color: var(--color-text-muted); }
+.insp-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.insp-why { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-3); }
+.insp-why h4 { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.insp-why ul { margin: 0; padding-left: var(--space-4); }
+.insp-effect { margin: var(--space-2) 0 0; color: var(--color-text-muted); }
+.insp-ai { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.insp-ai-guess { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.insp-ai-ctl { position: relative; }
+.insp-ai-btn { border-color: var(--color-border); }
+.insp-ai-menu { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 5; min-width: 180px; display: flex; flex-direction: column; padding: var(--space-1); background: var(--color-surface); border-radius: var(--radius-control); box-shadow: var(--shadow-float); }
+.insp-ai-menu[hidden] { display: none; }
+.insp-ai-item { text-align: left; padding: var(--space-2) var(--space-3); background: transparent; border: 0; border-radius: var(--radius-control); color: var(--color-text); font: inherit; cursor: pointer; }
+.insp-ai-item:hover, .insp-ai-item:focus-visible { background: var(--color-surface-2); }
+.insp-ai-item[aria-checked="true"] { color: var(--color-accent); font-weight: 600; }
+.insp-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.insp-actions .btn { flex: 1; }
+.insp-actions .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text); }
+.insp-actions .kbd { background: var(--scrim-kbd); color: inherit; border-color: var(--scrim-kbd-border); }
+
+.insp-clips p, .insp-clips ul { margin: 0 0 var(--space-2); }
+.insp-clip-link { padding: 0; text-align: left; overflow-wrap: anywhere; }
+
+/* Panel info (inspector.js), dipakai grid dan layar penuh */
+.inspector { width: 300px; flex: none; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-left: 1px solid var(--color-border); font-size: var(--text-sm); }

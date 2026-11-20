@@ -57,6 +57,12 @@ def test_home_page_has_step_cards(web):
     assert 'id="steps"' in html and 'id="stages"' not in html
 
 
+def test_home_shows_steps_without_metric_tiles(web):
+    html = web.get("/").text
+    assert 'class="steps"' in html and "home-summary" not in html
+    assert "review_units" in web.get("/api/home").json()["steps"]["totals"]
+
+
 def test_root_switch_rejects_bad_paths(web, tmp_path):
     f = tmp_path / "berkas.txt"
     f.write_text("x")
@@ -194,3 +200,31 @@ def test_home_reports_ai_model_status(web):
 
 def test_home_api_has_clock_warnings(web):
     assert web.get("/api/home").json()["clock_warnings"] == []
+
+
+def test_home_review_units_counts_photos_not_groups(conn_with):
+    from arsipbersih.db import new_id
+    from arsipbersih.web.home_state import home_steps
+
+    rows = [{"name": f"g{i}.jpg", "loc": "review", "path": "duplikat-persis", "category": "duplikat-persis"} for i in range(4)]
+    rows += [{"name": f"s{i}.jpg", "loc": "review", "path": "screenshot", "category": "screenshot"} for i in range(3)]
+    conn = conn_with(rows)
+    ids = [r[0] for r in conn.execute("select id from units order by rowid")]
+    for gi in range(2):
+        gid = new_id()
+        conn.execute("insert into groups(id, kind, suggested_keep_unit_id) values(?,?,?)",
+                     (gid, "duplikat-persis", ids[gi * 2]))
+        conn.executemany("insert into group_members(group_id, unit_id) values(?,?)",
+                         [(gid, ids[gi * 2]), (gid, ids[gi * 2 + 1])])
+    conn.execute("insert into decisions(unit_id, decision, applied, decided_at) values(?,?,0,'x')", (ids[4], "keep"))
+    conn.commit()
+    assert home_steps(conn, scanned=True)["totals"]["review_units"] == 6
+    # A review unit without a category is not in the sidebar, so it is not counted either.
+    conn.execute("update units set primary_category = null where id = ?", (ids[6],))
+    conn.commit()
+    assert home_steps(conn, scanned=True)["totals"]["review_units"] == 5
+
+
+def test_home_js_keeps_scan_controls_and_no_jargon(web):
+    js = web.get("/static/pages/home.js").text
+    assert "act(1, scanBtn)" not in js and "_sampah/" not in js and '"Pause"' not in js

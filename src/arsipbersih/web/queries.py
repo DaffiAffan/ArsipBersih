@@ -13,7 +13,12 @@ from arsipbersih.config import load_settings
 from arsipbersih.decisions import preview_apply
 from arsipbersih.grouping import load_unit_views
 from arsipbersih.pathrules import is_chat, segments_of
-from arsipbersih.web.labels import CATEGORY_HELP, CATEGORY_LABELS
+from arsipbersih.web.labels import (
+    CATEGORY_GROUPS,
+    CATEGORY_HELP,
+    CATEGORY_LABELS,
+    CATEGORY_SHORT_LABELS,
+)
 from arsipbersih.web.reasons import suggestion_reason
 
 GROUP_PAGE = 20
@@ -82,8 +87,8 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
         r[0]: r[1]
         for r in conn.execute(
             "select u.primary_category, count(*) from units u where u.location='review'"
-            " and u.primary_category is not null and (u.seen = 1 or exists"
-            " (select 1 from decisions d where d.unit_id = u.id)) group by u.primary_category"
+            " and u.primary_category is not null and exists"
+            " (select 1 from decisions d where d.unit_id = u.id) group by u.primary_category"
         )
     }
     group_done = {
@@ -94,7 +99,10 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
         )
     }
     out = []
-    for cat in CATEGORY_PRIORITY:
+    ordered = [
+        (gkey, gtitle, cat) for gkey, gtitle, cats in CATEGORY_GROUPS for cat in cats
+    ]
+    for gkey, gtitle, cat in ordered:
         if cat in GROUP_CATEGORIES:
             mode = "group"
             count = conn.execute(
@@ -112,6 +120,9 @@ def category_counts(conn: sqlite3.Connection) -> list[dict]:
             {
                 "category": cat,
                 "label": CATEGORY_LABELS.get(cat, cat),
+                "short_label": CATEGORY_SHORT_LABELS.get(cat, cat),
+                "group": gkey,
+                "group_title": gtitle,
                 "help": CATEGORY_HELP.get(cat, ""),
                 "mode": mode,
                 "count": count,
@@ -318,7 +329,7 @@ def grid_order(
     conn: sqlite3.Connection,
     category: str,
     sort: Literal["score", "date", "ai_doubt"] = "score",
-    view: Literal["all", "unseen", "keep"] = "all",
+    view: Literal["all", "unseen", "seen", "keep", "discard"] = "all",
     head: str | None = None,
 ) -> list[str]:
     if category not in GRID_CATEGORIES:
@@ -329,8 +340,10 @@ def grid_order(
     cond = ""
     if view == "unseen":
         cond = " and b.seen = 0 and b.decision is null"
-    elif view == "keep":
-        cond = " and b.decision = 'keep'"
+    elif view == "seen":
+        cond = " and b.seen = 1 and b.decision is null"
+    elif view in ("keep", "discard"):
+        cond = f" and b.decision = '{view}'"
     rows = conn.execute(
         f"select b.unit_id {_GRID_FROM}"
         f" where b.location='review' and b.primary_category=?{cond} order by {_grid_order_sql(sort)}",
@@ -570,14 +583,14 @@ def unit_detail(conn: sqlite3.Connection, unit_id: str, head: str | None = None)
 def _batch_title(label: str, labels: dict[str, str]) -> str:
     if label.startswith("apply "):
         slug = label[len("apply "):]
-        return f"Apply · {CATEGORY_LABELS.get(slug, slug)}"
+        return f"Terapkan · {CATEGORY_LABELS.get(slug, slug)}"
     if label.startswith("rapikan"):
         return "Rapikan ke Arsip"
     if label == "undo all":
-        return "Undo semua"
+        return "Batalkan semua"
     if label.startswith("undo "):
         target = labels.get(label[len("undo "):])
-        return f"Undo · {_batch_title(target, labels)}" if target else "Undo"
+        return f"Dibatalkan: {_batch_title(target, labels)}" if target else "Dibatalkan"
     if label == "purge trash":
         return "Kosongkan sampah"
     return label

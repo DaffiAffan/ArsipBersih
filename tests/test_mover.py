@@ -20,6 +20,7 @@ from arsipbersih.mover import (
 from arsipbersih.decisions import (
     apply_category,
     mark_seen,
+    record,
     preview_apply,
     purge_trash,
     trash_totals,
@@ -214,6 +215,8 @@ def _review_units(root, category, n):
 def test_undo_apply_returns_grid_units_unseen_and_undecided(root):
     conn, ids = _review_units(root, "burem", n=3)
     mark_seen(conn, list(ids))
+    for u in ids:
+        record(conn, u, "discard")
     res = apply_category(conn, root, "burem")
     undo_batch(conn, root, res.batch_id)
     p = preview_apply(conn, "burem")
@@ -224,6 +227,8 @@ def test_undo_apply_returns_grid_units_unseen_and_undecided(root):
 def test_undo_all_skips_purged_files(root):
     conn, ids = _review_units(root, "burem", n=2)
     mark_seen(conn, list(ids))
+    for u in ids:
+        record(conn, u, "discard")
     apply_category(conn, root, "burem")
     purge_trash(conn, root, *trash_totals(conn))
     res = undo_all(conn, root)
@@ -233,6 +238,7 @@ def test_undo_all_skips_purged_files(root):
 def _partly_purged(root):
     conn, (uid,) = _review_units(root, "burem", n=1)
     mark_seen(conn, [uid])
+    record(conn, uid, "discard")
     res = apply_category(conn, root, "burem")
     fid = conn.execute("select id from files where unit_id=?", (uid,)).fetchone()[0]
     cur = conn.execute("select rel_path from files where id=?", (fid,)).fetchone()[0]
@@ -270,6 +276,8 @@ def test_undo_interrupted_still_resets_restored_units(root, monkeypatch):
     from arsipbersih import mover
     conn, ids = _review_units(root, "burem", n=2)
     mark_seen(conn, list(ids))
+    for u in ids:
+        record(conn, u, "discard")
     res = apply_category(conn, root, "burem")
     real, calls = mover._move_file, []
 

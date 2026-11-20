@@ -13,14 +13,14 @@
 </header>
 <div id="dt-error" class="plan-error" role="alert" hidden></div>
 
-<section class="card" aria-labelledby="dt-events-title">
+<section aria-labelledby="dt-events-title">
   <h2 id="dt-events-title">Tanggal acara</h2>
   <p class="muted">Foto kiriman WA memakai tanggal kirim, bukan tanggal foto diambil. Kalau disetujui, foto WA di acara itu diberi tanggal di dalam rentang foto kamera acaranya, urutannya tetap.</p>
   <div id="dt-events" class="dt-events" aria-live="polite"></div>
   <p id="dt-events-empty" class="empty" hidden>Tidak ada acara yang perlu diperiksa.</p>
 </section>
 
-<section class="card" aria-labelledby="dt-undated-title">
+<section aria-labelledby="dt-undated-title">
   <div class="dt-section-head">
     <h2 id="dt-undated-title">Tanpa tanggal</h2>
     <span id="dt-undated-count" class="muted"></span>
@@ -42,7 +42,7 @@
   <article class="dt-event">
     <header class="dt-event-head">
       <h3 class="dt-event-name"></h3>
-      <span class="badge dt-changed" hidden>Berubah — ada foto kamera baru</span>
+      <span class="badge dt-changed" hidden>Berubah: ada foto kamera baru</span>
     </header>
     <p class="dt-event-summary"></p>
     <p class="muted dt-event-meta"></p>
@@ -60,5 +60,5 @@
 </template>
 {% endblock %}
 {% block scripts %}
-<script type="module" src="/static/dates.js"></script>
+<script type="module" src="/static/pages/dates.js"></script>
 {% endblock %}

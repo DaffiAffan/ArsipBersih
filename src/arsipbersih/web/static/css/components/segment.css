@@ -1,0 +1,24 @@
+/* Segmen filter: tombol bersebelahan, yang aktif ditandai aria-pressed="true". */
+.segment {
+  display: inline-flex; align-items: center; gap: var(--grid-gap); padding: var(--grid-gap);
+  background: var(--color-surface-2); border-radius: var(--radius-control);
+}
+.segment > button, .segment > a {
+  min-height: 32px; padding: var(--space-1) var(--space-2);
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  color: var(--color-text-muted); font-size: var(--text-sm); text-decoration: none;
+}
+.segment > button:hover, .segment > a:hover { color: var(--color-text); }
+.segment > [aria-pressed="true"], .segment > [aria-selected="true"], .segment > [aria-current="page"] {
+  background: var(--color-border); color: var(--color-text);
+}
+
+/* Pil lama (tab grid review) sampai halaman review dipindah ke .segment. */
+.pill {
+  min-height: 32px; padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-2); color: var(--color-text-muted);
+  border: 1px solid transparent; border-radius: var(--radius-control);
+  font-size: var(--text-sm);
+}
+.pill:hover { color: var(--color-text); border-color: transparent; }
+.pill.is-active { background: var(--color-border); color: var(--color-text); }

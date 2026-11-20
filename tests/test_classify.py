@@ -270,7 +270,7 @@ def test_run_classify_drops_seen_and_pending_discard_when_category_changes(conn_
 
     conn, (moved, stays, kept) = _chat_review_units(conn_with, 3)
     decisions.mark_seen(conn, [moved, stays, kept])
-    assert decisions.record_bulk_discard(conn, [moved, stays]) == 2
+    assert sorted(decisions.record_bulk_discard(conn, [moved, stays])) == sorted([moved, stays])
     decisions.record(conn, kept, "keep")
     _put_label(conn, moved, "identitas", 0.97, sub="ktp")
     _put_label(conn, kept, "keuangan", 0.9)

@@ -844,8 +844,8 @@ def _undo(conn: sqlite3.Connection, root: Path, batch_ids: list[str], label: str
 def _reset_review_state(conn: sqlite3.Connection, undo_batch_id: str) -> None:
     """Make units that fully came back to review/source unseen and undecided again.
 
-    Otherwise a restored grid unit keeps seen=1 plus an applied discard decision, and the
-    next apply would trash it again without it ever being shown.
+    Otherwise a restored unit keeps seen=1 and its applied decision row, so it would not
+    show up as undecided again.
     """
     with conn:
         ids = [

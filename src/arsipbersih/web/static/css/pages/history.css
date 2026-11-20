@@ -1,0 +1,7 @@
+/* Riwayat (history.js): layout */
+.hist-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+.hist-head h2 { margin: 0; }
+.hist-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); }
+.hist-row .path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); }
+.hist-head h1 { margin: 0; }
+.table tr.is-undone td { opacity: var(--opacity-disabled); }

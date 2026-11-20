@@ -1,0 +1,31 @@
+/* Tombol: biasa, utama, hantu, bahaya-bergaris. Target klik minimal 32 px. */
+button, .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 32px; padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-2); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-control);
+  font: inherit; font-size: var(--text-sm); line-height: 1.4; white-space: nowrap;
+  cursor: pointer; text-decoration: none;
+  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+button:hover, .btn:hover { border-color: var(--color-border-strong); }
+button:disabled, .btn:disabled, .btn[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
+
+.btn-primary, button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); font-weight: 600; }
+.btn-primary:hover, button.primary:hover { border-color: var(--color-text); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--color-text-muted); }
+.btn-ghost:hover { background: var(--color-surface-2); color: var(--color-text); border-color: transparent; }
+.btn-danger-outline { background: transparent; border-color: var(--color-danger); color: var(--color-danger); }
+.btn-danger-outline:hover { background: var(--color-danger-tint); border-color: var(--color-danger); }
+
+/* Varian lama, dipakai halaman yang belum dipindah ke v2. */
+.btn-secondary { background: var(--color-surface-2); }
+.btn-keep { background: var(--color-keep); border-color: var(--color-keep); color: var(--color-on-keep); font-weight: 600; }
+.btn-danger, button.danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-on-danger); font-weight: 600; }
+.btn-keep:hover, .btn-danger:hover, button.danger:hover { border-color: var(--color-text); }
+.btn-icon { width: 32px; height: 32px; padding: 0; background: transparent; border-color: transparent; color: var(--color-text-muted); }
+.btn-icon:hover { background: var(--color-surface-2); color: var(--color-text); border-color: transparent; }
+
+/* Tombol berupa tautan teks (aksi baris tabel). */
+.link { background: none; border: 0; padding: 0; color: var(--color-accent); cursor: pointer; font: inherit; }
+.link:hover { text-decoration: underline; }

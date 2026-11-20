@@ -5,7 +5,7 @@ import os
 import pytest
 
 from arsipbersih.db import new_id, open_db
-from arsipbersih.decisions import apply_category, mark_seen, preview_apply
+from arsipbersih.decisions import apply_category, mark_seen, preview_apply, record
 
 
 def _add_unit(conn, root, rel, *, location, category=None, seen=0):
@@ -41,14 +41,15 @@ def trashed_units(root):
 
 @pytest.fixture
 def applied_units(root):
-    """Three seen review units discarded by a real apply batch (files now in _sampah)."""
+    """Three review units with an explicit discard decision, moved by a real apply batch (files now in _sampah)."""
     conn = open_db(root)
     try:
         ids = [
             _add_unit(conn, root, f"_review/burem/HP/IMG_{i}.jpg", location="review", category="burem")
             for i in range(3)
         ]
-        mark_seen(conn, ids)
+        for uid in ids:
+            record(conn, uid, "discard")
         apply_category(conn, root, "burem")
         assert {r[0] for r in conn.execute("select location from units")} == {"trash"}
         return ids
@@ -76,7 +77,7 @@ def test_history_lists_batches_and_trash(web, root, applied_units):
 def test_history_page_renders(web):
     r = web.get("/riwayat")
     assert r.status_code == 200
-    assert "Riwayat" in r.text and "/static/history.js" in r.text
+    assert "Riwayat" in r.text and "/static/pages/history.js" in r.text
 
 
 def test_purge_requires_typed_confirmation(web, trashed_units):
@@ -104,7 +105,7 @@ def test_purge_with_stale_totals_fails_safely(web, root, trashed_units):
     assert r.status_code == 202
     st = _finish(web)
     assert st.status == "failed"
-    assert st.error.startswith("Isi _sampah berubah")
+    assert st.error.startswith("Isi Sampah berubah")
     assert len(_trash_files(root)) == 3
 
 
@@ -115,7 +116,7 @@ def test_undo_requires_exactly_one_target(web, applied_units):
 
 def test_undo_all_job_restores(web, root, applied_units):
     r = web.post("/api/undo", json={"all": True})
-    assert r.status_code == 202 and r.json()["label"] == "Undo semua"
+    assert r.status_code == 202 and r.json()["label"] == "Batalkan semua"
     st = _finish(web)
     assert st.status == "done" and st.result["moved_units"] == 3 and st.result["failed_units"] == 0
     conn = open_db(root)
@@ -132,7 +133,7 @@ def test_undo_all_job_restores(web, root, applied_units):
 def test_undo_one_batch_job(web, root, applied_units):
     batch = web.get("/api/history").json()["batches"][0]
     r = web.post("/api/undo", json={"batch_id": batch["id"]})
-    assert r.status_code == 202 and r.json()["label"] == "Undo batch"
+    assert r.status_code == 202 and r.json()["label"] == "Batalkan batch"
     assert _finish(web).status == "done"
     assert web.get("/api/history").json()["trash"]["files"] == 0
 
@@ -214,3 +215,13 @@ def test_purge_rejects_bad_totals(web, trashed_units, bad):
 def test_forget_unknown_file_is_404(web):
     r = web.post("/api/files/forget", json={"file_id": "nope"})
     assert r.status_code == 404 and r.json()["detail"] == "File tidak ditemukan"
+
+
+def test_history_uses_new_terms_and_danger_zone(web, applied_units):
+    page = web.get("/riwayat").text
+    js = web.get("/static/pages/history.js").text
+    assert 'class="danger-zone"' in page and "Kosongkan Sampah" in page
+    assert "Batalkan" in page and "Batalkan" in js
+    assert "Undo" not in page and "Undo" not in js
+    titles = [b["title"] for b in web.get("/api/history").json()["batches"]]
+    assert titles and all("Apply" not in t and "Undo" not in t for t in titles)

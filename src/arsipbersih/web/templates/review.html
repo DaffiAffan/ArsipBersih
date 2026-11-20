@@ -3,11 +3,8 @@
 {% block content %}
 <div class="rv-layout">
   {% if category %}
-  <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}">
-    <header class="rv-page-head">
-      <h1>{{ label }}</h1>
-      {% if help %}<p class="muted">{{ help }}</p>{% endif %}
-    </header>
+  <section class="rv-main" id="rv-main" data-mode="{{ mode }}" data-category="{{ category }}" data-label="{{ label }}"{% if help %} data-help="{{ help }}"{% endif %}>
+    {# Title, count and the category explanation (ⓘ) live in the page toolbar (review-grid.js / review-groups.js). #}
     {% if mode == "grid" %}<div id="grid-root"></div>{% else %}<div id="group-root"></div>{% endif %}
   </section>
   {% else %}
@@ -16,6 +13,6 @@
 </div>
 {% endblock %}
 {% block scripts %}
-{% if mode == "group" %}<script type="module" src="/static/review-groups.js"></script>{% endif %}
-{% if mode == "grid" %}<script type="module" src="/static/review-grid.js"></script>{% endif %}
+{% if mode == "group" %}<script type="module" src="/static/pages/review-groups.js"></script>{% endif %}
+{% if mode == "grid" %}<script type="module" src="/static/pages/review-grid.js"></script>{% endif %}
 {% endblock %}

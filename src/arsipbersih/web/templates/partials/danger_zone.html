@@ -1,0 +1,8 @@
+{# Zona berbahaya: judul, penjelasan (id opsional untuk diisi skrip), satu tombol bahaya-bergaris. #}
+{% macro danger_zone(title, button_id, button_label, info_id=None, info="") %}
+<section class="danger-zone">
+  <h2>{{ title }}</h2>
+  <p{% if info_id %} id="{{ info_id }}"{% endif %}>{{ info }}</p>
+  <button type="button" id="{{ button_id }}" class="btn btn-danger-outline">{{ button_label }}</button>
+</section>
+{% endmacro %}

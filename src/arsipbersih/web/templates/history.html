@@ -1,38 +1,34 @@
 {% extends "base.html" %}
+{% from "partials/danger_zone.html" import danger_zone %}
 {% block title %}Riwayat - ArsipBersih{% endblock %}
 {% block content %}
-<h1>Riwayat</h1>
+<div class="hist-head">
+  <h1>Riwayat</h1>
+  <button type="button" id="undo-all" class="btn btn-secondary">Batalkan semua</button>
+</div>
 <div id="hist-msg" class="muted" role="status"></div>
 
-<section id="pending-section" class="card" hidden>
+<section id="pending-section" hidden>
   <h2>Perpindahan terputus</h2>
   <p class="muted">Baris ini memblokir semua perpindahan baru sampai dilepas.</p>
   <div id="pending-list"></div>
 </section>
 
-<section class="card">
-  <div class="hist-head">
-    <h2>Batch</h2>
-    <button type="button" id="undo-all" class="btn btn-secondary">Undo semua</button>
-  </div>
+<section>
   <table class="table">
-    <thead><tr><th>Waktu</th><th>Jenis</th><th>Label</th><th class="num">Dipindah</th><th class="num">Kembali</th><th class="num">Gagal</th><th></th></tr></thead>
+    <thead><tr><th>Waktu</th><th>Yang dilakukan</th><th class="num">Dipindah</th><th class="num">Kembali</th><th class="num">Gagal</th><th></th></tr></thead>
     <tbody id="batch-rows"></tbody>
   </table>
   <p id="batch-empty" class="empty" hidden>Belum ada riwayat.</p>
 </section>
 
-<section id="missing-section" class="card" hidden>
+<section id="missing-section" hidden>
   <h2>File hilang dari disk</h2>
   <div id="missing-list"></div>
 </section>
 
-<section class="card">
-  <h2>Kosongkan _sampah</h2>
-  <p id="trash-info" class="muted"></p>
-  <button type="button" id="purge-btn" class="btn btn-danger">Kosongkan _sampah</button>
-</section>
+{{ danger_zone("Kosongkan Sampah", "purge-btn", "Kosongkan Sampah", "trash-info") }}
 {% endblock %}
 {% block scripts %}
-<script type="module" src="/static/history.js"></script>
+<script type="module" src="/static/pages/history.js"></script>
 {% endblock %}

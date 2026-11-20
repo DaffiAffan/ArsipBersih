@@ -1,0 +1,166 @@
+import { api, el } from "/static/core/api.js";
+import { fmtBytes, fmtNum, fmtTime } from "/static/core/format.js";
+import { watchJob } from "/static/components/jobbar.js";
+import { confirmDialog } from "/static/components/dialog.js";
+import { reviewNav } from "/static/components/sidebar.js";
+
+const KIND = { rapikan: "Rapikan", apply: "Terapkan", undo: "Dibatalkan", purge: "Kosongkan Sampah" };
+const $ = (id) => document.getElementById(id);
+let data = null;
+let lastJobKey = null;
+
+// errors (optional): engine messages, listed under a collapsible "Detail" like plan.js does.
+function say(text, errors) {
+  const box = $("hist-msg");
+  const parts = text ? [el("p", {}, text)] : [];
+  if (errors && errors.length) {
+    parts.push(el("details", {}, el("summary", {}, `Detail (${errors.length})`), el("pre", {}, errors.join("\n"))));
+  }
+  box.replaceChildren(...parts);
+}
+
+async function post(url, body) {
+  say("");
+  try {
+    await api("POST", url, body);
+  } catch (e) {
+    say(e.message);
+    await reload();
+  }
+}
+
+function renderBatches() {
+  const rows = data.batches.map((b) => el("tr", { class: b.undone > 0 && !b.undoable && (b.kind === "rapikan" || b.kind === "apply") ? "is-undone" : "" },
+    el("td", {}, fmtTime(b.created_at)),
+    el("td", {}, b.title || b.label || KIND[b.kind] || b.kind),
+    el("td", { class: "num" }, fmtNum(b.done)),
+    el("td", { class: "num" }, fmtNum(b.undone)),
+    el("td", { class: "num" }, fmtNum(b.failed)),
+    el("td", { class: "num" }, b.undoable ? el("button", { type: "button", class: "link", onclick: () => undoBatch(b) }, "Batalkan") : ""),
+  ));
+  $("batch-rows").replaceChildren(...rows);
+  $("batch-empty").hidden = rows.length > 0;
+  $("undo-all").disabled = !data.batches.some((b) => b.undoable);
+}
+
+async function undoBatch(b) {
+  const ok = await confirmDialog({
+    title: "Batalkan batch ini?",
+    body: `File dari batch "${b.title || b.label || KIND[b.kind] || b.kind}" kembali ke posisi asal. Unit yang jalurnya sudah terisi dilewati.`,
+    okLabel: "Batalkan",
+  });
+  if (ok) await post("/api/undo", { batch_id: b.id });
+}
+
+async function undoAll() {
+  const ok = await confirmDialog({
+    title: "Batalkan semua? Semua file kembali ke posisi asal di Sumber.",
+    body: "Semua batch Rapikan dan Terapkan yang masih bisa dibatalkan akan dibatalkan, mulai dari yang terbaru.",
+    okLabel: "Batalkan semua",
+  });
+  if (ok) await post("/api/undo", { all: true });
+}
+
+function renderPending() {
+  $("pending-section").hidden = data.pending.length === 0;
+  $("pending-list").replaceChildren(...data.pending.map((p) => el("div", { class: "hist-row" },
+    el("span", { class: "path" }, `${p.src_rel} → ${p.dst_rel}`),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => release(p, false) }, "File memang hilang"),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => release(p, true) }, "Sengaja saya hapus"),
+  )));
+}
+
+async function release(p, onPurpose) {
+  const ok = await confirmDialog({
+    title: onPurpose ? "Sengaja saya hapus?" : "File memang hilang?",
+    body: [
+      `${p.src_rel} → ${p.dst_rel}`,
+      "Baris ini memblokir semua perpindahan sampai dilepas. File ini tidak ditemukan di disk, "
+        + (onPurpose ? "dan akan ditandai sengaja dihapus." : "dan akan ditandai hilang."),
+    ],
+    okLabel: "Lepaskan",
+  });
+  if (ok) await post("/api/journal/release", { row_id: p.row_id, deleted_on_purpose: onPurpose });
+}
+
+function renderMissing() {
+  $("missing-section").hidden = data.missing.length === 0;
+  $("missing-list").replaceChildren(...data.missing.map((m) => el("div", { class: "hist-row" },
+    el("span", { class: "path" }, m.rel_path),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => forget(m) }, "Tandai sengaja dihapus"),
+  )));
+}
+
+async function forget(m) {
+  const ok = await confirmDialog({
+    title: "Tandai sengaja dihapus?",
+    body: `${m.rel_path} tidak akan dicari lagi.`,
+    okLabel: "Tandai",
+  });
+  if (ok) await post("/api/files/forget", { file_id: m.file_id });
+}
+
+function renderTrash() {
+  const t = data.trash;
+  $("trash-info").textContent = t.files ? `${fmtNum(t.files)} file (${fmtBytes(t.bytes)}) di Sampah.` : "Sampah kosong.";
+  $("purge-btn").disabled = t.files === 0;
+}
+
+async function purge() {
+  const { files, bytes } = data.trash; // the numbers shown in the dialog are the ones sent
+  const first = await confirmDialog({
+    title: "Kosongkan Sampah?",
+    body: `${fmtNum(files)} file, ${fmtBytes(bytes)} akan dihapus PERMANEN. Harddisk eksternal tidak punya Recycle Bin, jadi file tidak bisa dipulihkan.`,
+    okLabel: "Lanjut",
+    danger: true,
+  });
+  if (!first) return;
+  const second = await confirmDialog({
+    title: "Konfirmasi terakhir",
+    body: `Ketik HAPUS untuk menghapus permanen ${fmtNum(files)} file (${fmtBytes(bytes)}).`,
+    okLabel: "Hapus permanen",
+    danger: true,
+    typeToConfirm: "HAPUS",
+  });
+  if (second) await post("/api/trash/purge", { expected_files: files, expected_bytes: bytes, confirm: "HAPUS" });
+}
+
+async function reload() {
+  try {
+    data = await api("GET", "/api/history");
+  } catch (e) {
+    say(e.message);
+    return;
+  }
+  renderBatches();
+  renderPending();
+  renderMissing();
+  renderTrash();
+}
+
+function showResult(st) {
+  if (st.status === "failed") { say(`Gagal: ${st.error || ""}`); return; }
+  const r = st.result || {};
+  const errors = (r.errors || []).map(String);
+  const errs = errors.length;
+  if (st.kind === "undo") say(`Pembatalan selesai: ${r.moved_units ?? 0} unit kembali, ${r.failed_units ?? 0} gagal${errs ? ` (${errs} catatan)` : ""}.`, errors);
+  else if (st.kind === "purge") say(`Dihapus permanen: ${r.deleted ?? 0} file${errs ? `, ${errs} masalah` : ""}.`, errors);
+  else say("Selesai.");
+}
+
+$("undo-all").addEventListener("click", undoAll);
+$("purge-btn").addEventListener("click", purge);
+reload();
+
+let firstPoll = true;
+watchJob((st) => {
+  const initial = firstPoll;
+  firstPoll = false; // idle and running polls count too, so a later finished job is shown
+  if (st.status === "running" || st.status === "idle") return;
+  const key = `${st.id}:${st.status}`;
+  if (key === lastJobKey) return;
+  lastJobKey = key;
+  if (!initial) showResult(st); // a job already finished before page load has no context here
+  reload();
+  reviewNav.refresh();
+});
