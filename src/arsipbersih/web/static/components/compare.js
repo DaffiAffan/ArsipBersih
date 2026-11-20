@@ -5,6 +5,7 @@
 import { el, LOCATION_LABELS } from "/static/core/api.js";
 import { fmtBytes } from "/static/core/format.js";
 import { createZoom } from "/static/components/zoom.js";
+import { onClick } from "/static/core/keys.js";
 
 // A member can be decided unless its decision is already applied or it sits in the trash.
 export function locked(m) { return Boolean(m.applied) || m.location === "trash"; }
@@ -45,9 +46,9 @@ export function renderCompare(container, group, { onDecide, onActivate, onAccept
   const bigSize = best(members, bytes);
   let active = activeIndex;
 
-  const acceptBtn = el("button", { type: "button", class: "btn btn-primary", onclick: () => onAccept && onAccept() },
+  const acceptBtn = el("button", { type: "button", class: "btn btn-primary", onclick: onClick(() => onAccept && onAccept()) },
     "Ikuti saran ", el("kbd", { class: "kbd" }, "Enter"));
-  const clearBtn = el("button", { type: "button", class: "btn", onclick: () => onClear && onClear() }, "Batalkan keputusan");
+  const clearBtn = el("button", { type: "button", class: "btn", onclick: onClick(() => onClear && onClear()) }, "Batalkan keputusan");
   const head = el("div", { class: "cmp-head" },
     el("span", { class: "cmp-summary" }, [group.summary, group.folder].filter(Boolean).join(" · ")),
     el("span", { class: "toolbar-spacer" }), acceptBtn, clearBtn);
@@ -61,9 +62,9 @@ export function renderCompare(container, group, { onDecide, onActivate, onAccept
       el("img", { src: src || "", alt: name, draggable: "false" }));
     const mark = el("span", { class: "cmp-mark", "aria-hidden": "true" });
     const chipSlot = el("dd", { class: "cmp-chips" });
-    const keepBtn = el("button", { type: "button", class: "btn", onclick: () => onDecide(m.unit_id, m.decision === "keep" ? null : "keep") },
+    const keepBtn = el("button", { type: "button", class: "btn", onclick: onClick(() => onDecide(m.unit_id, m.decision === "keep" ? null : "keep")) },
       "Simpan ", el("kbd", { class: "kbd" }, "S"));
-    const delBtn = el("button", { type: "button", class: "btn", onclick: () => onDecide(m.unit_id, m.decision === "discard" ? null : "discard") },
+    const delBtn = el("button", { type: "button", class: "btn", onclick: onClick(() => onDecide(m.unit_id, m.decision === "discard" ? null : "discard")) },
       "Buang ", el("kbd", { class: "kbd" }, "D"));
     const btns = el("div", { class: "cmp-btns" }, keepBtn, delBtn);
     const size = p.size_total != null ? el("span", { class: bigSize.has(i) ? "is-better" : "" }, fmtBytes(p.size_total)) : null;

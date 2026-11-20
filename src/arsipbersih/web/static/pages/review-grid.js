@@ -240,8 +240,7 @@ const UNDO = {
   run: async (ids) => {
     busy = true;
     try {
-      const cleared = await clearDecisions(ids);
-      markAll(ids, null);
+      const cleared = await clearDecisions(ids, (part) => markAll(part, null));
       toast(`${fmtNum(cleared)} keputusan dibatalkan`);
     } catch (e) { fail(e); } finally { busy = false; changed(); }
   },

@@ -2,7 +2,7 @@
 // left, large comparison on the right, status bar below. Decisions are only applied by Terapkan.
 import { api, el } from "/static/core/api.js";
 import { fmtNum } from "/static/core/format.js";
-import { bindKeys } from "/static/core/keys.js";
+import { bindKeys, onClick } from "/static/core/keys.js";
 import { openViewer } from "/static/components/viewer.js";
 import { reviewNav } from "/static/components/sidebar.js";
 import { confirmDialog } from "/static/components/dialog.js";
@@ -36,9 +36,9 @@ function fail(err) { toast(err && err.message ? err.message : String(err), { kin
 
 // --- shell -----------------------------------------------------------------------------
 
-const acceptAllBtn = el("button", { type: "button", class: "btn", disabled: true, onclick: () => { acceptLoaded().catch(fail); } }, "Ikuti saran");
+const acceptAllBtn = el("button", { type: "button", class: "btn", disabled: true, onclick: onClick(() => { acceptLoaded().catch(fail); }) }, "Ikuti saran");
 const zoomBtn = el("button", { type: "button", class: "btn btn-ghost", title: "Zoom bareng (Z)", "aria-pressed": "false",
-  onclick: () => toggleZoom() }, "Zoom bareng ", el("kbd", { class: "kbd" }, "Z"));
+  onclick: onClick(() => toggleZoom()) }, "Zoom bareng ", el("kbd", { class: "kbd" }, "Z"));
 const helpText = main.dataset.help || "";
 const toolbar = mountToolbar(root, {
   title: label, actions: [acceptAllBtn, zoomBtn], onInfo: () => toggleInfo(),
@@ -54,7 +54,8 @@ layout.append(cmpEl, inspEl);
 const bar = mountStatusBar(root, {
   category, mode: "group", label,
   hints: [["↑↓", "grup"], ["←→", "foto"], ["S", "simpan"], ["D", "buang"], ["Enter", "ikuti saran"], ["?", "semua tombol"]],
-  onApplied: () => { detailCache.clear(); list.refresh().catch(fail); },
+  // The shown comparison is stale after Terapkan: re-read the list, then the active group.
+  onApplied: () => { detailCache.clear(); list.refresh().then(() => { if (activeId) showGroup(activeId); }).catch(fail); },
 });
 
 function loaded(ids) {
@@ -187,9 +188,7 @@ async function clearActive() {
   const ids = d.members.filter((m) => !locked(m) && m.decision != null).map((m) => m.unit_id);
   busy = true;
   try {
-    await clearDecisions(ids);
-    for (const uid of ids) record(d.id, uid, null);
-    repaintActive();
+    await clearDecisions(ids, (part) => { for (const uid of part) record(d.id, uid, null); repaintActive(); });
   } catch (e) { fail(e); } finally { busy = false; changed(); }
 }
 
@@ -237,9 +236,8 @@ async function acceptLoaded() {
 async function undoAccept(ids, want) {
   busy = true;
   try {
-    const cleared = await clearDecisions(ids);
-    for (const uid of ids) record(want.get(uid).gid, uid, null);
-    repaintActive();
+    // Local state follows each chunk the server confirmed, even if a later chunk fails.
+    const cleared = await clearDecisions(ids, (part) => { for (const uid of part) record(want.get(uid).gid, uid, null); repaintActive(); });
     toast(`${fmtNum(cleared)} keputusan dibatalkan`);
   } finally { busy = false; changed(); }
 }

@@ -37,6 +37,16 @@ function onKeyDown(ev) {
   top[key](ev);
 }
 
+// Click handler for a button that must not keep focus after a mouse click: onKeyDown ignores
+// Enter/Space on a focused button, so a clicked button would swallow those shortcuts (and Space
+// would click it again). Keyboard activation (detail === 0) keeps focus for Tab users.
+export function onClick(fn) {
+  return (ev) => {
+    if (ev && ev.detail > 0 && ev.currentTarget && ev.currentTarget.blur) ev.currentTarget.blur();
+    return fn(ev);
+  };
+}
+
 export function bindKeys(map) {
   const norm = {};
   for (const [k, fn] of Object.entries(map)) norm[normalize(k)] = fn;

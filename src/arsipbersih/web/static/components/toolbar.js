@@ -3,6 +3,7 @@
 import { el } from "/static/core/api.js";
 import { attachPopover } from "/static/components/popover.js";
 import { attachMenu } from "/static/components/menu.js";
+import { onClick } from "/static/core/keys.js";
 
 function pressed(btn, on) { btn.setAttribute("aria-pressed", String(Boolean(on))); }
 
@@ -13,7 +14,7 @@ export function mountToolbar(container, { title, countText = "", segments = [], 
   sort = null, onSort, size = null, onSize, captions = false, onCaptions, onInfo, help = null, menuItems = [], actions = [] }) {
   const count = el("span", { class: "toolbar-meta" }, countText);
   const segBtns = segments.map((s) => el("button", {
-    type: "button", "data-value": s.value, onclick: () => { if (s.value !== current) { setActive(s.value); onSegment(s.value); } },
+    type: "button", "data-value": s.value, onclick: onClick(() => { if (s.value !== current) { setActive(s.value); onSegment(s.value); } }),
   }, s.label));
   let current = active;
 
@@ -35,9 +36,9 @@ export function mountToolbar(container, { title, countText = "", segments = [], 
     sizeInput.value = String(size.value);
     parts.push(el("label", { class: "toolbar-size", title: "Ukuran thumbnail" }, sizeInput));
   }
-  const capBtn = onCaptions ? el("button", { type: "button", class: "btn btn-ghost", title: "Nama file (N)", onclick: () => onCaptions() },
+  const capBtn = onCaptions ? el("button", { type: "button", class: "btn btn-ghost", title: "Nama file (N)", onclick: onClick(() => onCaptions()) },
     "Nama file") : null;
-  const infoBtn = onInfo ? el("button", { type: "button", class: "btn btn-ghost", title: "Panel info (I)", onclick: () => onInfo() },
+  const infoBtn = onInfo ? el("button", { type: "button", class: "btn btn-ghost", title: "Panel info (I)", onclick: onClick(() => onInfo()) },
     "Info") : null;
   const helpBtn = help ? el("button", { type: "button", class: "btn btn-ghost btn-icon", "aria-label": "Tentang kategori ini", title: "Tentang kategori ini" }, "ⓘ") : null;
   const moreBtn = menuItems.length ? el("button", { type: "button", class: "btn btn-ghost btn-icon", "aria-label": "Aksi lain", title: "Aksi lain" }, "⋯") : null;
