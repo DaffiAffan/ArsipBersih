@@ -109,7 +109,7 @@ root.classList.add("grid-root");
 root.append(el("div", { class: "grid-layout" }, grid.el, inspEl));
 const bar = mountStatusBar(root, {
   category, mode: "grid", label,
-  hints: [["S", "simpan"], ["D", "buang"], ["Spasi", "layar penuh"], ["?", "semua tombol"]],
+  hints: [["S", "simpan"], ["D", "buang"], ["Enter", "lanjut"], ["Spasi", "layar penuh"], ["?", "semua tombol"]],
   beforeApply: async () => {
     if (await flushSeen()) return true;
     toast("Tidak bisa mengirim daftar foto yang sudah dilihat. Coba lagi sebentar.", { kind: "error" });
@@ -183,12 +183,8 @@ async function decide(unitId, decision) {
   } catch (e) { fail(e); return false; } finally { busy = false; }
 }
 
-async function acceptFocused() {
-  const it = grid.focused();
-  if (!it) return;
-  const ok = await decide(it.unit_id, null);
-  if (ok && grid.focus < grid.items.length - 1) grid.setFocus(grid.focus + 1);
-}
+// Enter only moves on; it never changes or clears a decision.
+function nextPhoto() { if (grid.focus < grid.items.length - 1) grid.setFocus(grid.focus + 1); }
 
 function decideFocused(decision) { const it = grid.focused(); if (it) decide(it.unit_id, decision); }
 
@@ -236,7 +232,9 @@ function markAll(ids, decision) {
 // Batalkan after Shift+D: only ids still discarded by it; while busy the toast comes back.
 const UNDO = {
   busyText: () => (bar.applying ? BUSY_APPLY : busy ? BUSY_SAVE : null),
-  stillIds: (ids) => ids.filter((id) => grid.byId(id)?.decision === "discard"),
+  // Ids not loaded now (tab switch, reload) are assumed to still hold the bulk decision;
+  // the server only clears units that are still discarded (applied=0 filter).
+  stillIds: (ids) => ids.filter((id) => { const it = grid.byId(id); return !it || it.decision === "discard"; }),
   run: async (ids) => {
     busy = true;
     try {
@@ -290,7 +288,7 @@ const gridKeys = {
   ArrowDown: () => grid.setFocus(Math.min(grid.items.length - 1, grid.focus + grid.columns())),
   s: () => decideFocused("keep"),
   d: (ev) => { if (ev && ev.shiftKey) bulkDiscardOnScreen().catch(fail); else decideFocused("discard"); },
-  Enter: acceptFocused,
+  Enter: nextPhoto,
   " ": () => viewer.open(grid.focus),
   i: () => toggleInspector(),
   n: () => toggleCaptions(),
@@ -301,7 +299,7 @@ window.addEventListener("pageshow", (ev) => { if (ev.persisted) unbindGrid = bin
 
 registerHelp([
   { title: "Review grid", keys: [["S", "Simpan foto terpilih"], ["D", "Buang foto terpilih"],
-    ["Enter", "Ikuti saran, lalu ke foto berikutnya"], ["Shift+D", NO_BULK ? NO_BULK_TEXT : BULK_LABEL],
+    ["Enter", "Lanjut ke foto berikutnya"], ["Shift+D", NO_BULK ? NO_BULK_TEXT : BULK_LABEL],
     ["Spasi", "Layar penuh (juga klik ganda)"], ["← → ↑ ↓", "Pindah foto"], ["I", "Buka/tutup panel info"],
     ["N", "Tampilkan/sembunyikan nama file"], ["?", "Bantuan ini"]] },
   { title: "Penanda", keys: [

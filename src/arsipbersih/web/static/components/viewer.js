@@ -54,8 +54,10 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   const hasVideo = items.flat().some((it) => it && it.media && it.media.kind === "video");
   const hasImage = items.flat().some((it) => it && !(it.media && it.media.kind === "video"));
   // Without onDecide (a clip opened from a link) the viewer only shows: no decision keys.
-  const decideKeys = onDecide ? [["S", "simpan"], ["D", "buang"], ["Enter", "ikuti saran"]] : [];
-  const hintKeys = [["← →", "pindah"], ...decideKeys,
+  const decideKeys = onDecide ? [["S", "simpan"], ["D", "buang"]] : [];
+  // Enter: compare mode follows the suggestion; grid/single mode only moves on (no decision).
+  const enterKey = mode === "compare" ? [["Enter", "ikuti saran"]] : [["Enter", "lanjut"]];
+  const hintKeys = [["← →", "pindah"], ...decideKeys, ...(onDecide || mode !== "compare" ? enterKey : []),
     ...(hasVideo ? [["Spasi", "putar/jeda"]] : []), ["Esc", "tutup"]];
   for (const [k, t] of hintKeys) {
     if (hint.childNodes.length) hint.append(" · ");
@@ -160,7 +162,10 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
     ArrowRight: () => go(i + 1),
     s: () => { safeDecide(current(), "keep"); },
     d: (e) => { if (e && e.shiftKey) return; safeDecide(current(), "discard"); }, // Shift+D is a grid-only bulk action
-    Enter: () => { safeDecide(current(), "suggest", true); },
+    Enter: () => {
+      if (mode === "compare") safeDecide(current(), "suggest", true);
+      else go(i + 1); // single/grid: never changes a decision
+    },
     Escape: () => close(),
     " ": (e) => {
       if (e && e.target && e.target.closest && e.target.closest("button")) return;
@@ -172,7 +177,8 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   // Viewer keys for the "?" dialog (the page's own sections stay below).
   const unhelp = pushHelp([{ title: "Layar penuh", keys: [
     ["← →", "Foto sebelumnya / berikutnya"],
-    ...(onDecide ? [["S", "Simpan foto ini"], ["D", "Buang foto ini"], ["Enter", "Ikuti saran, lalu ke foto berikutnya"]] : []),
+    ...(onDecide ? [["S", "Simpan foto ini"], ["D", "Buang foto ini"]] : []),
+    mode === "compare" ? ["Enter", "Ikuti saran, lalu ke foto berikutnya"] : ["Enter", "Lanjut ke foto berikutnya"],
     ...(hasVideo ? [["Spasi", "Putar / jeda video"]] : []),
     ...(hasImage ? [["Roda mouse", "Zoom foto"], ["Seret", "Geser foto yang di-zoom"], ["Klik ganda", "Kembalikan zoom"]] : []),
     ["Esc", "Tutup layar penuh"], ["?", "Bantuan ini"]] }]);
