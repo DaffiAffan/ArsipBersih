@@ -280,7 +280,7 @@ def apply(
     if p.keep + p.discard == 0:
         raise UserError("Belum ada keputusan untuk di-apply", 400)
     job = _apply_job(root, category, body.keep, body.discard, body.fingerprint)
-    return start_job(request, "apply", f"Apply {CATEGORY_LABELS.get(category, category)}", job)
+    return start_job(request, "apply", f"Terapkan {CATEGORY_LABELS.get(category, category)}", job)
 
 # --- pages ---------------------------------------------------------------------------------
 

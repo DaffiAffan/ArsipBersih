@@ -14,7 +14,7 @@ CATEGORY_LABELS = {
     "kiriman-chat": "Chat (WA/Telegram)",
     "download-meme": "Download / meme / grafis",
     "pendamping-gopro": "File GoPro (LRV/THM)",
-    "sampah-hp": "Trash HP",
+    "sampah-hp": "Sampah HP",
     "rekaman-tidak-sengaja": "Rekaman tidak sengaja",
     "video-pendek-gelap": "Video pendek / gelap",
     "kepencet": "Kepencet (tidak sengaja)",
@@ -80,6 +80,6 @@ CATEGORY_HELP = {
     ),
     "video-pendek-gelap": f"Video yang sangat pendek atau gelap, biasanya tidak sengaja terekam. {_GRID_TAIL}",
     "kepencet": f"Foto yang kemungkinan terjepret tidak sengaja. {_GRID_TAIL}",
-    "burem": f"Foto yang Blur atau tidak fokus. {_GRID_TAIL}",
+    "burem": f"Foto yang buram atau tidak fokus. {_GRID_TAIL}",
     "gelap-terang": f"Foto yang terlalu gelap atau terlalu terang. {_GRID_TAIL}",
 }

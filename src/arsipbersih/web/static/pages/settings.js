@@ -3,7 +3,7 @@ import { api, el } from "/static/core/api.js";
 const NOTE = "perlu dicek pada data asli";
 const GROUPS = [
   { title: "Kualitas foto", fields: [
-    ["blur_fallback", "Ambang burem cadangan", true],
+    ["blur_fallback", "Ambang blur cadangan", true],
     ["kepencet_sharpness_max", "Kepencet: ketajaman maks", true],
     ["kepencet_luma_max", "Kepencet: kecerahan maks", true],
     ["kepencet_std_max", "Kepencet: variasi maks", true],
@@ -59,14 +59,14 @@ async function loadExamples() {
   try {
     const d = await api("GET", `/api/settings/blur-examples?threshold=${slider.value}`);
     examplesBox.replaceChildren(
-      thumbRow("Di bawah ambang (dianggap burem)", d.below),
+      thumbRow("Di bawah ambang (dianggap blur)", d.below),
       thumbRow("Di atas ambang (dianggap tajam)", d.above));
   } catch (e) { say(e.message, false); }
 }
 
 function buildBlur() {
-  slider = el("input", { type: "range", min: 0, max: 100, step: 0.5, value: 25 });
-  sliderVal = el("output", {}, "");
+  slider = el("input", { type: "range", min: 0, max: 100, step: 0.5, value: 25, "aria-label": "Ambang blur" });
+  sliderVal = el("output", { "aria-live": "polite" }, "");
   slider.addEventListener("input", () => {
     blurValue = Number(slider.value);
     sliderVal.textContent = slider.value;
@@ -86,7 +86,7 @@ function buildBlur() {
     } catch (e) { say(e.message, false); }
   } }, "Sarankan dari foto saya");
   examplesBox = el("div", { class: "blur-examples" });
-  return el("fieldset", { class: "settings-section" }, el("legend", {}, "Ambang burem"),
+  return el("fieldset", { class: "settings-section" }, el("legend", {}, "Ambang blur"),
     el("p", { class: "muted section-note" }, `Ambang ini ${NOTE}.`),
     el("div", { class: "blur-controls" }, slider, sliderVal, clearBtn, suggest), examplesBox);
 }

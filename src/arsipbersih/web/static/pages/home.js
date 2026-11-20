@@ -77,7 +77,7 @@ function scanLive() {
     el("button", { id: "pause-btn", type: "button", class: "btn btn-secondary", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"));
 }
 
-// Patches the running Scan card in place so keyboard focus (Pause) survives every tick.
+// Patches the running Scan card in place so keyboard focus (Jeda) survives every tick.
 function patchLive() {
   const stage = $("scan-stage");
   if (!stage) return false;
@@ -103,10 +103,10 @@ function renderSide(d) {
   const top = topCats(d).slice(0, 5);
   $("top-cats").replaceChildren(...(top.length
     ? top.map((c) => el("li", {}, el("a", { href: reviewHref(c) }, c.label), el("span", { class: "list-meta" }, fmtNum(left(c)))))
-    : [el("li", { class: "muted" }, "Tidak ada yang tersisa.")]));
+    : [el("li", { class: "muted" }, "Semua kategori sudah diputuskan.")]));
   $("needs").replaceChildren(...(dateProposals > 0
     ? [el("li", {}, el("a", { href: "/tanggal" }, "Usulan tanggal acara"), el("span", { class: "list-meta" }, fmtNum(dateProposals)))]
-    : [el("li", { class: "muted" }, "Tidak ada.")]));
+    : [el("li", { class: "muted" }, "Tidak ada yang perlu kamu putuskan.")]));
 }
 
 function render() {
@@ -166,7 +166,7 @@ watchJob((st) => {
   if (last === "running" && st.status !== "running") {
     if (st.kind === "scan") {
       announcedStage = null;
-      announce(st.status === "done" ? "Scan selesai" : (st.status === "stopped" ? "Scan di-pause" : "Scan gagal"));
+      announce(st.status === "done" ? "Scan selesai" : (st.status === "stopped" ? "Scan dijeda" : "Scan gagal"));
     }
     load();
   } else if (data && is && was && patchLive()) { /* in-place update */ }

@@ -55,7 +55,7 @@ async function undoBatch(b) {
 async function undoAll() {
   const ok = await confirmDialog({
     title: "Batalkan semua? Semua file kembali ke posisi asal di Sumber.",
-    body: "Semua batch rapikan dan apply yang masih bisa dibatalkan dibatalkan, dari yang terbaru.",
+    body: "Semua batch Rapikan dan Terapkan yang masih bisa dibatalkan akan dibatalkan, mulai dari yang terbaru.",
     okLabel: "Batalkan semua",
   });
   if (ok) await post("/api/undo", { all: true });

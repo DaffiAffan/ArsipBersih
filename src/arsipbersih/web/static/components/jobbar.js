@@ -38,7 +38,7 @@ function eta(s) {
 function announceText(st) {
   if (st.status === "running") return `${st.label || "Proses"} berjalan`;
   if (st.status === "done") return `${st.label || "Proses"} selesai`;
-  if (st.status === "stopped") return `${st.label || "Proses"} di-pause`;
+  if (st.status === "stopped") return `${st.label || "Proses"} dijeda`;
   if (st.status === "failed") return `${st.label || "Proses"} gagal`;
   return "";
 }
@@ -78,12 +78,12 @@ export function mountJobBar(bar) {
     }
     bar.hidden = false;
     const p = st.progress;
-    // Update persistent nodes in place so the Pause button keeps keyboard focus.
+    // Update persistent nodes in place so the Jeda button keeps keyboard focus.
     if (!nodes) {
       nodes = {
         label: el("strong", {}, ""),
         text: document.createTextNode(""),
-        pause: el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Pause"),
+        pause: el("button", { type: "button", onclick: () => api("POST", "/api/job/stop").catch(() => {}) }, "Jeda"),
         close: el("button", { type: "button", "aria-label": "Tutup", onclick: () => { save("session", DISMISSED_KEY, lastId); hide(); } }, "Tutup"),
       };
       bar.replaceChildren(nodes.label, nodes.text, " ", nodes.pause, nodes.close);

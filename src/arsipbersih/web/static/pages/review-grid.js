@@ -112,7 +112,7 @@ const bar = mountStatusBar(root, {
   hints: [["S", "simpan"], ["D", "buang"], ["Spasi", "layar penuh"], ["?", "semua tombol"]],
   beforeApply: async () => {
     if (await flushSeen()) return true;
-    toast("Tidak bisa mengirim daftar foto yang sudah dilihat. Coba lagi sebentar lagi.", { kind: "error" });
+    toast("Tidak bisa mengirim daftar foto yang sudah dilihat. Coba lagi sebentar.", { kind: "error" });
     return false;
   },
   onApplied: () => { reload().catch(fail); },

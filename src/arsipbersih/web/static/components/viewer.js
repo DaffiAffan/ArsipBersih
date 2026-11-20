@@ -56,7 +56,7 @@ export function openViewer({ mode = "single", items, index = 0, onDecide, onInde
   // Without onDecide (a clip opened from a link) the viewer only shows: no decision keys.
   const decideKeys = onDecide ? [["S", "simpan"], ["D", "buang"], ["Enter", "ikuti saran"]] : [];
   const hintKeys = [["← →", "pindah"], ...decideKeys,
-    ...(hasVideo ? [["Spasi", "play/pause"]] : []), ["Esc", "tutup"]];
+    ...(hasVideo ? [["Spasi", "putar/jeda"]] : []), ["Esc", "tutup"]];
   for (const [k, t] of hintKeys) {
     if (hint.childNodes.length) hint.append(" · ");
     hint.append(el("kbd", { class: "kbd" }, k), ` ${t}`);
