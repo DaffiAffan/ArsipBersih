@@ -3,10 +3,10 @@
 .vw-bar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-4); background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
 .vw-counter { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 5.5em; }
 .vw-hint { flex: 1; min-width: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
-.vw-hint .kbd { margin-right: 2px; }
-.vw-bar .btn { padding-top: 2px; padding-bottom: 2px; }
+.vw-hint .kbd { margin-right: var(--grid-gap); }
+.vw-bar .btn { padding-top: var(--grid-gap); padding-bottom: var(--grid-gap); }
 .vw-body { flex: 1; min-height: 0; display: flex; }
-.vw-stage { flex: 1; min-width: 0; display: flex; gap: 4px; }
+.vw-stage { flex: 1; min-width: 0; display: flex; gap: var(--space-1); }
 .vw-pane { position: relative; flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; user-select: none; }
 .vw-pane img { width: 100%; height: 100%; object-fit: contain; display: block; will-change: transform; }
 .vw-pane video { max-width: 100%; max-height: 100%; }
@@ -20,8 +20,9 @@
 .vw-side .insp-name { margin-top: 0; }
 .vw-unit + .vw-unit { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .vw-unit h3 { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--color-text-muted); }
-@media (max-width: 800px) { .vw-hint { display: none; } .vw-bar .btn .kbd { display: none; } .vw-side { width: 220px; } }
+@media (max-width: 800px) { .vw-hint { display: none; } .vw-bar .btn .kbd { display: none; } .vw-side { width: 260px; } }
 /* Foto besar tidak pernah diredupkan, apa pun keputusannya. */
 .vw-pane img, .vw-pane video { opacity: 1; filter: none; }
 .vw-side .insp-name { flex-wrap: wrap; }
+.vw-side .insp-name strong { flex-basis: 100%; } /* nama file satu baris penuh, chip format di bawahnya */
 .vw-side .insp-format { flex: none; }

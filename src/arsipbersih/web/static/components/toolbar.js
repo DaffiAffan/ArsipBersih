@@ -2,8 +2,9 @@
 // "Nama file" (N), "Info" (I), the category explanation (ⓘ) and a "⋯" menu.
 import { el } from "/static/core/api.js";
 import { attachPopover } from "/static/components/popover.js";
-import { attachMenu } from "/static/components/menu.js";
+import { attachMenu, moreIcon } from "/static/components/menu.js";
 import { onClick } from "/static/core/keys.js";
+import { exposeHeight } from "/static/core/size-var.js";
 
 function pressed(btn, on) { btn.setAttribute("aria-pressed", String(Boolean(on))); }
 
@@ -41,11 +42,14 @@ export function mountToolbar(container, { title, countText = "", segments = [], 
   const infoBtn = onInfo ? el("button", { type: "button", class: "btn btn-ghost", title: "Panel info (I)", onclick: onClick(() => onInfo()) },
     "Info") : null;
   const helpBtn = help ? el("button", { type: "button", class: "btn btn-ghost btn-icon", "aria-label": "Tentang kategori ini", title: "Tentang kategori ini" }, "ⓘ") : null;
-  const moreBtn = menuItems.length ? el("button", { type: "button", class: "btn btn-ghost btn-icon", "aria-label": "Aksi lain", title: "Aksi lain" }, "⋯") : null;
+  const moreBtn = menuItems.length ? el("button", { type: "button", class: "btn btn-ghost btn-icon", "aria-label": "Aksi lain", title: "Aksi lain" }, moreIcon()) : null;
   parts.push(capBtn, infoBtn, helpBtn, moreBtn);
 
   const bar = el("div", { class: "toolbar" }, ...parts);
   container.append(bar);
+  exposeHeight(bar, "--toolbar-h");
+  const scroller = bar.closest(".content");
+  exposeHeight(scroller, "--content-h", scroller);
   if (helpBtn) attachPopover(helpBtn, help.content, { storageKey: help.storageKey, openOnce: Boolean(help.storageKey) });
   if (moreBtn) attachMenu(moreBtn, menuItems);
 

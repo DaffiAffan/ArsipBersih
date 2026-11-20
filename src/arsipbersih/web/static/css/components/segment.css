@@ -1,6 +1,6 @@
 /* Segmen filter: tombol bersebelahan, yang aktif ditandai aria-pressed="true". */
 .segment {
-  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  display: inline-flex; align-items: center; gap: var(--grid-gap); padding: var(--grid-gap);
   background: var(--color-surface-2); border-radius: var(--radius-control);
 }
 .segment > button, .segment > a {

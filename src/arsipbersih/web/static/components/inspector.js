@@ -7,7 +7,6 @@ import { CATEGORY_LABELS } from "/static/components/labels.js";
 const DATE_SOURCES = { filename: "dari nama file", exif: "EXIF", quicktime: "QuickTime" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 export const DECISION_EFFECT = "Saat Terapkan: Simpan masuk Arsip, Buang masuk Sampah (bisa dibatalkan di Riwayat). Yang belum diputuskan tetap di review.";
-export const DISCARD_EFFECT = DECISION_EFFECT; // alias for older callers
 // Same names as AI_GROUP_NAMES in classify.py; the order is the menu order.
 export const AI_GROUPS = [["identitas", "Identitas"], ["keuangan", "Keuangan"], ["kertas", "Kertas & catatan"],
   ["grafis", "Grafis"], ["layar", "Layar"], ["lainnya", "Foto biasa"]];

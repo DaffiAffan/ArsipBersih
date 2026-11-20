@@ -4,6 +4,7 @@ import { watchJob } from "/static/components/jobbar.js";
 import { confirmDialog, modalDialog } from "/static/components/dialog.js";
 import { CATEGORY_LABELS } from "/static/components/labels.js";
 import { reviewNav } from "/static/components/sidebar.js";
+import { moreIcon } from "/static/components/menu.js";
 
 const $ = (id) => document.getElementById(id);
 const checked = new Set();
@@ -92,8 +93,8 @@ async function mergeEvent(ev) {
   if (v) await override("merge", ev.name, v);
 }
 
-// After a menu action the "…" button (or the whole menu) is gone from the DOM, so focus would
-// fall to <body>. Put it back on the row's "…" button, or the first one when the row is gone.
+// After a menu action the "⋯" button (or the whole menu) is gone from the DOM, so focus would
+// fall to <body>. Put it back on the row's "⋯" button, or the first one when the row is gone.
 function restoreFocus(key, name = null) {
   if (document.activeElement && document.activeElement !== document.body && document.activeElement.isConnected) return;
   const rows = [...document.querySelectorAll("#events-body .btn-icon")];
@@ -129,7 +130,7 @@ function toggleMenu(btn, ev) {
   const items = [...menu.querySelectorAll("button")];
   const onKey = (e) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMenu(); btn.focus(); }
-    else if (e.key === "Tab") { closeMenu(); btn.focus(); } // focus continues from the "…" button
+    else if (e.key === "Tab") { closeMenu(); btn.focus(); } // focus continues from the "⋯" button
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const i = items.indexOf(document.activeElement);
@@ -152,11 +153,11 @@ function eventRow(ev) {
   const more = el("button", {
     type: "button", class: "btn btn-icon", "aria-haspopup": "menu", "aria-expanded": "false",
     "aria-label": `Aksi lain untuk ${ev.name}`, "data-key": ev.key, onclick: () => toggleMenu(more, ev),
-  }, "…");
+  }, moreIcon());
   return el("tr", { class: isChecked ? "checked" : "" },
     el("td", {}, ev.name, isChecked ? el("span", { class: "badge badge-keep plan-ok" }, "Disetujui") : null),
     el("td", {}, ev.month || "-"),
-    el("td", {}, fmtNum(ev.file_count)),
+    el("td", { class: "num" }, fmtNum(ev.file_count)),
     el("td", {}, (ev.sources || []).join(", ")),
     el("td", { class: "sample" }, ev.sample_path),
     el("td", {}, el("div", { class: "actions" },

@@ -1,15 +1,12 @@
 /* Beranda (home.js): layout */
-.home-head { margin-bottom: var(--space-4); }
-.home-root { margin: 0 0 var(--space-1); font-size: var(--text-lg); font-family: var(--font-mono); overflow-wrap: anywhere; }
-.home-sub { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.home-link { padding: 0 var(--space-1); color: var(--color-accent); text-decoration: underline; }
-.home-rootform { display: flex; gap: var(--space-2); margin-top: var(--space-3); max-width: 720px; }
-.home-rootform input { flex: 1; min-width: 0; background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 7px 10px; font: inherit; }
+.home-rootform { display: flex; gap: var(--space-2); margin: 0 0 var(--space-2); max-width: 720px; }
+#root-msg:empty { margin: 0; }
+.home-rootform input { flex: 1; min-width: 0; background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); font: inherit; }
 .home-alert { background: var(--color-surface-2); border: 1px solid var(--color-danger); color: var(--color-danger); padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); }
 .home-alert[hidden], .home-rootform[hidden] { display: none; }
 .home-warnings { color: var(--color-text-muted); padding-left: var(--space-5); }
 .home-hero { margin-bottom: var(--space-5); }
-.home-title { margin: 0 0 var(--space-1); font-size: var(--text-xl); }
+.home-title { margin: 0 0 var(--space-1); font-size: var(--text-2xl); }
 .home-hero p { margin: 0; }
 .home-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-8); margin-bottom: var(--space-6); }
 .home-side { display: flex; flex-direction: column; gap: var(--space-6); }
@@ -21,6 +18,6 @@
 .step-live .progress { width: 100%; max-width: 320px; }
 .home-status p { margin: 0 0 var(--space-1); }
 .tools-bad { color: var(--color-danger); }
-.home-status .hint { background: var(--color-surface-2); padding: 1px 6px; border-radius: var(--radius-control); }
+.home-status .hint { background: var(--color-surface-2); padding: 0 var(--space-1); border-radius: var(--radius-control); }
 .home-versions { margin-top: var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); }
 @media (max-width: 900px) { .home-cols { grid-template-columns: 1fr; gap: var(--space-5); } }

@@ -8,6 +8,7 @@ import { reviewNav } from "/static/components/sidebar.js";
 import { confirmDialog } from "/static/components/dialog.js";
 import { fmtNum } from "/static/core/format.js";
 import { toast } from "/static/components/toast.js";
+import { exposeHeight } from "/static/core/size-var.js";
 
 function count(v) { return Array.isArray(v) ? v.length : Number(v) || 0; }
 
@@ -19,6 +20,7 @@ export function mountStatusBar(container, { category, mode, label = category, hi
   const bar = el("div", { class: "statusbar", role: "region", "aria-label": "Terapkan" },
     hintEl, el("span", { class: "statusbar-spacer" }), summary, applyBtn);
   container.append(bar);
+  exposeHeight(bar, "--statusbar-h");
 
   let applying = false;
   let pending = 0;

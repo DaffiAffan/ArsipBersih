@@ -73,7 +73,7 @@ watchJob((st) => {
 });
 
 document.getElementById("verify-btn").addEventListener("click", () => {
-  document.getElementById("verify-result").replaceChildren(el("p", { class: "muted" }, "Memverifikasi..."));
+  document.getElementById("verify-result").replaceChildren(el("p", { class: "muted" }, "Memverifikasi…"));
   api("POST", "/api/report/verify").catch((e) => toast(e.message, { kind: "error" }));
 });
 document.getElementById("cache-btn").addEventListener("click", async () => {
@@ -86,4 +86,8 @@ document.getElementById("cache-btn").addEventListener("click", async () => {
   api("POST", "/api/cache/clear").catch((e) => toast(e.message, { kind: "error" }));
 });
 
-load().catch((e) => { document.getElementById("report").textContent = e.message; });
+load().catch((e) => {
+  document.getElementById("report").replaceChildren(el("div", { class: "empty", role: "alert" },
+    el("p", {}, `Laporan gagal dimuat. ${e.message}`),
+    el("button", { type: "button", class: "btn btn-secondary", onclick: () => location.reload() }, "Coba lagi")));
+});

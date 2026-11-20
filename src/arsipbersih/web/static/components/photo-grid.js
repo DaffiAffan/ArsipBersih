@@ -86,7 +86,7 @@ export function createPhotoGrid({ category, scroller, emptyText, onActivate, onO
     const extra = (item.badges || []).map((c) => CATEGORY_LABELS[c] || c);
     const why = [item.reason, item.score != null ? fmtScore(item.score) : null, ...extra].filter(Boolean).join(" · ");
     const cell = renderThumb(item, { caption: captions });
-    if (why) cell.title = why;
+    cell.title = [item.name, why].filter(Boolean).join(" · ");
     let clickTimer = null; // delay single-click so a double-click does not toggle first
     cell.addEventListener("click", () => {
       clearTimeout(clickTimer);

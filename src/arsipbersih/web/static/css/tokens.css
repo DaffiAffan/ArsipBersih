@@ -73,6 +73,8 @@
   --font-mono: var(--p-font-mono);
 
   --sidebar-width: 216px;
+  --grid-gap: 2px; /* rapat: celah antarthumbnail dan jarak kecil di dalam kontrol */
+  --range-width: 64px; /* slider ukuran thumbnail */
   --opacity-discarded: 0.35;
   --opacity-disabled: 0.5;
 

@@ -23,13 +23,18 @@
 .grid-root > .toolbar { position: sticky; top: 0; z-index: 20; }
 .grid-root > .statusbar { position: sticky; bottom: 0; z-index: 20; }
 .grid-layout { flex: 1; display: flex; align-items: flex-start; }
-.grid-col { flex: 1; min-width: 0; padding: 2px; }
-.photo-grid { --cell-min: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr)); gap: 2px; }
+.grid-col { flex: 1; min-width: 0; padding: var(--grid-gap); }
+.photo-grid { --cell-min: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr)); gap: var(--grid-gap); }
 .grid-more { text-align: center; padding: var(--space-4) 0; color: var(--color-text-muted); }
 .grid-more .empty { margin: var(--space-section) auto; }
 
 /* Panel info (inspector.js) */
-.grid-inspector { position: sticky; top: 48px; align-self: flex-start; max-height: calc(100vh - 140px); }
+/* --toolbar-h, --statusbar-h and --content-h come from core/size-var.js, so the panel follows a toolbar
+   that wraps to two rows at narrow widths. */
+.grid-inspector {
+  position: sticky; top: var(--toolbar-h, 48px); align-self: flex-start;
+  max-height: calc(var(--content-h, 100vh) - var(--toolbar-h, 48px) - var(--statusbar-h, 40px));
+}
 .grid-inspector[hidden] { display: none; }
 .insp-preview { width: 100%; height: min(200px, 26vh); object-fit: contain; display: block; background: var(--color-bg); border-radius: var(--radius-control); }
 .insp-noprev { display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); }

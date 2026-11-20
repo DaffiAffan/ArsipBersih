@@ -14,6 +14,6 @@
 .steps > li.is-done::before { content: "✓"; background: var(--color-keep-tint); color: var(--color-keep); }
 .steps > li.is-current::before { background: var(--color-accent); color: var(--color-on-accent); }
 .steps > li.is-later { color: var(--color-text-muted); }
-.steps h3 { margin: 2px 0 var(--space-1); font-size: var(--text-md); }
-.steps > li.is-current h3 { font-size: var(--text-lg); }
+.steps h2 { margin: var(--grid-gap) 0 var(--space-1); font-size: var(--text-md); }
+.steps > li.is-current h2 { font-size: var(--text-lg); }
 .steps p { margin: 0 0 var(--space-2); }

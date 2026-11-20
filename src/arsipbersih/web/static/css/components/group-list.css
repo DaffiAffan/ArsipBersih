@@ -11,7 +11,7 @@
 }
 .glist-row:hover { background: var(--color-surface-2); }
 .glist-row.is-active { background: var(--color-accent-tint); outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.glist-thumbs { display: flex; align-items: center; gap: 2px; flex: none; }
+.glist-thumbs { display: flex; align-items: center; gap: var(--grid-gap); flex: none; }
 .glist-thumbs img { width: 36px; height: 36px; object-fit: cover; border-radius: var(--radius-sm); background: var(--color-photo-bg); }
 .glist-more-n { font-size: var(--text-xs); color: var(--color-text-muted); }
 .glist-text { display: flex; flex-direction: column; min-width: 0; font-size: var(--text-xs); line-height: 1.4; }
